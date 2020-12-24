@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2018 by the deal.II authors
+// Copyright (C) 2004 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -81,6 +81,20 @@ namespace PETScWrappers
       ghost_set.subtract_set(local);
 
       Vector::create_vector(local.size(), local.n_elements(), ghost_set);
+    }
+
+
+
+    Vector::Vector(const Vector &v)
+      : VectorBase()
+      , communicator(v.communicator)
+    {
+      if (v.has_ghost_elements())
+        Vector::create_vector(v.size(), v.local_size(), v.ghost_indices);
+      else
+        Vector::create_vector(v.size(), v.local_size());
+
+      this->operator=(v);
     }
 
 
@@ -240,7 +254,7 @@ namespace PETScWrappers
     Vector::create_vector(const size_type n, const size_type local_size)
     {
       (void)n;
-      Assert(local_size <= n, ExcIndexRange(local_size, 0, n));
+      AssertIndexRange(local_size, n + 1);
       ghosted = false;
 
       const PetscErrorCode ierr =
@@ -258,7 +272,7 @@ namespace PETScWrappers
                           const IndexSet &ghostnodes)
     {
       (void)n;
-      Assert(local_size <= n, ExcIndexRange(local_size, 0, n));
+      AssertIndexRange(local_size, n + 1);
       ghosted       = true;
       ghost_indices = ghostnodes;
 
@@ -267,7 +281,7 @@ namespace PETScWrappers
 
       const PetscInt *ptr =
         (ghostindices.size() > 0 ?
-           reinterpret_cast<const PetscInt *>(&(ghostindices[0])) :
+           reinterpret_cast<const PetscInt *>(ghostindices.data()) :
            nullptr);
 
       PetscErrorCode ierr = VecCreateGhost(communicator,

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2018 by the deal.II authors
+// Copyright (C) 2016 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -28,9 +28,12 @@
 
 DEAL_II_NAMESPACE_OPEN
 
+// Forward declarations
+#  ifndef DOXYGEN
 class CommunicationPatternBase;
 template <typename Number>
 class ReadWriteVector;
+#  endif
 
 namespace LinearAlgebra
 {
@@ -47,7 +50,6 @@ namespace LinearAlgebra
      *
      * @see CUDAWrappers
      * @ingroup Vectors
-     * @author Karl Ljungkvist, Bruno Turcksin, Daniel Arndt, 2016, 2018
      */
     template <typename Number>
     class Vector : public VectorSpaceVector<Number>
@@ -353,7 +355,6 @@ namespace LinearAlgebra
  * exchanges the data of the two vectors.
  *
  * @relatesalso Vector
- * @author Daniel Arndt, 2018
  */
 template <typename Number>
 inline void

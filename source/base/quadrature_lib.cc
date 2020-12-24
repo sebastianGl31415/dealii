@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -136,7 +136,7 @@ namespace internal
 } // namespace internal
 
 
-
+#ifndef DOXYGEN
 template <>
 QGaussLobatto<1>::QGaussLobatto(const unsigned int n)
   : Quadrature<1>(n)
@@ -157,7 +157,7 @@ QGaussLobatto<1>::QGaussLobatto(const unsigned int n)
       this->weights[i]              = 0.5 * w[i];
     }
 }
-
+#endif
 
 
 template <>
@@ -171,7 +171,7 @@ QMidpoint<1>::QMidpoint()
 
 
 template <>
-QTrapez<1>::QTrapez()
+QTrapezoid<1>::QTrapezoid()
   : Quadrature<1>(2)
 {
   static const double xpts[] = {0.0, 1.0};
@@ -181,7 +181,7 @@ QTrapez<1>::QTrapez()
     {
       this->quadrature_points[i] = Point<1>(xpts[i]);
       this->weights[i]           = wts[i];
-    };
+    }
 }
 
 
@@ -197,7 +197,7 @@ QSimpson<1>::QSimpson()
     {
       this->quadrature_points[i] = Point<1>(xpts[i]);
       this->weights[i]           = wts[i];
-    };
+    }
 }
 
 
@@ -214,7 +214,7 @@ QMilne<1>::QMilne()
     {
       this->quadrature_points[i] = Point<1>(xpts[i]);
       this->weights[i]           = wts[i];
-    };
+    }
 }
 
 
@@ -237,7 +237,7 @@ QWeddle<1>::QWeddle()
     {
       this->quadrature_points[i] = Point<1>(xpts[i]);
       this->weights[i]           = wts[i];
-    };
+    }
 }
 
 
@@ -608,21 +608,22 @@ template <>
 unsigned int
 QGaussOneOverR<2>::quad_size(const Point<2> singularity, const unsigned int n)
 {
-  double eps       = 1e-8;
-  bool   on_edge   = false;
-  bool   on_vertex = false;
-  for (unsigned int i = 0; i < 2; ++i)
-    if ((std::abs(singularity[i]) < eps) ||
-        (std::abs(singularity[i] - 1) < eps))
-      on_edge = true;
-  if (on_edge &&
-      (std::abs((singularity - Point<2>(.5, .5)).norm_square() - .5) < eps))
-    on_vertex = true;
+  const double eps = 1e-8;
+  const bool   on_edge =
+    std::any_of(singularity.begin_raw(),
+                singularity.end_raw(),
+                [eps](double coord) {
+                  return std::abs(coord) < eps || std::abs(coord - 1.) < eps;
+                });
+  const bool on_vertex =
+    on_edge &&
+    std::abs((singularity - Point<2>(.5, .5)).norm_square() - .5) < eps;
   if (on_vertex)
-    return (2 * n * n);
-  if (on_edge)
-    return (4 * n * n);
-  return (8 * n * n);
+    return 2 * n * n;
+  else if (on_edge)
+    return 4 * n * n;
+  else
+    return 8 * n * n;
 }
 
 template <>
@@ -686,7 +687,7 @@ QGaussOneOverR<2>::QGaussOneOverR(const unsigned int n,
   // general one, you should use the
   // one with the Point<2> in the
   // constructor.
-  Assert(vertex_index < 4, ExcIndexRange(vertex_index, 0, 4));
+  AssertIndexRange(vertex_index, 4);
 
   // Start with the gauss quadrature formula on the (u,v) reference
   // element.
@@ -698,7 +699,7 @@ QGaussOneOverR<2>::QGaussOneOverR(const unsigned int n,
   // quadrilateral. We are planning to do this also for the support
   // points of arbitrary FE_Q elements, to allow the use of this
   // class in boundary element programs with higher order mappings.
-  Assert(vertex_index < 4, ExcIndexRange(vertex_index, 0, 4));
+  AssertIndexRange(vertex_index, 4);
 
   // We create only the first one. All other pieces are rotation of
   // this one.
@@ -774,10 +775,9 @@ QSorted<dim>::QSorted(const Quadrature<dim> &quad)
 
   std::sort(permutation.begin(),
             permutation.end(),
-            std::bind(&QSorted<dim>::compare_weights,
-                      std::ref(*this),
-                      std::placeholders::_1,
-                      std::placeholders::_2));
+            [this](const unsigned int x, const unsigned int y) {
+              return this->compare_weights(x, y);
+            });
 
   // At this point, the variable is_tensor_product_flag is set
   // to the respective value of the given Quadrature in the base
@@ -829,8 +829,8 @@ QMidpoint<dim>::QMidpoint()
 
 
 template <int dim>
-QTrapez<dim>::QTrapez()
-  : Quadrature<dim>(QTrapez<dim - 1>(), QTrapez<1>())
+QTrapezoid<dim>::QTrapezoid()
+  : Quadrature<dim>(QTrapezoid<dim - 1>(), QTrapezoid<1>())
 {}
 
 
@@ -1329,7 +1329,7 @@ QSplit<dim>::QSplit(const QSimplex<dim> &base, const Point<dim> &split_point)
   // face. In dimension three, we need to split the face in two triangles, so
   // we use once the first dim vertices of each face, and the second time the
   // the dim vertices of each face starting from 1.
-  for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+  for (auto f : GeometryInfo<dim>::face_indices())
     for (unsigned int start = 0; start < (dim > 2 ? 2 : 1); ++start)
       {
         for (unsigned int i = 0; i < dim; ++i)
@@ -1355,7 +1355,7 @@ QSplit<dim>::QSplit(const QSimplex<dim> &base, const Point<dim> &split_point)
 template class QGauss<2>;
 template class QGaussLobatto<2>;
 template class QMidpoint<2>;
-template class QTrapez<2>;
+template class QTrapezoid<2>;
 template class QSimpson<2>;
 template class QMilne<2>;
 template class QWeddle<2>;
@@ -1363,7 +1363,7 @@ template class QWeddle<2>;
 template class QGauss<3>;
 template class QGaussLobatto<3>;
 template class QMidpoint<3>;
-template class QTrapez<3>;
+template class QTrapezoid<3>;
 template class QSimpson<3>;
 template class QMilne<3>;
 template class QWeddle<3>;

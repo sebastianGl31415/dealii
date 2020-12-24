@@ -124,23 +124,23 @@ $8 \times 8$ mesh, and the mesh is refined adaptively. Between meshes, the
 solution from the coarse mesh is interpolated to the fine mesh to be used as an
 initial guess.
 
-<TABLE ALIGN="center">
+<table align="center">
   <tr>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re400_Mesh0.png" width="232px" alt="">
     </td>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re400_Mesh1.png" width="232px" alt="">
     </td>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re400_Mesh2.png" width="232px" alt="">
     </td>
   </tr>
   <tr>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re400_Mesh3.png" width="232px" alt="">
     </td>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re400_Mesh4.png" width="232px" alt="">
     </td>
   </tr>
@@ -299,23 +299,23 @@ mesh. The quadratic convergence is clearly visible in the table.
 
 
 The sequence of generated grids looks like this:
-<TABLE ALIGN="center">
+<table align="center">
   <tr>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re7500_Mesh0.png" width="232px" alt="">
     </td>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re7500_Mesh1.png" width="232px" alt="">
     </td>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re7500_Mesh2.png" width="232px" alt="">
     </td>
   </tr>
   <tr>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re7500_Mesh3.png" width="232px" alt="">
     </td>
-    <td ALIGN="center">
+    <td align="center">
       <img src="https://www.dealii.org/images/steps/developer/step-57.Re7500_Mesh4.png" width="232px" alt="">
     </td>
   </tr>
@@ -401,4 +401,6 @@ multigrid is needed. See below.
 For larger computations, especially in 3d, it is necessary to implement MPI
 parallel solvers and preconditioners. A good starting point would be step-55,
 which uses algebraic multigrid for the velocity block for the Stokes
-equations.
+equations. Another option would be to take a look at the list of codes
+in the <a href="https://www.dealii.org/code-gallery.html">deal.II code
+gallery</a>, which already contains parallel Navier-Stokes solvers.

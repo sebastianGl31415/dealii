@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 by the deal.II authors
+// Copyright (C) 2017 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -20,8 +20,6 @@
 // correctly (at the point when this test was written, renumbering that
 // changes the set of owned dofs is not implemented).
 
-#include <deal.II/base/std_cxx14/memory.h>
-
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_accessor.h>
@@ -35,6 +33,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <algorithm>
+#include <memory>
 
 #include "../tests.h"
 
@@ -47,7 +46,7 @@ print_dof_numbers(const DoFHandler<dim> &dof)
 {
   std::vector<types::global_dof_index> dof_indices(dof.get_fe().dofs_per_cell);
   deallog << "DoF numbers on active cells" << std::endl;
-  for (auto cell : dof.active_cell_iterators())
+  for (auto &cell : dof.active_cell_iterators())
     if (!cell->is_artificial())
       {
         cell->get_dof_indices(dof_indices);
@@ -59,7 +58,7 @@ print_dof_numbers(const DoFHandler<dim> &dof)
   for (unsigned int l = 0; l < dof.get_triangulation().n_global_levels(); ++l)
     {
       deallog << "DoF numbers on level " << l << std::endl;
-      for (auto cell : dof.cell_iterators_on_level(l))
+      for (auto &cell : dof.cell_iterators_on_level(l))
         if (cell->level_subdomain_id() != numbers::artificial_subdomain_id)
           {
             cell->get_mg_dof_indices(dof_indices);
@@ -87,8 +86,8 @@ check()
  tr.execute_coarsening_and_refinement();
   */
 
-  auto fe_scalar = std_cxx14::make_unique<dealii::FE_Q<dim>>(1);
-  auto fe        = std_cxx14::make_unique<dealii::FESystem<dim>>(*fe_scalar, 1);
+  auto fe_scalar = std::make_unique<dealii::FE_Q<dim>>(1);
+  auto fe        = std::make_unique<dealii::FESystem<dim>>(*fe_scalar, 1);
 
   dealii::DoFHandler<dim> dofhandler(tria);
   dofhandler.distribute_dofs(*fe);

@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2013 - 2018 by the deal.II authors
+## Copyright (C) 2013 - 2019 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -44,9 +44,13 @@ MACRO(make_quicktest test_basename build_name mpi_run)
   DEAL_II_INSOURCE_SETUP_TARGET(${_target} ${build_name})
 
   IF("${mpi_run}" STREQUAL "")
-    SET(_command ./${_target})
+    SET(_command ${_target})
   ELSE()
-    SET(_command ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} ${mpi_run} ${MPIEXEC_PREFLAGS} ./${_target})
+    IF(CMAKE_SYSTEM_NAME MATCHES "Windows")
+      SET(_command ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} ${mpi_run} ${MPIEXEC_PREFLAGS} ${_target})
+    ELSE()
+      SET(_command ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} ${mpi_run} ${MPIEXEC_PREFLAGS} ./${_target})
+    ENDIF()
   ENDIF()
   ADD_CUSTOM_TARGET(${_target}.run
     DEPENDS ${_target}
@@ -88,9 +92,7 @@ FOREACH(_build ${DEAL_II_BUILD_TYPES})
 ENDFOREACH()
 
 # Test whether thread affinity is well behaved
-IF (DEAL_II_WITH_THREADS)
 make_quicktest("affinity" ${_mybuild} "")
-ENDIF()
 
 # Test if MPI is configured correctly
 IF (DEAL_II_WITH_MPI)
@@ -98,8 +100,13 @@ IF (DEAL_II_WITH_MPI)
 ENDIF()
 
 # Test if TBB works correctly
-IF (DEAL_II_WITH_THREADS)
+IF (DEAL_II_WITH_TBB)
   make_quicktest("tbb" ${_mybuild} "")
+ENDIF()
+
+# test taskflow
+IF (DEAL_II_WITH_TASKFLOW)
+  make_quicktest("taskflow" ${_mybuild} "")
 ENDIF()
 
 # Test p4est. This test exposes a bug in OpenMPI 1.3 and 1.4
@@ -148,11 +155,6 @@ IF (DEAL_II_WITH_HDF5)
   make_quicktest("hdf5" ${_mybuild} "")
 ENDIF()
 
-# Test Nanoflann
-IF (DEAL_II_WITH_NANOFLANN)
-  make_quicktest("nanoflann" ${_mybuild} "")
-ENDIF()
-
 # Test Arpack
 IF (DEAL_II_WITH_ARPACK AND DEAL_II_WITH_UMFPACK)
   make_quicktest("arpack" ${_mybuild} "")
@@ -193,9 +195,14 @@ IF (DEAL_II_WITH_GMSH)
   make_quicktest("gmsh" ${_mybuild} "")
 ENDIF()
 
+# Test SymEngine
+IF (DEAL_II_WITH_SYMENGINE)
+  make_quicktest("symengine" ${_mybuild} "")
+ENDIF()
+
 # A custom test target:
 ADD_CUSTOM_TARGET(test
-  COMMAND ${CMAKE_COMMAND} -D ALL_TESTS="${ALL_TESTS}" -P ${CMAKE_CURRENT_SOURCE_DIR}/run.cmake
+  COMMAND ${CMAKE_COMMAND} -D ALL_TESTS="${ALL_TESTS}" -DCMAKE_BUILD_TYPE=${_mybuild} -P ${CMAKE_CURRENT_SOURCE_DIR}/run.cmake
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   COMMENT "Running quicktests..."
   )

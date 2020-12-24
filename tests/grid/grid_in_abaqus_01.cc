@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2017 by the deal.II authors
+// Copyright (C) 2004 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -44,7 +44,7 @@ abaqus_grid(const char *name)
          tria.begin_active();
        c != tria.end();
        ++c, ++index)
-    for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell; ++i)
+    for (const unsigned int i : GeometryInfo<dim>::vertex_indices())
       hash += (index * i * c->vertex_index(i)) % (tria.n_active_cells() + 1);
   deallog << "  hash=" << hash << std::endl;
 }
@@ -66,6 +66,8 @@ main()
       //      // Failing test
       deallog << "2d_test_abaqus.inp" << std::endl;
       abaqus_grid<2>(SOURCE_DIR "/grids/abaqus/2d/2d_test_abaqus.inp");
+      deallog << "2d_short_handwritten.inp" << std::endl;
+      abaqus_grid<2>(SOURCE_DIR "/grids/abaqus/2d/2d_short_handwritten.inp");
 
       deallog << "3d_test_cube_1.inp" << std::endl;
       abaqus_grid<3>(SOURCE_DIR "/grids/abaqus/3d/3d_test_cube_1.inp");

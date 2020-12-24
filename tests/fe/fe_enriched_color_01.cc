@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2001 - 2015 by the deal.II authors
+// Copyright (C) 2001 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -29,7 +29,6 @@
 
 #include "../tests.h"
 
-using namespace dealii;
 
 /*
  * Construct a class template which finds if a cell
@@ -65,8 +64,8 @@ test()
   deallog << "dim = " << dim << std::endl;
 
   // Construct grid
-  Triangulation<dim>  triangulation;
-  hp::DoFHandler<dim> dof_handler(triangulation);
+  Triangulation<dim> triangulation;
+  DoFHandler<dim>    dof_handler(triangulation);
   GridGenerator::hyper_cube(triangulation, -20, 20);
   triangulation.refine_global(4);
 

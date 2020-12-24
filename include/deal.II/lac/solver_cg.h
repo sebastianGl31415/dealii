@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -32,7 +32,9 @@
 DEAL_II_NAMESPACE_OPEN
 
 // forward declaration
+#ifndef DOXYGEN
 class PreconditionIdentity;
+#endif
 
 
 /*!@addtogroup Solvers */
@@ -88,12 +90,9 @@ class PreconditionIdentity;
  * The solve() function of this class uses the mechanism described in the
  * Solver base class to determine convergence. This mechanism can also be used
  * to observe the progress of the iteration.
- *
- *
- * @author W. Bangerth, G. Kanschat, R. Becker and F.-T. Suttmeier
  */
 template <typename VectorType = Vector<double>>
-class SolverCG : public Solver<VectorType>
+class SolverCG : public SolverBase<VectorType>
 {
 public:
   /**
@@ -242,7 +241,7 @@ template <typename VectorType>
 SolverCG<VectorType>::SolverCG(SolverControl &           cn,
                                VectorMemory<VectorType> &mem,
                                const AdditionalData &    data)
-  : Solver<VectorType>(cn, mem)
+  : SolverBase<VectorType>(cn, mem)
   , additional_data(data)
 {}
 
@@ -250,7 +249,7 @@ SolverCG<VectorType>::SolverCG(SolverControl &           cn,
 
 template <typename VectorType>
 SolverCG<VectorType>::SolverCG(SolverControl &cn, const AdditionalData &data)
-  : Solver<VectorType>(cn)
+  : SolverBase<VectorType>(cn)
   , additional_data(data)
 {}
 

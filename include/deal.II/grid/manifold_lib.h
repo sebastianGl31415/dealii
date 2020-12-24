@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2018 by the deal.II authors
+// Copyright (C) 1999 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -24,9 +24,18 @@
 
 #include <deal.II/grid/manifold.h>
 
-#include <boost/container/small_vector.hpp>
-
 DEAL_II_NAMESPACE_OPEN
+
+// forward declaration
+namespace internal
+{
+  namespace MappingQGenericImplementation
+  {
+    template <int, int>
+    class InverseQuadraticApproximation;
+  }
+} // namespace internal
+
 
 /**
  * Manifold description for a polar coordinate system.
@@ -56,8 +65,6 @@ DEAL_II_NAMESPACE_OPEN
  * make any sense.
  *
  * @ingroup manifold
- *
- * @author Luca Heltai, Mauro Bardelloni, 2014-2016
  */
 template <int dim, int spacedim = dim>
 class PolarManifold : public ChartManifold<dim, spacedim, spacedim>
@@ -109,6 +116,14 @@ public:
    */
   virtual DerivativeForm<1, spacedim, spacedim>
   push_forward_gradient(const Point<spacedim> &chart_point) const override;
+
+  /**
+   * @copydoc Manifold::normal_vector()
+   */
+  virtual Tensor<1, spacedim>
+  normal_vector(
+    const typename Triangulation<dim, spacedim>::face_iterator &face,
+    const Point<spacedim> &p) const override;
 
   /**
    * The center of the spherical coordinate system.
@@ -213,11 +228,9 @@ private:
  * Manifold to the cell containing the center. It is advisable to combine this
  * class with TransfiniteInterpolationManifold to ensure a smooth transition
  * from a curved shape to the straight coordinate system in the center of the
- * ball.
+ * ball. (See also the extensive discussion in step-65.)
  *
  * @ingroup manifold
- *
- * @author Mauro Bardelloni, Luca Heltai, Daniel Arndt, 2016, 2017
  */
 template <int dim, int spacedim = dim>
 class SphericalManifold : public Manifold<dim, spacedim>
@@ -255,7 +268,7 @@ public:
                      const Point<spacedim> &x2) const override;
 
   /**
-   * Return the (normalized) normal vector at the point @p p.
+   * @copydoc Manifold::normal_vector()
    */
   virtual Tensor<1, spacedim>
   normal_vector(
@@ -372,8 +385,6 @@ private:
  * run time exception whenever spacedim is not equal to three.
  *
  * @ingroup manifold
- *
- * @author Luca Heltai, Daniel Arndt, 2014, 2017
  */
 template <int dim, int spacedim = dim>
 class CylindricalManifold : public ChartManifold<dim, spacedim, 3>
@@ -406,17 +417,19 @@ public:
   clone() const override;
 
   /**
-   * Compute the Cartesian coordinates for a point given in cylindrical
-   * coordinates.
+   * Compute the cylindrical coordinates $(r, \phi, \lambda)$ for the given
+   * space point where $r$ denotes the distance from the axis,
+   * $\phi$ the angle between the given point and the computed normal
+   * direction, and $\lambda$ the axial position.
    */
   virtual Point<3>
   pull_back(const Point<spacedim> &space_point) const override;
 
   /**
-   * Compute the cylindrical coordinates $(r, \phi, \lambda)$ for the given
-   * point where $r$ denotes the distance from the axis,
-   * $\phi$ the angle between the given point and the computed normal
-   * direction and $\lambda$ the axial position.
+   * Compute the Cartesian coordinates for a chart point given in cylindrical
+   * coordinates $(r, \phi, \lambda)$, where $r$ denotes the distance from the
+   * axis, $\phi$ the angle between the given point and the computed normal
+   * direction, and $\lambda$ the axial position.
    */
   virtual Point<spacedim>
   push_forward(const Point<3> &chart_point) const override;
@@ -425,7 +438,7 @@ public:
    * Compute the derivatives of the mapping from cylindrical coordinates
    * $(r, \phi, \lambda)$ to cartesian coordinates where $r$ denotes the
    * distance from the axis, $\phi$ the angle between the given point and the
-   * computed normal direction and $\lambda$ the axial position.
+   * computed normal direction, and $\lambda$ the axial position.
    */
   virtual DerivativeForm<1, 3, spacedim>
   push_forward_gradient(const Point<3> &chart_point) const override;
@@ -463,17 +476,17 @@ private:
 
 /**
  * Elliptical manifold description derived from ChartManifold.
- * More informations on the elliptical coordinate system can be found
+ * More information on the elliptical coordinate system can be found
  * at <a
  * href="https://en.wikipedia.org/wiki/Elliptic_coordinate_system">Wikipedia
  * </a>.
  *
  * This is based on the definition of elliptic coordinates $(u,v)$
  * @f[
- *  \left\lbrace\begin{align*}
+ *  \left\lbrace\begin{aligned}
  *  x &=  x_0 + c \cosh(u) \cos(v) \\
  *  y &=  y_0 + c \sinh(u) \sin(v)
- *  \end{align*}\right.
+ *  \end{aligned}\right.
  * @f]
  * in which $(x_0,y_0)$ are coordinates of the center of the cartesian system.
  *
@@ -491,8 +504,6 @@ private:
  * @image html elliptical_hyper_shell.png
  *
  * @ingroup manifold
- *
- * @author Stefano Dominici, 2018
  */
 template <int dim, int spacedim = dim>
 class EllipticalManifold : public ChartManifold<dim, spacedim, spacedim>
@@ -508,7 +519,6 @@ public:
    * manifold.
    * @param eccentricity Eccentricity of the
    * manifold $e\in\left]0,1\right[$.
-   *
    */
   EllipticalManifold(const Point<spacedim> &    center,
                      const Tensor<1, spacedim> &major_axis_direction,
@@ -576,8 +586,6 @@ private:
  * actually one the inverse of the other.
  *
  * @ingroup manifold
- *
- * @author Luca Heltai, 2014
  */
 template <int dim, int spacedim = dim, int chartdim = dim>
 class FunctionManifold : public ChartManifold<dim, spacedim, chartdim>
@@ -591,12 +599,33 @@ public:
    *
    * The tolerance argument is used in debug mode to actually check that the
    * two functions are one the inverse of the other.
+   *
+   * Note: the object constructed in this way stores pointers to the
+   * push_forward and  pull_back functions. Therefore, one must guarantee that
+   * the function objects are destroyed only after the constructed manifold.
    */
   FunctionManifold(
     const Function<chartdim> & push_forward_function,
     const Function<spacedim> & pull_back_function,
     const Tensor<1, chartdim> &periodicity = Tensor<1, chartdim>(),
     const double               tolerance   = 1e-10);
+
+  /**
+   * Same as previous, except this constructor takes ownership of the Function
+   * objects passed as first and second argument, and is ultimately in charge
+   * of deleting the pointers when the FunctionManifold object is destroyed.
+   *
+   * This constructor is useful because it allows creating function objects at
+   * the place of calling the constructor without having to name and later
+   * delete these objects. This allows the following idiom:
+   * FunctionManifold<dim> manifold(std::make_unique<MyPushForward>(...),
+   *                                std::make_unique<MyPullBack>(...));
+   */
+  FunctionManifold(
+    std::unique_ptr<Function<chartdim>> push_forward,
+    std::unique_ptr<Function<spacedim>> pull_back,
+    const Tensor<1, chartdim> &         periodicity = Tensor<1, chartdim>(),
+    const double                        tolerance   = 1e-10);
 
   /**
    * Expressions constructor. Takes the expressions of the push_forward
@@ -709,7 +738,7 @@ private:
    * destructor will delete the function objects pointed to be the two
    * pointers.
    */
-  const bool owns_pointers;
+  bool owns_pointers;
 
   /**
    * The expression used to construct the push_forward function.
@@ -750,8 +779,6 @@ private:
  * GridGenerator::torus.
  *
  * @ingroup manifold
- *
- * @author Timo Heister, 2016
  */
 template <int dim>
 class TorusManifold : public ChartManifold<dim, 3, 3>
@@ -803,6 +830,7 @@ private:
  * assumed to be given by another manifold (e.g. a polar manifold on a circle).
  * The mechanism to extend the boundary information is a so-called transfinite
  * interpolation.
+ * The use of this class is discussed extensively in step-65.
  *
  * The formula for extending such a description in 2D is, for example,
  * described on
@@ -932,8 +960,6 @@ private:
  * axis-aligned bounding boxes.
  *
  * @ingroup manifold
- *
- * @author Martin Kronbichler, Luca Heltai, 2017
  */
 template <int dim, int spacedim = dim>
 class TransfiniteInterpolationManifold : public Manifold<dim, spacedim>
@@ -1117,6 +1143,14 @@ private:
    * use a FlatManifold description.
    */
   FlatManifold<dim> chart_manifold;
+
+  /**
+   * A vector of quadratic approximations to the inverse map from real points
+   * to chart points for each of the coarse mesh cells.
+   */
+  std::vector<internal::MappingQGenericImplementation::
+                InverseQuadraticApproximation<dim, spacedim>>
+    quadratic_approximation;
 
   /**
    * The connection to Triangulation::signals::clear that must be reset once

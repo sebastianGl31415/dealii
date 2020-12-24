@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2000 - 2017 by the deal.II authors
+// Copyright (C) 2000 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -48,8 +48,6 @@ namespace Polynomials
    * allow constructing FE_Q_iso_Q1 elements that put additional degrees of
    * freedom into an equivalent of a refined mesh instead of higher order
    * polynomials, which is useful when using mixed finite elements.
-   *
-   * @author Martin Kronbichler, 2013
    */
   template <typename number>
   class PiecewisePolynomial : public Subscriptor
@@ -87,7 +85,7 @@ namespace Polynomials
      * thus determined by the size of the vector passed.
      *
      * Note that all the derivatives evaluate to zero at the border between
-     * intervals (assuming exact arithmetics) in the interior of the unit
+     * intervals (assuming exact arithmetic) in the interior of the unit
      * interval, as there is no unique gradient value in that case for a
      * piecewise polynomial. This is not always desired (e.g., when evaluating
      * jumps of gradients on the element boundary), but it is the user's
@@ -105,7 +103,7 @@ namespace Polynomials
      * space for @p n_derivatives + 1 values.
      *
      * Note that all the derivatives evaluate to zero at the border between
-     * intervals (assuming exact arithmetics) in the interior of the unit
+     * intervals (assuming exact arithmetic) in the interior of the unit
      * interval, as there is no unique gradient value in that case for a
      * piecewise polynomial. This is not always desired (e.g., when evaluating
      * jumps of gradients on the element boundary), but it is the user's
@@ -131,6 +129,12 @@ namespace Polynomials
     template <class Archive>
     void
     serialize(Archive &ar, const unsigned int version);
+
+    /**
+     * Return an estimate (in bytes) for the memory consumption of this object.
+     */
+    virtual std::size_t
+    memory_consumption() const;
 
   protected:
     /**

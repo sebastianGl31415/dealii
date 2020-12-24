@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2003 - 2017 by the deal.II authors
+// Copyright (C) 2003 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -21,7 +21,7 @@
 //                                 dealii::AffineConstraints<double> &,
 //                                 const std::vector<bool>  &,
 //                                 bool, bool, bool)
-// for correct behaviour on non standard oriented meshes.
+// for correct behavior on non standard oriented meshes.
 //
 // a redux of why the 21_b test failed starting in r29525. in essence,
 // what it boils down is that the new code did not implement the
@@ -46,8 +46,6 @@
 #include "../tests.h"
 
 std::ofstream logfile("output");
-
-using namespace dealii;
 
 
 
@@ -82,7 +80,7 @@ void generate_grid(Triangulation<2> &triangulation)
   /* cell 1 */
   int cell_vertices_1[GeometryInfo<2>::vertices_per_cell] = {7, 6, 5, 4};
 
-  for (unsigned int j = 0; j < GeometryInfo<2>::vertices_per_cell; ++j)
+  for (const unsigned int j : GeometryInfo<2>::vertex_indices())
     {
       cells[0].vertices[j] = cell_vertices_0[j];
       cells[1].vertices[j] = cell_vertices_1[j];
@@ -98,7 +96,7 @@ void generate_grid(Triangulation<2> &triangulation)
   Triangulation<2>::face_iterator face_2;
 
   // Look for the two outermost faces:
-  for (unsigned int j = 0; j < GeometryInfo<2>::faces_per_cell; ++j)
+  for (const unsigned int j : GeometryInfo<2>::face_indices())
     {
       if (cell_1->face(j)->center()(1) > 2.9)
         face_1 = cell_1->face(j);
@@ -180,10 +178,10 @@ main()
   // Generate a triangulation and match:
   Triangulation<2> triangulation;
   FE_Q<2>          fe(1);
-  DoFHandler<2>    dof_handler;
+  DoFHandler<2>    dof_handler(triangulation);
 
   generate_grid(triangulation);
-  dof_handler.initialize(triangulation, fe);
+  dof_handler.distribute_dofs(fe);
   print_matching(dof_handler);
 
   return 0;

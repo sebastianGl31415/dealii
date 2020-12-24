@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2012 - 2017 by the deal.II authors
+## Copyright (C) 2012 - 2018 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -38,6 +38,4 @@ src/muParserTest.cpp
 src/muParserTokenReader.cpp
   )
 
-#IF(DEAL_II_WITH_THREADS)
-#  DEAL_II_ADD_DEFINITIONS(obj_muparser "FP_USE_THREAD_SAFE_EVAL")
-#ENDIF()
+#DEAL_II_ADD_DEFINITIONS(obj_muparser "FP_USE_THREAD_SAFE_EVAL")

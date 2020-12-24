@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2018 by the deal.II authors
+// Copyright (C) 2016 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -53,8 +53,6 @@ class MappingQ;
  * @warning It is not possible, for mathematical reasons, for one to use this
  * class with a geometry described by a SphericalManifold: see the note in
  * that class for more information.
- *
- * @author Luca Heltai, Wolfgang Bangerth, Alberto Sartori 2016
  */
 template <int dim, int spacedim = dim>
 class MappingManifold : public Mapping<dim, spacedim>
@@ -110,35 +108,35 @@ public:
   // for documentation, see the Mapping base class
   virtual void
   transform(const ArrayView<const Tensor<1, dim>> &                  input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<1, spacedim>> &output) const override;
 
   // for documentation, see the Mapping base class
   virtual void
   transform(const ArrayView<const DerivativeForm<1, dim, spacedim>> &input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<2, spacedim>> &output) const override;
 
   // for documentation, see the Mapping base class
   virtual void
   transform(const ArrayView<const Tensor<2, dim>> &                  input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<2, spacedim>> &output) const override;
 
   // for documentation, see the Mapping base class
   virtual void
   transform(const ArrayView<const DerivativeForm<2, dim, spacedim>> &input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<3, spacedim>> &output) const override;
 
   // for documentation, see the Mapping base class
   virtual void
   transform(const ArrayView<const Tensor<3, dim>> &                  input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<3, spacedim>> &output) const override;
 
@@ -211,7 +209,7 @@ public:
       const typename Triangulation<dim, spacedim>::cell_iterator &cell) const;
 
     /**
-     * Return an estimate (in bytes) or the memory consumption of this object.
+     * Return an estimate (in bytes) for the memory consumption of this object.
      */
     virtual std::size_t
     memory_consumption() const override;
@@ -279,11 +277,11 @@ public:
      * Unit tangential vectors. Used for the computation of boundary forms and
      * normal vectors.
      *
-     * This array has (dim-1)*GeometryInfo::faces_per_cell entries. The first
-     * GeometryInfo::faces_per_cell contain the vectors in the first
+     * This array has `(dim-1) * GeometryInfo::faces_per_cell` entries. The
+     * first GeometryInfo::faces_per_cell contain the vectors in the first
      * tangential direction for each face; the second set of
-     * GeometryInfo::faces_per_cell entries contain the vectors in the second
-     * tangential direction (only in 3d, since there we have 2 tangential
+     * GeometryInfo<dim>::faces_per_cell entries contain the vectors in the
+     * second tangential direction (only in 3d, since there we have 2 tangential
      * directions per face), etc.
      *
      * Filled once.
@@ -340,10 +338,12 @@ public:
   virtual std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>
   get_data(const UpdateFlags, const Quadrature<dim> &quadrature) const override;
 
+  using Mapping<dim, spacedim>::get_face_data;
+
   // documentation can be found in Mapping::get_face_data()
   virtual std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>
-  get_face_data(const UpdateFlags          flags,
-                const Quadrature<dim - 1> &quadrature) const override;
+  get_face_data(const UpdateFlags               flags,
+                const hp::QCollection<dim - 1> &quadrature) const override;
 
   // documentation can be found in Mapping::get_subface_data()
   virtual std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>
@@ -360,12 +360,14 @@ public:
     dealii::internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
       &output_data) const override;
 
+  using Mapping<dim, spacedim>::fill_fe_face_values;
+
   // documentation can be found in Mapping::fill_fe_face_values()
   virtual void
   fill_fe_face_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const unsigned int                                          face_no,
-    const Quadrature<dim - 1> &                                 quadrature,
+    const hp::QCollection<dim - 1> &                            quadrature,
     const typename Mapping<dim, spacedim>::InternalDataBase &   internal_data,
     dealii::internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
       &output_data) const override;
@@ -400,7 +402,7 @@ MappingManifold<dim, spacedim>::InternalData::store_vertices(
   const typename Triangulation<dim, spacedim>::cell_iterator &cell) const
 {
   vertices.resize(GeometryInfo<dim>::vertices_per_cell);
-  for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell; ++i)
+  for (const unsigned int i : GeometryInfo<dim>::vertex_indices())
     vertices[i] = cell->vertex(i);
   this->cell = cell;
 }
@@ -415,7 +417,7 @@ MappingManifold<dim, spacedim>::InternalData::
     quad.size(), std::vector<double>(GeometryInfo<dim>::vertices_per_cell));
   for (unsigned int q = 0; q < quad.size(); ++q)
     {
-      for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell; ++i)
+      for (const unsigned int i : GeometryInfo<dim>::vertex_indices())
         {
           cell_manifold_quadrature_weights[q][i] =
             GeometryInfo<dim>::d_linear_shape_function(quad.point(q), i);

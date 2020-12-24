@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2008 - 2018 by the deal.II authors
+ * Copyright (C) 2008 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -32,7 +32,6 @@
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/affine_constraints.h>
-#include <deal.II/lac/sparse_direct.h>
 
 #include <deal.II/grid/tria.h>
 #include <deal.II/grid/grid_generator.h>
@@ -135,16 +134,18 @@ namespace Step57
     BlockVector<double> evaluation_point;
   };
 
-  // @sect3{Boundary values and right hand side} In this problem we set the
-  // velocity along the upper surface of the cavity to be one and zero on the
-  // other three walls. The right hand side function is zero so we do not need
-  // to set the right hand side function in this tutorial. The number of
-  // components of the boundary function is <code>dim+1</code>. We will
-  // ultimately use VectorTools::interpolate_boundary_values to set boundary
-  // values, which requires the boundary value functions to have the same
-  // number of components as the solution, even if all are not used. Put
-  // another way: to make this function happy we define boundary values for
-  // the pressure even though we will never actually use them.
+  // @sect3{Boundary values and right hand side}
+
+  // In this problem we set the velocity along the upper surface of the cavity
+  // to be one and zero on the other three walls. The right hand side function
+  // is zero so we do not need to set the right hand side function in this
+  // tutorial. The number of components of the boundary function is
+  // <code>dim+1</code>. We will ultimately use
+  // VectorTools::interpolate_boundary_values to set boundary values, which
+  // requires the boundary value functions to have the same number of
+  // components as the solution, even if all are not used. Put another way: to
+  // make this function happy we define boundary values for the pressure even
+  // though we will never actually use them.
   template <int dim>
   class BoundaryValues : public Function<dim>
   {
@@ -233,7 +234,7 @@ namespace Step57
 
     {
       SolverControl solver_control(1000, 1e-6 * src.block(1).l2_norm());
-      SolverCG<>    cg(solver_control);
+      SolverCG<Vector<double>> cg(solver_control);
 
       dst.block(1) = 0.0;
       cg.solve(pressure_mass_matrix,
@@ -254,6 +255,7 @@ namespace Step57
 
   // @sect3{StationaryNavierStokes class implementation}
   // @sect4{StationaryNavierStokes::StationaryNavierStokes}
+  //
   // The constructor of this class looks very similar to the one in step-22. The
   // only difference is the viscosity and the Augmented Lagrangian coefficient
   // <code>gamma</code>.
@@ -268,6 +270,7 @@ namespace Step57
   {}
 
   // @sect4{StationaryNavierStokes::setup_dofs}
+  //
   // This function initializes the DoFHandler enumerating the degrees of freedom
   // and constraints on the current mesh.
   template <int dim>
@@ -286,10 +289,8 @@ namespace Step57
     block_component[dim] = 1;
     DoFRenumbering::component_wise(dof_handler, block_component);
 
-    dofs_per_block.resize(2);
-    DoFTools::count_dofs_per_block(dof_handler,
-                                   dofs_per_block,
-                                   block_component);
+    dofs_per_block =
+      DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
     unsigned int dof_u = dofs_per_block[0];
     unsigned int dof_p = dofs_per_block[1];
 
@@ -331,6 +332,7 @@ namespace Step57
   }
 
   // @sect4{StationaryNavierStokes::initialize_system}
+  //
   // On each mesh the SparsityPattern and the size of the linear system
   // are different. This function initializes them after mesh refinement.
   template <int dim>
@@ -350,7 +352,7 @@ namespace Step57
   }
 
   // @sect4{StationaryNavierStokes::assemble}
-
+  //
   // This function builds the system matrix and right hand side that we
   // currently work on. The @p initial_step argument is used to determine
   // which set of constraints we apply (nonzero for the initial step and zero
@@ -373,7 +375,7 @@ namespace Step57
                             update_values | update_quadrature_points |
                               update_JxW_values | update_gradients);
 
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
     const FEValuesExtractors::Vector velocities(0);
@@ -513,6 +515,7 @@ namespace Step57
   }
 
   // @sect4{StationaryNavierStokes::solve}
+  //
   // In this function, we use FGMRES together with the block preconditioner,
   // which is defined at the beginning of the program, to solve the linear
   // system. What we obtain at this step is the solution vector. If this is
@@ -728,6 +731,7 @@ namespace Step57
   }
 
   // @sect4{StationaryNavierStokes::output_results}
+  //
   // This function is the same as in step-22 except that we choose a name
   // for the output file that also contains the Reynolds number (i.e., the
   // inverse of the viscosity in the current context).
@@ -757,6 +761,7 @@ namespace Step57
   }
 
   // @sect4{StationaryNavierStokes::process_solution}
+  //
   // In our test case, we do not know the analytical solution. This function
   // outputs the velocity components along $x=0.5$ and $0 \leq y \leq 1$ so they
   // can be compared with data from the literature.
@@ -788,6 +793,7 @@ namespace Step57
   }
 
   // @sect4{StationaryNavierStokes::run}
+  //
   // This is the last step of this program. In this part, we generate the grid
   // and run the other functions respectively. The max refinement can be set by
   // the argument.
@@ -831,7 +837,6 @@ int main()
 {
   try
     {
-      using namespace dealii;
       using namespace Step57;
 
       StationaryNavierStokes<2> flow(/* degree = */ 1);

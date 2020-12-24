@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2003 - 2017 by the deal.II authors
+// Copyright (C) 2003 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -34,7 +34,6 @@
 
 std::ofstream logfile("output");
 
-using namespace dealii;
 
 //
 // Test
@@ -44,7 +43,7 @@ using namespace dealii;
 //                                 dealii::AffineConstraints<double> &,
 //                                 const std::vector<bool>  &,
 //                                 bool, bool, bool)
-// for correct behaviour on non standard oriented meshes.
+// for correct behavior on non standard oriented meshes.
 //
 
 
@@ -82,7 +81,7 @@ void generate_grid(Triangulation<2> &triangulation, int orientation)
     {7, 6, 5, 4},
   };
 
-  for (unsigned int j = 0; j < GeometryInfo<2>::vertices_per_cell; ++j)
+  for (const unsigned int j : GeometryInfo<2>::vertex_indices())
     {
       cells[0].vertices[j] = cell_vertices_0[j];
       cells[1].vertices[j] = cell_vertices_1[orientation][j];
@@ -98,7 +97,7 @@ void generate_grid(Triangulation<2> &triangulation, int orientation)
   Triangulation<2>::face_iterator face_2;
 
   // Look for the two outermost faces:
-  for (unsigned int j = 0; j < GeometryInfo<2>::faces_per_cell; ++j)
+  for (const unsigned int j : GeometryInfo<2>::face_indices())
     {
       if (cell_1->face(j)->center()(1) > 2.9)
         face_1 = cell_1->face(j);
@@ -151,7 +150,7 @@ void generate_grid(Triangulation<3> &triangulation, int orientation)
     {15, 13, 14, 12, 11, 9, 10, 8},
   };
 
-  for (unsigned int j = 0; j < GeometryInfo<3>::vertices_per_cell; ++j)
+  for (const unsigned int j : GeometryInfo<3>::vertex_indices())
     {
       cells[0].vertices[j] = cell_vertices_0[j];
       cells[1].vertices[j] = cell_vertices_1[orientation][j];
@@ -168,7 +167,7 @@ void generate_grid(Triangulation<3> &triangulation, int orientation)
   Triangulation<3>::face_iterator face_2;
 
   // Look for the two outermost faces:
-  for (unsigned int j = 0; j < GeometryInfo<3>::faces_per_cell; ++j)
+  for (const unsigned int j : GeometryInfo<3>::face_indices())
     {
       if (cell_1->face(j)->center()(2) > 2.9)
         face_1 = cell_1->face(j);
@@ -218,7 +217,7 @@ print_matching(DoFHandler<dim> &dof_handler,
        cell != dof_handler.end(0);
        ++cell)
     {
-      for (unsigned int j = 0; j < GeometryInfo<dim>::faces_per_cell; ++j)
+      for (const unsigned int j : GeometryInfo<dim>::face_indices())
         {
           if (cell->face(j)->center()(dim == 2 ? 1 : 2) > 2.9)
             face_1 = cell->face(j);
@@ -315,12 +314,12 @@ main()
       // Generate a triangulation and match:
       Triangulation<2> triangulation;
       FE_Q<2>          fe(1);
-      DoFHandler<2>    dof_handler;
+      DoFHandler<2>    dof_handler(triangulation);
 
       deallog << "Triangulation:" << i << std::endl;
 
       generate_grid(triangulation, i);
-      dof_handler.initialize(triangulation, fe);
+      dof_handler.distribute_dofs(fe);
       print_matching(dof_handler);
     }
 
@@ -331,12 +330,12 @@ main()
       // Generate a triangulation and match:
       Triangulation<3> triangulation;
       FE_Q<3>          fe(1);
-      DoFHandler<3>    dof_handler;
+      DoFHandler<3>    dof_handler(triangulation);
 
       deallog << "Triangulation:" << i << std::endl;
 
       generate_grid(triangulation, i);
-      dof_handler.initialize(triangulation, fe);
+      dof_handler.distribute_dofs(fe);
       print_matching(dof_handler);
     }
 
@@ -349,13 +348,13 @@ main()
       // Generate a triangulation and match:
       Triangulation<3> triangulation;
       FE_Q<3>          fe(1);
-      DoFHandler<3>    dof_handler;
+      DoFHandler<3>    dof_handler(triangulation);
 
       deallog << "Triangulation:" << i << std::endl;
 
       generate_grid(triangulation, i);
       triangulation.refine_global(1);
-      dof_handler.initialize(triangulation, fe);
+      dof_handler.distribute_dofs(fe);
       print_matching(dof_handler);
     }
 
@@ -371,12 +370,12 @@ main()
       FE_Q<3>          p(1);
       FESystem<3>      taylor_hood(u, 3, p, 1);
 
-      DoFHandler<3> dof_handler;
+      DoFHandler<3> dof_handler(triangulation);
 
       deallog << "Triangulation:" << i << std::endl;
 
       generate_grid(triangulation, i);
-      dof_handler.initialize(triangulation, taylor_hood);
+      dof_handler.distribute_dofs(taylor_hood);
       print_matching(dof_handler, true);
     }
 

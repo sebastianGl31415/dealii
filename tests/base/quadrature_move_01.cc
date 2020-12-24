@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2017 by the deal.II authors
+// Copyright (C) 1998 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -61,7 +61,7 @@ main()
   initlog();
 
   check_quadrature_move<QMidpoint>();
-  check_quadrature_move<QTrapez>();
+  check_quadrature_move<QTrapezoid>();
   check_quadrature_move<QSimpson>();
   check_quadrature_move<QMilne>();
   check_quadrature_move<QWeddle>();

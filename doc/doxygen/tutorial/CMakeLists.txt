@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2012 - 2016 by the deal.II Authors
+## Copyright (C) 2012 - 2020 by the deal.II Authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -28,14 +28,14 @@ FILE(GLOB _deal_ii_steps
 # "/a/b/c/name//doc//author", so make sure we eat the
 # double slashes in the second step
 SET_IF_EMPTY(DEAL_II_CODE_GALLERY_DIRECTORY ${CMAKE_SOURCE_DIR}/code-gallery)
-FILE(GLOB _code_gallery_names 
+FILE(GLOB _code_gallery_names
      "${DEAL_II_CODE_GALLERY_DIRECTORY}/*/doc/author")
 STRING(REGEX REPLACE "/+doc/+author" "" _code_gallery_names "${_code_gallery_names}")
 
 #
 # Define target for the tutorial. It depends on the
 # file tutorial.h built via the next target below, as well
-# as the various files we create from the tutorial 
+# as the various files we create from the tutorial
 # directories below that. These dependencies are added
 # below the respective targets.
 #
@@ -113,16 +113,22 @@ ADD_DEPENDENCIES(tutorial build_tutorial_h)
 FOREACH(_step ${_deal_ii_steps})
   GET_FILENAME_COMPONENT(_step "${_step}" NAME)
 
+  IF(EXISTS "${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.cu")
+    SET(_FILE_EXTENSION "cu")
+  ELSE()
+    SET(_FILE_EXTENSION "cc")
+  ENDIF()
+
   ADD_CUSTOM_COMMAND(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_step}.cc
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_step}.${_FILE_EXTENSION}
     COMMAND ${PERL_EXECUTABLE}
     ARGS
       ${CMAKE_SOURCE_DIR}/doc/doxygen/scripts/program2plain
-      < ${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.cc
-      > ${CMAKE_CURRENT_BINARY_DIR}/${_step}.cc
+      < ${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.${_FILE_EXTENSION}
+      > ${CMAKE_CURRENT_BINARY_DIR}/${_step}.${_FILE_EXTENSION}
     DEPENDS
       ${CMAKE_SOURCE_DIR}/doc/doxygen/scripts/program2plain
-      ${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.cc
+      ${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.${_FILE_EXTENSION}
     VERBATIM
     )
 
@@ -140,7 +146,7 @@ FOREACH(_step ${_deal_ii_steps})
       ${CMAKE_SOURCE_DIR}/doc/doxygen/scripts/intro2toc
       ${CMAKE_SOURCE_DIR}/doc/doxygen/scripts/create_anchors
       ${CMAKE_SOURCE_DIR}/doc/doxygen/scripts/program2doxygen
-      ${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.cc
+      ${CMAKE_SOURCE_DIR}/examples/${_step}/${_step}.${_FILE_EXTENSION}
       ${CMAKE_SOURCE_DIR}/examples/${_step}/doc/intro.dox
       ${CMAKE_SOURCE_DIR}/examples/${_step}/doc/results.dox
     )
@@ -148,7 +154,7 @@ FOREACH(_step ${_deal_ii_steps})
   ADD_CUSTOM_TARGET(tutorial_${_step}
     DEPENDS
       ${CMAKE_CURRENT_BINARY_DIR}/${_step}.h
-      ${CMAKE_CURRENT_BINARY_DIR}/${_step}.cc
+      ${CMAKE_CURRENT_BINARY_DIR}/${_step}.${_FILE_EXTENSION}
       COMMENT
         "Building doxygen input file for tutorial program <${_step}>"
     )

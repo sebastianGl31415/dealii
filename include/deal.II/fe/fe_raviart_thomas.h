@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2003 - 2018 by the deal.II authors
+// Copyright (C) 2003 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -35,13 +35,43 @@ DEAL_II_NAMESPACE_OPEN
 /*@{*/
 
 /**
- * Implementation of Raviart-Thomas (RT) elements, conforming with the space
- * H<sup>div</sup>. These elements generate vector fields with normal
- * components continuous between mesh cells.
+ * Implementation of Raviart-Thomas (RT) elements. The Raviart-Thomas space
+ * is designed to solve problems in which the solution only lives in the
+ * space
+ * $H^\text{div}=\{ {\mathbf u} \in L_2: \text{div}\, {\mathbf u} \in L_2\}$,
+ * rather than in the more commonly used space
+ * $H^1=\{ u \in L_2: \nabla u \in L_2\}$. In other words, the solution must
+ * be a vector field whose divergence is square integrable, but for which the
+ * gradient may not be square integrable. The typical application for this
+ * space (and these elements) is to the mixed formulation of the Laplace
+ * equation and related situations, see for example step-20. The defining
+ * characteristic of functions in $H^\text{div}$ is that they are in
+ * general discontinuous -- but that if you draw a line in 2d (or a
+ * surface in 3d), then the <i>normal</i> component of the vector
+ * field must be continuous across the line (or surface) even though
+ * the tangential component may not be. As a consequence, the
+ * Raviart-Thomas element is constructed in such a way that (i) it is
+ * @ref vector_valued "vector-valued", (ii) the shape functions are
+ * discontinuous, but (iii) the normal component of the vector field
+ * represented by each shape function is continuous across the faces
+ * of cells.
  *
- * We follow the usual definition of the degree of RT elements, which denotes
- * the polynomial degree of the largest complete polynomial subspace contained
- * in the RT space. Then, approximation order of the function itself is
+ * Other properties of the Raviart-Thomas element are that (i) it is
+ * @ref GlossPrimitive "not a primitive element"; (ii) the shape functions
+ * are defined so that certain integrals over the faces are either zero
+ * or one, rather than the common case of certain point values being
+ * either zero or one. (There is, however, the FE_RaviartThomasNodal
+ * element that uses point values.)
+ *
+ * We follow the commonly used -- though confusing -- definition of the "degree"
+ * of RT elements. Specifically, the "degree" of the element denotes
+ * the polynomial degree of the <i>largest complete polynomial subspace</i>
+ * contained in the finite element space, even if the space may contain shape
+ * functions of higher polynomial degree. The lowest order element is
+ * consequently FE_RaviartThomas(0), i.e., the Raviart-Thomas element "of
+ * degree zero", even though the functions of this space are in general
+ * polynomials of degree one in each variable. This choice of "degree"
+ * implies that the approximation order of the function itself is
  * <i>degree+1</i>, as with usual polynomial spaces. The numbering so chosen
  * implies the sequence
  * @f[
@@ -53,15 +83,10 @@ DEAL_II_NAMESPACE_OPEN
  *   \stackrel{\text{div}}{\rightarrow}
  *   DGQ_{k}
  * @f]
- * The lowest order element is consequently FE_RaviartThomas(0).
  *
  * This class is not implemented for the codimension one case (<tt>spacedim !=
  * dim</tt>).
  *
- * @todo Even if this element is implemented for two and three space
- * dimensions, the definition of the node values relies on consistently
- * oriented faces in 3D. Therefore, care should be taken on complicated
- * meshes.
  *
  * <h3>Interpolation</h3>
  *
@@ -97,13 +122,9 @@ DEAL_II_NAMESPACE_OPEN
  * The points needed are those of QGauss<sub>k+1</sub> on each face as well as
  * QGauss<sub>k+1</sub> in the interior of the cell (or none for
  * RT<sub>0</sub>).
- *
- *
- * @author Guido Kanschat, 2005, based on previous work by Wolfgang Bangerth.
  */
 template <int dim>
-class FE_RaviartThomas
-  : public FE_PolyTensor<PolynomialsRaviartThomas<dim>, dim>
+class FE_RaviartThomas : public FE_PolyTensor<dim>
 {
 public:
   /**
@@ -197,9 +218,7 @@ private:
    */
   Table<3, double> interior_weights;
 
-  /**
-   * Allow access from other dimensions.
-   */
+  // Allow access from other dimensions.
   template <int dim1>
   friend class FE_RaviartThomas;
 };
@@ -242,12 +261,9 @@ private:
  * @note The degree stored in the member variable
  * FiniteElementData<dim>::degree is higher by one than the constructor
  * argument!
- *
- * @author Guido Kanschat, 2005, Zhu Liang, 2008
  */
 template <int dim>
-class FE_RaviartThomasNodal
-  : public FE_PolyTensor<PolynomialsRaviartThomas<dim>, dim>
+class FE_RaviartThomasNodal : public FE_PolyTensor<dim>
 {
 public:
   /**
@@ -274,12 +290,15 @@ public:
 
   virtual void
   get_face_interpolation_matrix(const FiniteElement<dim> &source,
-                                FullMatrix<double> &matrix) const override;
+                                FullMatrix<double> &      matrix,
+                                const unsigned int face_no = 0) const override;
 
   virtual void
-  get_subface_interpolation_matrix(const FiniteElement<dim> &source,
-                                   const unsigned int        subface,
-                                   FullMatrix<double> &matrix) const override;
+  get_subface_interpolation_matrix(
+    const FiniteElement<dim> &source,
+    const unsigned int        subface,
+    FullMatrix<double> &      matrix,
+    const unsigned int        face_no = 0) const override;
   virtual bool
   hp_constraints_are_implemented() const override;
 
@@ -290,7 +309,8 @@ public:
   hp_line_dof_identities(const FiniteElement<dim> &fe_other) const override;
 
   virtual std::vector<std::pair<unsigned int, unsigned int>>
-  hp_quad_dof_identities(const FiniteElement<dim> &fe_other) const override;
+  hp_quad_dof_identities(const FiniteElement<dim> &fe_other,
+                         const unsigned int        face_no = 0) const override;
 
   /**
    * @copydoc FiniteElement::compare_for_domination()

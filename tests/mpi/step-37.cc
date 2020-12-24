@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2018 by the deal.II authors
+ * Copyright (C) 2018 - 2019 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -269,7 +269,7 @@ namespace Step37
           MatrixFree<dim, float>::AdditionalData::none;
         additional_data.mapping_update_flags =
           (update_gradients | update_JxW_values | update_quadrature_points);
-        additional_data.level_mg_handler = level;
+        additional_data.mg_level = level;
         std::shared_ptr<MatrixFree<dim, float>> mg_mf_storage_level(
           new MatrixFree<dim, float>());
         mg_mf_storage_level->reinit(dof_handler,
@@ -351,19 +351,19 @@ namespace Step37
     FEEvaluation<dim, degree_finite_element> phi(
       *system_matrix.get_matrix_free());
     for (unsigned int cell = 0;
-         cell < system_matrix.get_matrix_free()->n_macro_cells();
+         cell < system_matrix.get_matrix_free()->n_cell_batches();
          ++cell)
       {
         phi.reinit(cell);
         phi.read_dof_values_plain(solution);
-        phi.evaluate(false, true);
+        phi.evaluate(EvaluationFlags::gradients);
         for (unsigned int q = 0; q < phi.n_q_points; ++q)
           {
             phi.submit_gradient(-phi.get_gradient(q), q);
             // phi.submit_value(make_vectorized_array<double>(1.0), q);
           }
-        // phi.integrate(true, true);
-        phi.integrate(false, true);
+        // phi.integrate(EvaluationFlags::values|EvaluationFlags::gradients);
+        phi.integrate(EvaluationFlags::gradients);
         phi.distribute_local_to_global(system_rhs);
       }
     system_rhs.compress(VectorOperation::add);
@@ -480,10 +480,10 @@ namespace Step37
           filenames.emplace_back("solution-" + std::to_string(cycle) + "." +
                                  std::to_string(i) + ".vtu");
 
-        std::string master_name =
+        std::string pvtu_filename =
           "solution-" + Utilities::to_string(cycle) + ".pvtu";
-        std::ofstream master_output(master_name.c_str());
-        data_out.write_pvtu_record(master_output, filenames);
+        std::ofstream pvtu_output(pvtu_filename.c_str());
+        data_out.write_pvtu_record(pvtu_output, filenames);
       }
 
     if (dim == 2 && Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1)
@@ -542,7 +542,7 @@ namespace Step37
           }
         else
           {
-            for (auto cell : triangulation.active_cell_iterators())
+            for (auto &cell : triangulation.active_cell_iterators())
               if (cell->is_locally_owned())
                 {
                   if ((cell->center()[0] < -8. && cell->center()[1] < 0) ||

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2000 - 2017 by the deal.II authors
+// Copyright (C) 2000 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,6 +13,7 @@
 //
 // ---------------------------------------------------------------------
 
+#include <deal.II/base/memory_consumption.h>
 #include <deal.II/base/polynomials_piecewise.h>
 
 
@@ -117,6 +118,18 @@ namespace Polynomials
 
 
 
+  template <typename number>
+  std::size_t
+  PiecewisePolynomial<number>::memory_consumption() const
+  {
+    return (polynomial.memory_consumption() +
+            MemoryConsumption::memory_consumption(n_intervals) +
+            MemoryConsumption::memory_consumption(interval) +
+            MemoryConsumption::memory_consumption(spans_two_intervals));
+  }
+
+
+
   std::vector<PiecewisePolynomial<double>>
   generate_complete_Lagrange_basis_on_subdivisions(
     const unsigned int n_subdivisions,
@@ -124,8 +137,8 @@ namespace Polynomials
   {
     std::vector<Polynomial<double>> p_base =
       LagrangeEquidistant::generate_complete_basis(base_degree);
-    for (unsigned int i = 0; i < p_base.size(); ++i)
-      p_base[i].scale(n_subdivisions);
+    for (auto &polynomial : p_base)
+      polynomial.scale(n_subdivisions);
 
     std::vector<PiecewisePolynomial<double>> p;
     p.reserve(n_subdivisions * base_degree + 1);

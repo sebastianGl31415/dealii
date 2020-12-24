@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2014 - 2018 by the deal.II authors
+// Copyright (C) 2014 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -29,7 +29,7 @@
 DEAL_II_NAMESPACE_OPEN
 
 // Forward declarations:
-
+#ifndef DOXYGEN
 namespace internal
 {
   namespace LinearOperatorImplementation
@@ -41,11 +41,14 @@ namespace internal
 template <typename Number>
 class Vector;
 
+class PreconditionIdentity;
+
 template <typename Range  = Vector<double>,
           typename Domain = Range,
           typename Payload =
             internal::LinearOperatorImplementation::EmptyPayload>
 class LinearOperator;
+#endif
 
 template <
   typename Range   = Vector<double>,
@@ -70,6 +73,10 @@ template <
   typename Payload = internal::LinearOperatorImplementation::EmptyPayload>
 LinearOperator<Range, Domain, Payload>
 null_operator(const LinearOperator<Range, Domain, Payload> &);
+
+template <typename Range, typename Domain, typename Payload>
+LinearOperator<Range, Domain, Payload>
+identity_operator(const LinearOperator<Range, Domain, Payload> &);
 
 
 /**
@@ -151,7 +158,9 @@ null_operator(const LinearOperator<Range, Domain, Payload> &);
  * for linear operators have been provided within the respective
  * TrilinosWrappers (and, in the future, PETScWrappers) namespaces.
  *
- * @author Luca Heltai, Matthias Maier, 2015; Jean-Paul Pelteret, 2016
+ * @note The step-20 tutorial program has a detailed usage example of the
+ * LinearOperator class.
+ *
  *
  * @ingroup LAOperators
  */
@@ -360,8 +369,8 @@ public:
  * @relatesalso LinearOperator
  *
  * Addition of two linear operators @p first_op and @p second_op given by
- * $(\text{first\_op}+\text{second\_op})x \dealcoloneq \text{first\_op}(x) +
- * \text{second\_op}(x)$
+ * $(\mathrm{first\_op}+\mathrm{second\_op})x \dealcoloneq \mathrm{first\_op}(x)
+ * + \mathrm{second\_op}(x)$
  *
  * @ingroup LAOperators
  */
@@ -380,9 +389,9 @@ operator+(const LinearOperator<Range, Domain, Payload> &first_op,
     }
   else
     {
-      LinearOperator<Range, Domain, Payload> return_op(
+      LinearOperator<Range, Domain, Payload> return_op{
         static_cast<const Payload &>(first_op) +
-        static_cast<const Payload &>(second_op));
+        static_cast<const Payload &>(second_op)};
 
       return_op.reinit_range_vector  = first_op.reinit_range_vector;
       return_op.reinit_domain_vector = first_op.reinit_domain_vector;
@@ -419,8 +428,8 @@ operator+(const LinearOperator<Range, Domain, Payload> &first_op,
  * @relatesalso LinearOperator
  *
  * Subtraction of two linear operators @p first_op and @p second_op given by
- * $(\text{first\_op}-\text{second\_op})x \dealcoloneq \text{first\_op}(x) -
- * \text{second\_op}(x)$
+ * $(\mathrm{first\_op}-\mathrm{second\_op})x \dealcoloneq \mathrm{first\_op}(x)
+ * - \mathrm{second\_op}(x)$
  *
  * @ingroup LAOperators
  */
@@ -554,8 +563,8 @@ operator*(const LinearOperator<Range, Domain, Payload> &op,
  * @relatesalso LinearOperator
  *
  * Composition of two linear operators @p first_op and @p second_op given by
- * $(\text{first\_op}*\text{second\_op})x \dealcoloneq
- * \text{first\_op}(\text{second\_op}(x))$
+ * $(\mathrm{first\_op}*\mathrm{second\_op})x \dealcoloneq
+ * \mathrm{first\_op}(\mathrm{second\_op}(x))$
  *
  * @ingroup LAOperators
  */
@@ -576,9 +585,9 @@ operator*(const LinearOperator<Range, Intermediate, Payload> & first_op,
     }
   else
     {
-      LinearOperator<Range, Domain, Payload> return_op(
+      LinearOperator<Range, Domain, Payload> return_op{
         static_cast<const Payload &>(first_op) *
-        static_cast<const Payload &>(second_op));
+        static_cast<const Payload &>(second_op)};
 
       return_op.reinit_domain_vector = second_op.reinit_domain_vector;
       return_op.reinit_range_vector  = first_op.reinit_range_vector;
@@ -626,12 +635,12 @@ operator*(const LinearOperator<Range, Intermediate, Payload> & first_op,
     }
 }
 
+
 /**
  * @relatesalso LinearOperator
  *
  * Return the transpose linear operations of @p op.
  *
- * @author  Matthias Maier, 2015
  *
  * @ingroup LAOperators
  */
@@ -639,7 +648,7 @@ template <typename Range, typename Domain, typename Payload>
 LinearOperator<Domain, Range, Payload>
 transpose_operator(const LinearOperator<Range, Domain, Payload> &op)
 {
-  LinearOperator<Domain, Range, Payload> return_op(op.transpose_payload());
+  LinearOperator<Domain, Range, Payload> return_op{op.transpose_payload()};
 
   return_op.reinit_range_vector  = op.reinit_domain_vector;
   return_op.reinit_domain_vector = op.reinit_range_vector;
@@ -669,7 +678,6 @@ transpose_operator(const LinearOperator<Range, Domain, Payload> &op)
  * of the @p solver object will be modified upon invocation of
  * <code>vmult</code> or <code>Tvmult</code>.
  *
- * @author Luca Heltai, Matthias Maier, Jean-Paul Pelteret, 2015
  *
  * @ingroup LAOperators
  */
@@ -683,8 +691,8 @@ inverse_operator(const LinearOperator<Range, Domain, Payload> &op,
                  Solver &                                      solver,
                  const Preconditioner &                        preconditioner)
 {
-  LinearOperator<Domain, Range, Payload> return_op(
-    op.inverse_payload(solver, preconditioner));
+  LinearOperator<Domain, Range, Payload> return_op{
+    op.inverse_payload(solver, preconditioner)};
 
   return_op.reinit_range_vector  = op.reinit_domain_vector;
   return_op.reinit_domain_vector = op.reinit_range_vector;
@@ -722,6 +730,105 @@ inverse_operator(const LinearOperator<Range, Domain, Payload> &op,
   return return_op;
 }
 
+
+/**
+ * @relatesalso LinearOperator
+ *
+ * Variant of above function that takes a LinearOperator @p preconditioner
+ * as preconditioner argument.
+ *
+ * @ingroup LAOperators
+ */
+template <typename Payload,
+          typename Solver,
+          typename Range  = typename Solver::vector_type,
+          typename Domain = Range>
+LinearOperator<Domain, Range, Payload>
+inverse_operator(const LinearOperator<Range, Domain, Payload> &op,
+                 Solver &                                      solver,
+                 const LinearOperator<Range, Domain, Payload> &preconditioner)
+{
+  LinearOperator<Domain, Range, Payload> return_op{
+    op.inverse_payload(solver, preconditioner)};
+
+  return_op.reinit_range_vector  = op.reinit_domain_vector;
+  return_op.reinit_domain_vector = op.reinit_range_vector;
+
+  return_op.vmult = [op, &solver, preconditioner](Range &v, const Domain &u) {
+    op.reinit_range_vector(v, /*bool omit_zeroing_entries =*/false);
+    solver.solve(op, v, u, preconditioner);
+  };
+
+  return_op.vmult_add = [op, &solver, preconditioner](Range &       v,
+                                                      const Domain &u) {
+    GrowingVectorMemory<Range> vector_memory;
+
+    typename VectorMemory<Range>::Pointer v2(vector_memory);
+    op.reinit_range_vector(*v2, /*bool omit_zeroing_entries =*/false);
+    solver.solve(op, *v2, u, preconditioner);
+    v += *v2;
+  };
+
+  return_op.Tvmult = [op, &solver, preconditioner](Range &v, const Domain &u) {
+    op.reinit_range_vector(v, /*bool omit_zeroing_entries =*/false);
+    solver.solve(transpose_operator(op), v, u, preconditioner);
+  };
+
+  return_op.Tvmult_add = [op, &solver, preconditioner](Range &       v,
+                                                       const Domain &u) {
+    GrowingVectorMemory<Range> vector_memory;
+
+    typename VectorMemory<Range>::Pointer v2(vector_memory);
+    op.reinit_range_vector(*v2, /*bool omit_zeroing_entries =*/false);
+    solver.solve(transpose_operator(op), *v2, u, preconditioner);
+    v += *v2;
+  };
+
+  return return_op;
+}
+
+
+/**
+ * @relatesalso LinearOperator
+ *
+ * Variant of above function without a preconditioner argument. In this
+ * case the identity_operator() of the @p op argument is used as a
+ * preconditioner. This is equivalent to using PreconditionIdentity.
+ *
+ * @ingroup LAOperators
+ */
+template <typename Payload,
+          typename Solver,
+          typename Range  = typename Solver::vector_type,
+          typename Domain = Range>
+LinearOperator<Domain, Range, Payload>
+inverse_operator(const LinearOperator<Range, Domain, Payload> &op,
+                 Solver &                                      solver)
+{
+  return inverse_operator(op, solver, identity_operator(op));
+}
+
+
+/**
+ * @relatesalso LinearOperator
+ *
+ * Special overload of above function that takes a PreconditionIdentity
+ * argument.
+ *
+ * @ingroup LAOperators
+ */
+template <typename Payload,
+          typename Solver,
+          typename Range  = typename Solver::vector_type,
+          typename Domain = Range>
+LinearOperator<Domain, Range, Payload>
+inverse_operator(const LinearOperator<Range, Domain, Payload> &op,
+                 Solver &                                      solver,
+                 const PreconditionIdentity &)
+{
+  return inverse_operator(op, solver);
+}
+
 //@}
 
 
@@ -747,7 +854,7 @@ template <
 LinearOperator<Range, Range, Payload>
 identity_operator(const std::function<void(Range &, bool)> &reinit_vector)
 {
-  LinearOperator<Range, Range, Payload> return_op((Payload()));
+  LinearOperator<Range, Range, Payload> return_op{Payload()};
 
   return_op.reinit_range_vector  = reinit_vector;
   return_op.reinit_domain_vector = reinit_vector;
@@ -800,7 +907,7 @@ template <typename Range, typename Domain, typename Payload>
 LinearOperator<Range, Domain, Payload>
 null_operator(const LinearOperator<Range, Domain, Payload> &op)
 {
-  LinearOperator<Range, Domain, Payload> return_op(op.null_payload());
+  LinearOperator<Range, Domain, Payload> return_op{op.null_payload()};
 
   return_op.is_null_operator = true;
 
@@ -837,7 +944,7 @@ template <
 LinearOperator<Range, Range, Payload>
 mean_value_filter(const std::function<void(Range &, bool)> &reinit_vector)
 {
-  LinearOperator<Range, Range, Payload> return_op((Payload()));
+  LinearOperator<Range, Range, Payload> return_op{Payload()};
 
   return_op.reinit_range_vector  = reinit_vector;
   return_op.reinit_domain_vector = reinit_vector;
@@ -955,7 +1062,6 @@ namespace internal
      * SparseMatrix. To use Trilinos and PETSc sparse matrix classes it is
      * necessary to initialize a LinearOperator with their associated Payload.
      *
-     * @author Jean-Paul Pelteret, Matthias Maier, 2016
      *
      * @ingroup LAOperators
      */
@@ -1022,7 +1128,7 @@ namespace internal
     inline EmptyPayload
     operator+(const EmptyPayload &, const EmptyPayload &)
     {
-      return EmptyPayload();
+      return {};
     }
 
     /**
@@ -1031,7 +1137,7 @@ namespace internal
      */
     inline EmptyPayload operator*(const EmptyPayload &, const EmptyPayload &)
     {
-      return EmptyPayload();
+      return {};
     }
 
 
@@ -1254,7 +1360,6 @@ namespace internal
  * <code>vmult</code> and <code>Tvmult</code> (requiring intermediate
  * storage).
  *
- * @author Matthias Maier, 2015
  *
  * @ingroup LAOperators
  */
@@ -1279,7 +1384,6 @@ linear_operator(const Matrix &matrix)
  * This variant can, for example, be used to encapsulate preconditioners (that
  * typically do not expose any information about the underlying matrix).
  *
- * @author Matthias Maier, 2015
  *
  * @ingroup LAOperators
  */
@@ -1293,8 +1397,8 @@ linear_operator(const OperatorExemplar &operator_exemplar, const Matrix &matrix)
 {
   using namespace internal::LinearOperatorImplementation;
   // Initialize the payload based on the input exemplar matrix
-  LinearOperator<Range, Domain, Payload> return_op(
-    Payload(operator_exemplar, matrix));
+  LinearOperator<Range, Domain, Payload> return_op{
+    Payload(operator_exemplar, matrix)};
 
   // Always store a reference to matrix and operator_exemplar in the lambda
   // functions. This ensures that a modification of the matrix after the
@@ -1338,7 +1442,6 @@ linear_operator(const OperatorExemplar &operator_exemplar, const Matrix &matrix)
  * This variant can, for example, be used to encapsulate preconditioners (that
  * typically do not expose any information about the underlying matrix).
  *
- * @author Matthias Maier, 2017
  *
  * @ingroup LAOperators
  */
@@ -1364,6 +1467,93 @@ linear_operator(const LinearOperator<Range, Domain, Payload> &operator_exemplar,
 
 //@}
 
+#ifndef DOXYGEN
+
+//
+// Ensure that we never capture a reference to a temporary by accident.
+// to avoid "stack use after free".
+//
+
+template <
+  typename Range   = Vector<double>,
+  typename Domain  = Range,
+  typename Payload = internal::LinearOperatorImplementation::EmptyPayload,
+  typename OperatorExemplar,
+  typename Matrix,
+  typename =
+    typename std::enable_if<!std::is_lvalue_reference<Matrix>::value>::type>
+LinearOperator<Range, Domain, Payload>
+linear_operator(const OperatorExemplar &, Matrix &&) = delete;
+
+template <
+  typename Range   = Vector<double>,
+  typename Domain  = Range,
+  typename Payload = internal::LinearOperatorImplementation::EmptyPayload,
+  typename OperatorExemplar,
+  typename Matrix,
+  typename = typename std::enable_if<
+    !std::is_lvalue_reference<OperatorExemplar>::value>::type,
+  typename = typename std::enable_if<
+    !std::is_same<OperatorExemplar,
+                  LinearOperator<Range, Domain, Payload>>::value>::type>
+LinearOperator<Range, Domain, Payload>
+linear_operator(OperatorExemplar &&, const Matrix &) = delete;
+
+template <
+  typename Range   = Vector<double>,
+  typename Domain  = Range,
+  typename Payload = internal::LinearOperatorImplementation::EmptyPayload,
+  typename OperatorExemplar,
+  typename Matrix,
+  typename =
+    typename std::enable_if<!std::is_lvalue_reference<Matrix>::value>::type,
+  typename = typename std::enable_if<
+    !std::is_lvalue_reference<OperatorExemplar>::value>::type,
+  typename = typename std::enable_if<
+    !std::is_same<OperatorExemplar,
+                  LinearOperator<Range, Domain, Payload>>::value>::type>
+LinearOperator<Range, Domain, Payload>
+linear_operator(OperatorExemplar &&, Matrix &&) = delete;
+
+template <
+  typename Range   = Vector<double>,
+  typename Domain  = Range,
+  typename Payload = internal::LinearOperatorImplementation::EmptyPayload,
+  typename Matrix,
+  typename =
+    typename std::enable_if<!std::is_lvalue_reference<Matrix>::value>::type>
+LinearOperator<Range, Domain, Payload>
+linear_operator(const LinearOperator<Range, Domain, Payload> &,
+                Matrix &&) = delete;
+
+template <
+  typename Range   = Vector<double>,
+  typename Domain  = Range,
+  typename Payload = internal::LinearOperatorImplementation::EmptyPayload,
+  typename Matrix,
+  typename =
+    typename std::enable_if<!std::is_lvalue_reference<Matrix>::value>::type>
+LinearOperator<Range, Domain, Payload>
+linear_operator(Matrix &&) = delete;
+
+template <typename Payload,
+          typename Solver,
+          typename Preconditioner,
+          typename Range  = typename Solver::vector_type,
+          typename Domain = Range,
+          typename        = typename std::enable_if<
+            !std::is_lvalue_reference<Preconditioner>::value>::type,
+          typename = typename std::enable_if<
+            !std::is_same<Preconditioner, PreconditionIdentity>::value>::type,
+          typename = typename std::enable_if<
+            !std::is_same<Preconditioner,
+                          LinearOperator<Range, Domain, Payload>>::value>::type>
+LinearOperator<Domain, Range, Payload>
+inverse_operator(const LinearOperator<Range, Domain, Payload> &,
+                 Solver &,
+                 Preconditioner &&) = delete;
+
+#endif // DOXYGEN
 
 DEAL_II_NAMESPACE_CLOSE
 

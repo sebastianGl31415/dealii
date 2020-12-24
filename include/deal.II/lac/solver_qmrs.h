@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2018 by the deal.II authors
+// Copyright (C) 1999 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -87,12 +87,9 @@ DEAL_II_NAMESPACE_OPEN
  * The solve() function of this class uses the mechanism described in the
  * Solver base class to determine convergence. This mechanism can also be used
  * to observe the progress of the iteration.
- *
- *
- * @author Guido Kanschat, 1999; Ingo Kligge 2017
  */
 template <typename VectorType = Vector<double>>
-class SolverQMRS : public Solver<VectorType>
+class SolverQMRS : public SolverBase<VectorType>
 {
 public:
   /**
@@ -255,7 +252,7 @@ template <class VectorType>
 SolverQMRS<VectorType>::SolverQMRS(SolverControl &           cn,
                                    VectorMemory<VectorType> &mem,
                                    const AdditionalData &    data)
-  : Solver<VectorType>(cn, mem)
+  : SolverBase<VectorType>(cn, mem)
   , additional_data(data)
   , step(0)
 {}
@@ -263,7 +260,7 @@ SolverQMRS<VectorType>::SolverQMRS(SolverControl &           cn,
 template <class VectorType>
 SolverQMRS<VectorType>::SolverQMRS(SolverControl &       cn,
                                    const AdditionalData &data)
-  : Solver<VectorType>(cn)
+  : SolverBase<VectorType>(cn)
   , additional_data(data)
   , step(0)
 {}

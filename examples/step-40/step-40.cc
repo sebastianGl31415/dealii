@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2009 - 2017 by the deal.II authors
+ * Copyright (C) 2009 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -30,16 +30,27 @@
 
 #include <deal.II/lac/generic_linear_algebra.h>
 
-// uncomment the following #define if you have PETSc and Trilinos installed
-// and you prefer using Trilinos in this example:
+// This program can use either PETSc or Trilinos for its parallel
+// algebra needs. By default, if deal.II has been configured with
+// PETSc, it will use PETSc. Otherwise, the following few lines will
+// check that deal.II has been configured with Trilinos and take that.
+//
+// But there may be cases where you want to use Trilinos, even though
+// deal.II has *also* been configured with PETSc, for example to
+// compare the performance of these two libraries. To do this,
+// add the following \#define to the source code:
+// @code
 // #define FORCE_USE_OF_TRILINOS
-
-// This will either import PETSc or TrilinosWrappers into the namespace
-// LA. Note that we are defining the macro USE_PETSC_LA so that we can detect
-// if we are using PETSc (see solve() for an example where this is necessary)
+// @endcode
+//
+// Using this logic, the following lines will then import either the
+// PETSc or Trilinos wrappers into the namespace `LA` (for "linear
+// algebra). In the former case, we are also defining the macro
+// `USE_PETSC_LA` so that we can detect if we are using PETSc (see
+// solve() for an example where this is necessary).
 namespace LA
 {
-#if defined(DEAL_II_WITH_PETSC) && \
+#if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
   !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
   using namespace dealii::LinearAlgebraPETSc;
 #  define USE_PETSC_LA
@@ -49,6 +60,7 @@ namespace LA
 #  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
 #endif
 } // namespace LA
+
 
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/full_matrix.h>
@@ -151,7 +163,6 @@ namespace Step40
   {
   public:
     LaplaceProblem();
-    ~LaplaceProblem();
 
     void run();
 
@@ -166,8 +177,8 @@ namespace Step40
 
     parallel::distributed::Triangulation<dim> triangulation;
 
-    DoFHandler<dim> dof_handler;
     FE_Q<dim>       fe;
+    DoFHandler<dim> dof_handler;
 
     IndexSet locally_owned_dofs;
     IndexSet locally_relevant_dofs;
@@ -185,7 +196,7 @@ namespace Step40
 
   // @sect3{The <code>LaplaceProblem</code> class implementation}
 
-  // @sect4{Constructors and destructors}
+  // @sect4{Constructor}
 
   // Constructors and destructors are rather trivial. In addition to what we
   // do in step-6, we set the set of processors we want to work on to all
@@ -202,8 +213,8 @@ namespace Step40
                     typename Triangulation<dim>::MeshSmoothing(
                       Triangulation<dim>::smoothing_on_refinement |
                       Triangulation<dim>::smoothing_on_coarsening))
-    , dof_handler(triangulation)
     , fe(2)
+    , dof_handler(triangulation)
     , pcout(std::cout,
             (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
     , computing_timer(mpi_communicator,
@@ -212,13 +223,6 @@ namespace Step40
                       TimerOutput::wall_times)
   {}
 
-
-
-  template <int dim>
-  LaplaceProblem<dim>::~LaplaceProblem()
-  {
-    dof_handler.clear();
-  }
 
 
   // @sect4{LaplaceProblem::setup_system}
@@ -322,11 +326,10 @@ namespace Step40
     DynamicSparsityPattern dsp(locally_relevant_dofs);
 
     DoFTools::make_sparsity_pattern(dof_handler, dsp, constraints, false);
-    SparsityTools::distribute_sparsity_pattern(
-      dsp,
-      dof_handler.n_locally_owned_dofs_per_processor(),
-      mpi_communicator,
-      locally_relevant_dofs);
+    SparsityTools::distribute_sparsity_pattern(dsp,
+                                               dof_handler.locally_owned_dofs(),
+                                               mpi_communicator,
+                                               locally_relevant_dofs);
 
     system_matrix.reinit(locally_owned_dofs,
                          locally_owned_dofs,
@@ -366,14 +369,14 @@ namespace Step40
   {
     TimerOutput::Scope t(computing_timer, "assembly");
 
-    const QGauss<dim> quadrature_formula(3);
+    const QGauss<dim> quadrature_formula(fe.degree + 1);
 
     FEValues<dim> fe_values(fe,
                             quadrature_formula,
                             update_values | update_gradients |
                               update_quadrature_points | update_JxW_values);
 
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
     FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
@@ -523,7 +526,7 @@ namespace Step40
     Vector<float> estimated_error_per_cell(triangulation.n_active_cells());
     KellyErrorEstimator<dim>::estimate(
       dof_handler,
-      QGauss<dim - 1>(3),
+      QGauss<dim - 1>(fe.degree + 1),
       std::map<types::boundary_id, const Function<dim> *>(),
       locally_relevant_solution,
       estimated_error_per_cell);
@@ -580,40 +583,11 @@ namespace Step40
 
     data_out.build_patches();
 
-    // The next step is to write this data to disk. We choose file names of
-    // the form <code>solution-XX.PPPP.vtu</code> where <code>XX</code>
-    // indicates the refinement cycle, <code>PPPP</code> refers to the
-    // processor number (enough for up to 10,000 processors, though we hope
-    // that nobody ever tries to generate this much data -- you would likely
-    // overflow all file system quotas), and <code>.vtu</code> indicates the
-    // XML-based Visualization Toolkit for Unstructured grids (VTU) file
-    // format.
-    const std::string filename =
-      ("solution-" + Utilities::int_to_string(cycle, 2) + "." +
-       Utilities::int_to_string(triangulation.locally_owned_subdomain(), 4));
-    std::ofstream output(filename + ".vtu");
-    data_out.write_vtu(output);
-
-    // The last step is to write a "master record" that lists for the
-    // visualization program the names of the various files that combined
-    // represents the graphical data for the entire domain. The
-    // DataOutBase::write_pvtu_record does this, and it needs a list of
-    // filenames that we create first. Note that only one processor needs to
-    // generate this file; we arbitrarily choose processor zero to take over
-    // this job.
-    if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-      {
-        std::vector<std::string> filenames;
-        for (unsigned int i = 0;
-             i < Utilities::MPI::n_mpi_processes(mpi_communicator);
-             ++i)
-          filenames.push_back("solution-" + Utilities::int_to_string(cycle, 2) +
-                              "." + Utilities::int_to_string(i, 4) + ".vtu");
-
-        std::ofstream master_output(
-          "solution-" + Utilities::int_to_string(cycle, 2) + ".pvtu");
-        data_out.write_pvtu_record(master_output, filenames);
-      }
+    // The next step is to write this data to disk. We write up to 8 VTU files
+    // in parallel with the help of MPI-IO. Additionally a PVTU record is
+    // generated, which groups the written VTU files.
+    data_out.write_vtu_with_pvtu_record(
+      "./", "solution", cycle, mpi_communicator, 2, 8);
   }
 
 

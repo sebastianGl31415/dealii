@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -57,7 +57,6 @@ DEAL_II_NAMESPACE_OPEN
  * list_subscribers().
  *
  * @ingroup memory
- * @author Guido Kanschat, Daniel Arndt, 1998 - 2005, 2018
  */
 class Subscriptor
 {
@@ -104,24 +103,20 @@ public:
   operator=(Subscriptor &&) noexcept;
 
   /**
-   * Subscribes a user of the object by storing the pointer @p validity. The
-   * subscriber may be identified by text supplied as @p identifier. The latter
-   * variable must not be a temporary and its type must decay to
-   * const char *. In particular, calling this function with a rvalue reference
-   * is not allowed.
+   * @name Subscriptor functionality
+   *
+   * Classes derived from Subscriptor provide a facility to subscribe to this
+   * object. This is mostly used by the SmartPointer class.
    */
-  template <typename ConstCharStar = const char *>
-  typename std::enable_if<
-    std::is_same<ConstCharStar, const char *>::value>::type
-  subscribe(std::atomic<bool> *const validity,
-            ConstCharStar            identifier = nullptr) const;
+  // @{
 
   /**
-   * Calling subscribe() with a rvalue reference as identifier is not allowed.
+   * Subscribes a user of the object by storing the pointer @p validity. The
+   * subscriber may be identified by text supplied as @p identifier.
    */
   void
   subscribe(std::atomic<bool> *const validity,
-            const char *&&           identifier) const = delete;
+            const std::string &      identifier = "") const;
 
   /**
    * Unsubscribes a user from the object.
@@ -131,7 +126,7 @@ public:
    */
   void
   unsubscribe(std::atomic<bool> *const validity,
-              const char *             identifier = nullptr) const;
+              const std::string &      identifier = "") const;
 
   /**
    * Return the present number of subscriptions to this object. This allows to
@@ -153,6 +148,8 @@ public:
    */
   void
   list_subscribers() const;
+
+  // @}
 
   /**
    * @addtogroup Exceptions
@@ -218,28 +215,14 @@ private:
    * This counter may be read from and written to concurrently in
    * multithreaded code: hence we use the <code>std::atomic</code> class
    * template.
-   *
    */
   mutable std::atomic<unsigned int> counter;
-
-  /*
-   * Functor struct used for key comparison in #counter_map.
-   * Not the memory location but the actual C-string content is compared.
-   */
-  struct MapCompare
-  {
-    bool
-    operator()(const char *lhs, const char *rhs) const
-    {
-      return std::strcmp(lhs, rhs) > 0;
-    }
-  };
 
   /**
    * In this map, we count subscriptions for each different identification
    * string supplied to subscribe().
    */
-  mutable std::map<const char *, unsigned int, MapCompare> counter_map;
+  mutable std::map<std::string, unsigned int> counter_map;
 
   /**
    * The data type used in #counter_map.
@@ -290,6 +273,37 @@ private:
 
 //---------------------------------------------------------------------------
 
+inline Subscriptor::Subscriptor()
+  : counter(0)
+  , object_info(nullptr)
+{}
+
+
+
+inline Subscriptor::Subscriptor(const Subscriptor &)
+  : counter(0)
+  , object_info(nullptr)
+{}
+
+
+
+inline Subscriptor &
+Subscriptor::operator=(const Subscriptor &s)
+{
+  object_info = s.object_info;
+  return *this;
+}
+
+
+
+inline unsigned int
+Subscriptor::n_subscriptions() const
+{
+  return counter;
+}
+
+
+
 template <class Archive>
 inline void
 Subscriptor::serialize(Archive &, const unsigned int)
@@ -304,9 +318,9 @@ Subscriptor::list_subscribers(StreamType &stream) const
 {
   std::lock_guard<std::mutex> lock(mutex);
 
-  for (map_iterator it = counter_map.begin(); it != counter_map.end(); ++it)
-    stream << it->second << '/' << counter << " subscriptions from \""
-           << it->first << '\"' << std::endl;
+  for (const auto &it : counter_map)
+    stream << it.second << '/' << counter << " subscriptions from \""
+           << it.first << '\"' << std::endl;
 }
 
 DEAL_II_NAMESPACE_CLOSE

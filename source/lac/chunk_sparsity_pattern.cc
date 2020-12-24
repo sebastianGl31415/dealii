@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2008 - 2017 by the deal.II authors
+// Copyright (C) 2008 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -128,11 +128,10 @@ ChunkSparsityPattern::reinit(const size_type m,
 
 
 void
-ChunkSparsityPattern::reinit(
-  const size_type                                  m,
-  const size_type                                  n,
-  const VectorSlice<const std::vector<size_type>> &row_lengths,
-  const size_type                                  chunk_size)
+ChunkSparsityPattern::reinit(const size_type                   m,
+                             const size_type                   n,
+                             const ArrayView<const size_type> &row_lengths,
+                             const size_type                   chunk_size)
 {
   Assert(row_lengths.size() == m, ExcInvalidNumber(m));
   Assert(chunk_size > 0, ExcInvalidNumber(chunk_size));
@@ -265,7 +264,7 @@ ChunkSparsityPattern::reinit(const size_type               m,
 {
   Assert(chunk_size > 0, ExcInvalidNumber(chunk_size));
 
-  reinit(m, n, make_slice(row_lengths), chunk_size);
+  reinit(m, n, make_array_view(row_lengths), chunk_size);
 }
 
 
@@ -293,10 +292,10 @@ namespace internal
 
 template <typename Sparsity>
 void
-ChunkSparsityPattern::create_from(const unsigned int m,
-                                  const unsigned int n,
+ChunkSparsityPattern::create_from(const size_type m,
+                                  const size_type n,
                                   const Sparsity &sparsity_pattern_for_chunks,
-                                  const unsigned int chunk_size_in,
+                                  const size_type chunk_size_in,
                                   const bool)
 {
   Assert(m > (sparsity_pattern_for_chunks.n_rows() - 1) * chunk_size_in &&
@@ -346,8 +345,8 @@ ChunkSparsityPattern::add(const size_type i, const size_type j)
 bool
 ChunkSparsityPattern::exists(const size_type i, const size_type j) const
 {
-  Assert(i < rows, ExcIndexRange(i, 0, rows));
-  Assert(j < cols, ExcIndexRange(j, 0, cols));
+  AssertIndexRange(i, rows);
+  AssertIndexRange(j, cols);
 
   return sparsity_pattern.exists(i / chunk_size, j / chunk_size);
 }
@@ -370,7 +369,7 @@ ChunkSparsityPattern::symmetrize()
 ChunkSparsityPattern::size_type
 ChunkSparsityPattern::row_length(const size_type i) const
 {
-  Assert(i < rows, ExcIndexRange(i, 0, rows));
+  AssertIndexRange(i, rows);
 
   // find out if we did padding and if this row is affected by it
   if (n_cols() % chunk_size == 0)
@@ -593,23 +592,24 @@ ChunkSparsityPattern::memory_consumption() const
 
 
 
+#ifndef DOXYGEN
 // explicit instantiations
 template void
 ChunkSparsityPattern::copy_from<DynamicSparsityPattern>(
   const DynamicSparsityPattern &,
   const size_type);
 template void
-ChunkSparsityPattern::create_from<SparsityPattern>(const unsigned int,
-                                                   const unsigned int,
+ChunkSparsityPattern::create_from<SparsityPattern>(const size_type,
+                                                   const size_type,
                                                    const SparsityPattern &,
-                                                   const unsigned int,
+                                                   const size_type,
                                                    const bool);
 template void
 ChunkSparsityPattern::create_from<DynamicSparsityPattern>(
-  const unsigned int,
-  const unsigned int,
+  const size_type,
+  const size_type,
   const DynamicSparsityPattern &,
-  const unsigned int,
+  const size_type,
   const bool);
 template void
 ChunkSparsityPattern::copy_from<float>(const FullMatrix<float> &,
@@ -617,5 +617,6 @@ ChunkSparsityPattern::copy_from<float>(const FullMatrix<float> &,
 template void
 ChunkSparsityPattern::copy_from<double>(const FullMatrix<double> &,
                                         const size_type);
+#endif
 
 DEAL_II_NAMESPACE_CLOSE

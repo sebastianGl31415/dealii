@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2017 by the deal.II authors
+// Copyright (C) 2016 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -16,6 +16,8 @@
 #ifndef dealii_transformations_h
 #define dealii_transformations_h
 
+#include <deal.II/base/config.h>
+
 #include <deal.II/base/point.h>
 #include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/base/tensor.h>
@@ -30,8 +32,6 @@ namespace Physics
     /**
      * Transformation functions and tensors that are defined in terms of
      * rotation angles and axes of rotation.
-     *
-     * @author Jean-Paul Pelteret, 2017
      */
     namespace Rotations
     {
@@ -44,8 +44,8 @@ namespace Physics
        * Return the rotation matrix for 2-d Euclidean space, namely
        * @f[
        *  \mathbf{R} \dealcoloneq \left[ \begin{array}{cc}
-       *  cos(\theta) & sin(\theta) \\
-       *  -sin(\theta) & cos(\theta)
+       *  cos(\theta) & -sin(\theta) \\
+       *  sin(\theta) & cos(\theta)
        * \end{array}\right]
        * @f]
        * where $\theta$ is the rotation angle given in radians. In particular,
@@ -111,8 +111,6 @@ namespace Physics
      * reference and spatial configurations, and their surfaces $\partial
      * V_{0}$ and $\partial V_{t}$ have the outwards facing normals
      * $\mathbf{N}$ and $\mathbf{n}$.
-     *
-     * @author Jean-Paul Pelteret, Andrew McBride, 2016
      */
     namespace Contravariant
     {
@@ -338,8 +336,6 @@ namespace Physics
      * the curves $\partial A_{0}$ and $\partial A_{t}$ that are,
      * respectively, associated with the line directors $\mathbf{L}$ and
      * $\mathbf{l}$.
-     *
-     * @author Jean-Paul Pelteret, Andrew McBride, 2016
      */
     namespace Covariant
     {
@@ -552,8 +548,6 @@ namespace Physics
      * Transformation of tensors that are defined in terms of a set of
      * contravariant basis vectors and scale with the inverse of the volume
      * change associated with the mapping.
-     *
-     * @author Jean-Paul Pelteret, Andrew McBride, 2016
      */
     namespace Piola
     {
@@ -852,8 +846,9 @@ namespace internal
       Tensor<2, dim, Number> tmp_1;
       for (unsigned int i = 0; i < dim; ++i)
         for (unsigned int J = 0; J < dim; ++J)
-          for (unsigned int I = 0; I < dim; ++I)
-            tmp_1[i][J] += F[i][I] * T[I][J];
+          // Loop over I but complex.h defines a macro I, so use I_ instead
+          for (unsigned int I_ = 0; I_ < dim; ++I_)
+            tmp_1[i][J] += F[i][I_] * T[I_][J];
 
       dealii::SymmetricTensor<2, dim, Number> out;
       for (unsigned int i = 0; i < dim; ++i)
@@ -918,12 +913,13 @@ namespace internal
 
       // Push forward (inner) index 1
       Tensor<4, dim, Number> tmp;
-      for (unsigned int I = 0; I < dim; ++I)
+      // Loop over I but complex.h defines a macro I, so use I_ instead
+      for (unsigned int I_ = 0; I_ < dim; ++I_)
         for (unsigned int j = 0; j < dim; ++j)
           for (unsigned int K = 0; K < dim; ++K)
             for (unsigned int L = 0; L < dim; ++L)
               for (unsigned int J = 0; J < dim; ++J)
-                tmp[I][j][K][L] += F[j][J] * H[I][J][K][L];
+                tmp[I_][j][K][L] += F[j][J] * H[I_][J][K][L];
 
       // Push forward (outer) indices 0 and 3
       tmp = contract<1, 0>(F, contract<3, 1>(tmp, F));
@@ -948,7 +944,7 @@ template <typename Number>
 Tensor<2, 2, Number>
 Physics::Transformations::Rotations::rotation_matrix_2d(const Number &angle)
 {
-  const double rotation[2][2] = {{std::cos(angle), -std::sin(angle)},
+  const Number rotation[2][2] = {{std::cos(angle), -std::sin(angle)},
                                  {std::sin(angle), std::cos(angle)}};
   return Tensor<2, 2>(rotation);
 }
@@ -966,7 +962,7 @@ Physics::Transformations::Rotations::rotation_matrix_3d(
   const Number c              = std::cos(angle);
   const Number s              = std::sin(angle);
   const Number t              = 1. - c;
-  const double rotation[3][3] = {{t * axis[0] * axis[0] + c,
+  const Number rotation[3][3] = {{t * axis[0] * axis[0] + c,
                                   t * axis[0] * axis[1] - s * axis[2],
                                   t * axis[0] * axis[2] + s * axis[1]},
                                  {t * axis[0] * axis[1] + s * axis[2],

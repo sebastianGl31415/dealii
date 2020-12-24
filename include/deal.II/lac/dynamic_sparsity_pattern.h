@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2011 - 2017 by the deal.II authors
+// Copyright (C) 2011 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -31,7 +31,10 @@
 
 DEAL_II_NAMESPACE_OPEN
 
+// Forward declaration
+#ifndef DOXYGEN
 class DynamicSparsityPattern;
+#endif
 
 /*! @addtogroup Sparsity
  *@{
@@ -58,9 +61,6 @@ namespace DynamicSparsityPatternIterators
    * row and column number (or alternatively the index within the complete
    * sparsity pattern). It does not allow modifying the sparsity pattern
    * itself.
-   *
-   * @author Wolfgang Bangerth
-   * @date 2015
    */
   class Accessor
   {
@@ -76,6 +76,13 @@ namespace DynamicSparsityPatternIterators
      * Constructor. Construct the end accessor for the given sparsity pattern.
      */
     Accessor(const DynamicSparsityPattern *sparsity_pattern);
+
+    /**
+     * Default constructor creating a dummy accessor. This constructor is here
+     * only to be able to store accessors in STL containers such as
+     * `std::vector`.
+     */
+    Accessor();
 
     /**
      * Row number of the element represented by this object.
@@ -112,6 +119,12 @@ namespace DynamicSparsityPatternIterators
     operator<(const Accessor &) const;
 
   protected:
+    DeclExceptionMsg(DummyAccessor,
+                     "The instance of this class was initialized"
+                     " without DynamicSparsityPattern object, which"
+                     " means that it is a dummy accessor that can"
+                     " not do any operations.");
+
     /**
      * The sparsity pattern we operate on accessed.
      */
@@ -142,9 +155,7 @@ namespace DynamicSparsityPatternIterators
     void
     advance();
 
-    /**
-     * Grant access to iterator class.
-     */
+    // Grant access to iterator class.
     friend class Iterator;
   };
 
@@ -191,6 +202,13 @@ namespace DynamicSparsityPatternIterators
      * @p sp.
      */
     Iterator(const DynamicSparsityPattern *sp);
+
+    /**
+     * Default constructor creating an invalid iterator. This constructor is
+     * here only to be able to store iterators in STL containers such as
+     * `std::vector`.
+     */
+    Iterator() = default;
 
     /**
      * Prefix increment.
@@ -296,8 +314,6 @@ namespace DynamicSparsityPatternIterators
  * SparsityPattern sp;
  * sp.copy_from (dynamic_pattern);
  * @endcode
- *
- * @author Timo Heister, 2008
  */
 class DynamicSparsityPattern : public Subscriptor
 {
@@ -427,6 +443,15 @@ public:
   exists(const size_type i, const size_type j) const;
 
   /**
+   * Return a view of this sparsity pattern.
+   * That is, for all rows in @p rows extract non-empty columns.
+   * The resulting sparsity pattern will have number of rows equal
+   * `rows.n_elements()`.
+   */
+  DynamicSparsityPattern
+  get_view(const IndexSet &rows) const;
+
+  /**
    * Make the sparsity pattern symmetric by adding the sparsity pattern of the
    * transpose object.
    *
@@ -497,6 +522,12 @@ public:
    */
   size_type
   row_length(const size_type row) const;
+
+  /**
+   * Clear all entries stored in a specific row.
+   */
+  void
+  clear_row(const size_type row);
 
   /**
    * Access to column number field.  Return the column number of the @p
@@ -594,6 +625,24 @@ public:
    */
   const IndexSet &
   row_index_set() const;
+
+  /**
+   * Return the IndexSet that contains entries for all columns in which at least
+   * one element exists in this sparsity pattern.
+   *
+   * @note In a parallel context, this only considers the locally stored rows.
+   */
+  IndexSet
+  nonempty_cols() const;
+
+  /**
+   * Return the IndexSet that contains entries for all rows in which at least
+   * one element exists in this sparsity pattern.
+   *
+   * @note In a parallel context, this only considers the locally stored rows.
+   */
+  IndexSet
+  nonempty_rows() const;
 
   /**
    * return whether this object stores only those entries that have been added
@@ -736,9 +785,18 @@ namespace DynamicSparsityPatternIterators
 
 
 
+  inline Accessor::Accessor()
+    : sparsity_pattern(nullptr)
+    , current_row(numbers::invalid_size_type)
+    , current_entry()
+    , end_of_row()
+  {}
+
+
   inline size_type
   Accessor::row() const
   {
+    Assert(sparsity_pattern != nullptr, DummyAccessor());
     Assert(current_row < sparsity_pattern->n_rows(), ExcInternalError());
 
     return current_row;
@@ -748,6 +806,7 @@ namespace DynamicSparsityPatternIterators
   inline size_type
   Accessor::column() const
   {
+    Assert(sparsity_pattern != nullptr, DummyAccessor());
     Assert(current_row < sparsity_pattern->n_rows(), ExcInternalError());
 
     return *current_entry;
@@ -757,6 +816,7 @@ namespace DynamicSparsityPatternIterators
   inline size_type
   Accessor::index() const
   {
+    Assert(sparsity_pattern != nullptr, DummyAccessor());
     Assert(current_row < sparsity_pattern->n_rows(), ExcInternalError());
 
     return (current_entry -
@@ -772,6 +832,8 @@ namespace DynamicSparsityPatternIterators
   inline bool
   Accessor::operator==(const Accessor &other) const
   {
+    Assert(sparsity_pattern != nullptr, DummyAccessor());
+    Assert(other.sparsity_pattern != nullptr, DummyAccessor());
     // compare the sparsity pattern the iterator points into, the
     // current row, and the location within this row. ignore the
     // latter if the row is past-the-end because in that case the
@@ -787,6 +849,8 @@ namespace DynamicSparsityPatternIterators
   inline bool
   Accessor::operator<(const Accessor &other) const
   {
+    Assert(sparsity_pattern != nullptr, DummyAccessor());
+    Assert(other.sparsity_pattern != nullptr, DummyAccessor());
     Assert(sparsity_pattern == other.sparsity_pattern, ExcInternalError());
 
     // if *this is past-the-end, then it is less than no one
@@ -811,6 +875,7 @@ namespace DynamicSparsityPatternIterators
   inline void
   Accessor::advance()
   {
+    Assert(sparsity_pattern != nullptr, DummyAccessor());
     Assert(current_row < sparsity_pattern->n_rows(), ExcInternalError());
 
     // move to the next element in this row
@@ -961,8 +1026,8 @@ DynamicSparsityPattern::n_cols() const
 inline void
 DynamicSparsityPattern::add(const size_type i, const size_type j)
 {
-  Assert(i < rows, ExcIndexRangeType<size_type>(i, 0, rows));
-  Assert(j < cols, ExcIndexRangeType<size_type>(j, 0, cols));
+  AssertIndexRange(i, rows);
+  AssertIndexRange(j, cols);
 
   if (rowset.size() > 0 && !rowset.is_element(i))
     return;
@@ -983,7 +1048,7 @@ DynamicSparsityPattern::add_entries(const size_type row,
                                     ForwardIterator end,
                                     const bool      indices_are_sorted)
 {
-  Assert(row < rows, ExcIndexRangeType<size_type>(row, 0, rows));
+  AssertIndexRange(row, rows);
 
   if (rowset.size() > 0 && !rowset.is_element(row))
     return;
@@ -1001,7 +1066,7 @@ DynamicSparsityPattern::add_entries(const size_type row,
 inline types::global_dof_index
 DynamicSparsityPattern::row_length(const size_type row) const
 {
-  Assert(row < n_rows(), ExcIndexRangeType<size_type>(row, 0, n_rows()));
+  AssertIndexRange(row, n_rows());
 
   if (!have_entries)
     return 0;
@@ -1020,15 +1085,12 @@ inline types::global_dof_index
 DynamicSparsityPattern::column_number(const size_type row,
                                       const size_type index) const
 {
-  Assert(row < n_rows(), ExcIndexRangeType<size_type>(row, 0, n_rows()));
+  AssertIndexRange(row, n_rows());
   Assert(rowset.size() == 0 || rowset.is_element(row), ExcInternalError());
 
   const size_type local_row =
     rowset.size() ? rowset.index_within_set(row) : row;
-  Assert(index < lines[local_row].entries.size(),
-         ExcIndexRangeType<size_type>(index,
-                                      0,
-                                      lines[local_row].entries.size()));
+  AssertIndexRange(index, lines[local_row].entries.size());
   return lines[local_row].entries[index];
 }
 
@@ -1047,7 +1109,7 @@ DynamicSparsityPattern::begin() const
 inline DynamicSparsityPattern::iterator
 DynamicSparsityPattern::end() const
 {
-  return iterator(this);
+  return {this};
 }
 
 
@@ -1055,10 +1117,10 @@ DynamicSparsityPattern::end() const
 inline DynamicSparsityPattern::iterator
 DynamicSparsityPattern::begin(const size_type r) const
 {
-  Assert(r < n_rows(), ExcIndexRangeType<size_type>(r, 0, n_rows()));
+  AssertIndexRange(r, n_rows());
 
   if (!have_entries)
-    return iterator(this);
+    return {this};
 
   if (rowset.size() > 0)
     {
@@ -1089,7 +1151,7 @@ DynamicSparsityPattern::begin(const size_type r) const
       if (it == rowset.end())
         return end();
       else
-        return iterator(this, *it, 0);
+        return {this, *it, 0};
     }
 
   // Without an index set we have to do a linear search starting at
@@ -1103,9 +1165,9 @@ DynamicSparsityPattern::begin(const size_type r) const
     }
 
   if (row == n_rows())
-    return iterator(this);
+    return {this};
   else
-    return iterator(this, row, 0);
+    return {this, row, 0};
 }
 
 
@@ -1113,11 +1175,11 @@ DynamicSparsityPattern::begin(const size_type r) const
 inline DynamicSparsityPattern::iterator
 DynamicSparsityPattern::end(const size_type r) const
 {
-  Assert(r < n_rows(), ExcIndexRangeType<size_type>(r, 0, n_rows()));
+  AssertIndexRange(r, n_rows());
 
   unsigned int row = r + 1;
   if (row == n_rows())
-    return iterator(this);
+    return {this};
   else
     return begin(row);
 }

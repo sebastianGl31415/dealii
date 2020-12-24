@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -29,7 +29,6 @@
 
 #include "../tests.h"
 
-using namespace dealii;
 
 int
 main()
@@ -57,8 +56,8 @@ main()
                               quadrature,
                               update_normal_vectors | update_quadrature_points);
 
-  for (auto cell : tria.active_cell_iterators())
-    for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+  for (auto &cell : tria.active_cell_iterators())
+    for (const unsigned int f : GeometryInfo<dim>::face_indices())
       if (cell->at_boundary(f))
         {
           fe_values.reinit(cell, f);

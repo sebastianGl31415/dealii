@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2008 - 2018 by the deal.II authors
+// Copyright (C) 2008 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -47,12 +47,15 @@
 
 DEAL_II_NAMESPACE_OPEN
 
+// Forward declarations
+#  ifndef DOXYGEN
 namespace LinearAlgebra
 {
   // Forward declaration
   template <typename Number>
   class ReadWriteVector;
 } // namespace LinearAlgebra
+#  endif
 
 /**
  * @addtogroup TrilinosWrappers
@@ -104,6 +107,11 @@ namespace TrilinosWrappers
       VectorReference(MPI::Vector &vector, const size_type index);
 
     public:
+      /**
+       * Copy constructor.
+       */
+      VectorReference(const VectorReference &) = default;
+
       /**
        * This looks like a copy operator, but does something different than
        * usual. In particular, it does not copy the member variables of this
@@ -179,10 +187,8 @@ namespace TrilinosWrappers
        */
       const size_type index;
 
-      /**
-       * Make the vector class a friend, so that it can create objects of the
-       * present type.
-       */
+      // Make the vector class a friend, so that it can create objects of the
+      // present type.
       friend class ::dealii::TrilinosWrappers::MPI::Vector;
     };
   } // namespace internal
@@ -214,7 +220,6 @@ namespace TrilinosWrappers
    * Namespace for Trilinos vector classes that work in parallel over MPI.
    *
    * @ingroup TrilinosWrappers
-   * @author Martin Kronbichler, Wolfgang Bangerth, Daniel Arndt, 2008, 2017
    */
   namespace MPI
   {
@@ -393,7 +398,6 @@ namespace TrilinosWrappers
      *
      * @ingroup TrilinosWrappers
      * @ingroup Vectors
-     * @author Martin Kronbichler, Wolfgang Bangerth, Daniel Arndt,
      *         2008, 2009, 2017
      */
     class Vector : public Subscriptor
@@ -1199,16 +1203,6 @@ namespace TrilinosWrappers
       trilinos_vector();
 
       /**
-       * Return a const reference to the underlying Trilinos Epetra_Map that
-       * sets the parallel partitioning of the vector.
-       *
-       * @deprecated Use trilinos_partitioner() instead.
-       */
-      DEAL_II_DEPRECATED
-      const Epetra_Map &
-      vector_partitioner() const;
-
-      /**
        * Return a const reference to the underlying Trilinos Epetra_BlockMap
        * that sets the parallel partitioning of the vector.
        */
@@ -1335,9 +1329,7 @@ namespace TrilinosWrappers
        */
       IndexSet owned_elements;
 
-      /**
-       * Make the reference class a friend.
-       */
+      // Make the reference class a friend.
       friend class internal::VectorReference;
     };
 
@@ -1352,7 +1344,6 @@ namespace TrilinosWrappers
      * simply exchanges the data of the two vectors.
      *
      * @relatesalso TrilinosWrappers::MPI::Vector
-     * @author Martin Kronbichler, Wolfgang Bangerth, 2008
      */
     inline void
     swap(Vector &u, Vector &v)
@@ -1869,7 +1860,7 @@ namespace TrilinosWrappers
 
       // loop over all the elements because
       // Trilinos does not support lp norms
-      for (size_type i = 0; i < n_local; i++)
+      for (size_type i = 0; i < n_local; ++i)
         sum += std::pow(std::fabs((*vector)[0][i]), p);
 
       norm = std::pow(sum, static_cast<TrilinosScalar>(1. / p));
@@ -1981,7 +1972,7 @@ namespace TrilinosWrappers
       AssertIsFinite(s);
 
       size_type n_local = local_size();
-      for (size_type i = 0; i < n_local; i++)
+      for (size_type i = 0; i < n_local; ++i)
         (*vector)[0][i] += s;
     }
 
@@ -2144,15 +2135,6 @@ namespace TrilinosWrappers
 
 
 
-    inline const Epetra_Map &
-    Vector::vector_partitioner() const
-    {
-      // TODO A dynamic_cast fails here. This is suspicious.
-      return static_cast<const Epetra_Map &>(vector->Map()); // NOLINT
-    }
-
-
-
     inline const Epetra_BlockMap &
     Vector::trilinos_partitioner() const
     {
@@ -2263,8 +2245,6 @@ namespace internal
 
 /**
  * Declare dealii::TrilinosWrappers::MPI::Vector as distributed vector.
- *
- * @author Uwe Koecher, 2017
  */
 template <>
 struct is_serial_vector<TrilinosWrappers::MPI::Vector> : std::false_type

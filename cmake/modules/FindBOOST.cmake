@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2014 - 2017 by the deal.II authors
+## Copyright (C) 2014 - 2019 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -50,6 +50,12 @@ ENDIF()
 
 # temporarily disable ${CMAKE_SOURCE_DIR}/cmake/modules for module lookup
 LIST(REMOVE_ITEM CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules/)
+
+# Work around a CMake compatibility issue with boost-1.70.0
+# compare https://gitlab.kitware.com/cmake/cmake/issues/18865
+# and https://lists.boost.org/Archives/boost/2019/02/245016.php
+SET(Boost_NO_BOOST_CMAKE ON)
+
 IF(DEAL_II_WITH_ZLIB)
   FIND_PACKAGE(Boost ${BOOST_VERSION_REQUIRED} COMPONENTS
     iostreams serialization system thread
@@ -77,15 +83,9 @@ IF(NOT Boost_FOUND AND Boost_USE_STATIC_LIBS)
   LIST(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules/)
 ENDIF()
 
-
+UNSET(Boost_NO_BOOST_CMAKE)
 
 IF(Boost_FOUND)
-  #
-  # Remove "pthread" from Boost_LIBRARIES. Threading, if necessary, is
-  # already set up via configure_1_threads.cmake.
-  #
-  LIST(REMOVE_ITEM Boost_LIBRARIES "pthread")
-
   SET(BOOST_VERSION_MAJOR "${Boost_MAJOR_VERSION}")
   SET(BOOST_VERSION_MINOR "${Boost_MINOR_VERSION}")
   SET(BOOST_VERSION_SUBMINOR "${Boost_SUBMINOR_VERSION}")

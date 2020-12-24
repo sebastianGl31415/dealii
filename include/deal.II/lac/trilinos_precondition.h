@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2008 - 2018 by the deal.II authors
+// Copyright (C) 2008 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -34,27 +34,31 @@
 #      include <Epetra_SerialComm.h>
 #    endif
 #    include <Epetra_Map.h>
+#    include <Epetra_MultiVector.h>
 #    include <Epetra_RowMatrix.h>
 #    include <Epetra_Vector.h>
 #    include <Teuchos_ParameterList.hpp>
 
 // forward declarations
+#    ifndef DOXYGEN
 class Ifpack_Preconditioner;
 class Ifpack_Chebyshev;
 namespace ML_Epetra
 {
   class MultiLevelPreconditioner;
 }
-
+#    endif
 
 DEAL_II_NAMESPACE_OPEN
 
 // forward declarations
+#    ifndef DOXYGEN
 template <typename number>
 class SparseMatrix;
 template <typename number>
 class Vector;
 class SparsityPattern;
+#    endif
 
 /*! @addtogroup TrilinosWrappers
  *@{
@@ -72,8 +76,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008; extension for full compatibility with
-   * LinearOperator class: Jean-Paul Pelteret, 2015
    */
   class PreconditionBase : public Subscriptor
   {
@@ -212,7 +214,6 @@ namespace TrilinosWrappers
 
     /**
      * @addtogroup Exceptions
-     *
      */
     //@{
     /**
@@ -232,7 +233,7 @@ namespace TrilinosWrappers
      * This is a pointer to the preconditioner object that is used when
      * applying the preconditioner.
      */
-    std::shared_ptr<Epetra_Operator> preconditioner;
+    Teuchos::RCP<Epetra_Operator> preconditioner;
 
     /**
      * Internal communication pattern in case the matrix needs to be copied
@@ -266,7 +267,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionJacobi : public PreconditionBase
   {
@@ -348,7 +348,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Wolfgang Bangerth, 2008
    */
   class PreconditionSSOR : public PreconditionBase
   {
@@ -443,7 +442,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionSOR : public PreconditionBase
   {
@@ -529,7 +527,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2014
    */
   class PreconditionBlockJacobi : public PreconditionBase
   {
@@ -631,7 +628,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2014
    */
   class PreconditionBlockSSOR : public PreconditionBase
   {
@@ -743,7 +739,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2014
    */
   class PreconditionBlockSOR : public PreconditionBase
   {
@@ -868,7 +863,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionIC : public PreconditionBase
   {
@@ -973,7 +967,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionILU : public PreconditionBase
   {
@@ -1092,7 +1085,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2009
    */
   class PreconditionILUT : public PreconditionBase
   {
@@ -1195,7 +1187,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionBlockwiseDirect : public PreconditionBase
   {
@@ -1237,7 +1228,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionChebyshev : public PreconditionBase
   {
@@ -1296,7 +1286,7 @@ namespace TrilinosWrappers
        * smoothing), but not the way the solver classes expect a
        * preconditioner to work (where one ignores the content in <tt>dst</tt>
        * for the preconditioner application). The user should really know what
-       * she is doing when touching this flag.
+       * they are doing when touching this flag.
        */
       bool nonzero_starting;
     };
@@ -1326,7 +1316,7 @@ namespace TrilinosWrappers
    * Since the Trilinos objects we want to use are heavily dependent on Epetra
    * objects, we recommend using this class in conjunction with Trilinos
    * (Epetra) sparse matrices and vectors. There is support for use with
-   * matrices of the deal.II::SparseMatrix class and corresponding vectors,
+   * matrices of the dealii::SparseMatrix class and corresponding vectors,
    * too, but this requires generating a copy of the matrix, which is slower
    * and takes (much) more memory. When doing such a copy operation, we can
    * still profit from the fact that some of the entries in the preconditioner
@@ -1352,7 +1342,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Martin Kronbichler, 2008
    */
   class PreconditionAMG : public PreconditionBase
   {
@@ -1368,6 +1357,25 @@ namespace TrilinosWrappers
       /**
        * Constructor. By default, we pretend to work on elliptic problems with
        * linear finite elements on a scalar equation.
+       *
+       * Making use of the DoFTools::extract_constant_modes() function, the
+       * @p constant_modes vector can be initialized for a given field in the
+       * following manner:
+       *
+       * @code
+       *   #include <deal.II/dofs/dof_tools.h>
+       *   ...
+       *
+       *   DoFHandler<...> dof_handler;
+       *   FEValuesExtractors::Type... field_extractor;
+       *   ...
+       *
+       *   TrilinosWrappers::PreconditionAMG::AdditionalData data;
+       *   DoFTools::extract_constant_modes(
+       *     dof_handler,
+       *     dof_handler.get_fe_collection().component_mask(field_extractor),
+       *     data.constant_modes );
+       * @endcode
        */
       AdditionalData(const bool         elliptic              = true,
                      const bool         higher_order_elements = false,
@@ -1381,6 +1389,77 @@ namespace TrilinosWrappers
                      const bool         output_details   = false,
                      const char *       smoother_type    = "Chebyshev",
                      const char *       coarse_type      = "Amesos-KLU");
+
+      /**
+       * Fill in a @p parameter_list that can be used to initialize the
+       * AMG preconditioner.
+       *
+       * The @p matrix is used in conjunction with the @p constant_modes to
+       * configure the null space settings for the preconditioner.
+       * The @p distributed_constant_modes are initialized by this function, and
+       * must remain in scope until PreconditionAMG::initialize() has been
+       * called.
+       *
+       * @note The set parameters reflect the current settings in this
+       * object, with various options being set both directly though the state
+       * of the member variables (e.g. the "smoother: type") as well as
+       * indirectly (e.g. the "aggregation: type"). If you wish to have
+       * fine-grained control over the configuration of the AMG preconditioner,
+       * then you can create the parameter list using this function (which
+       * conveniently sets the null space of the operator), change the relevant
+       * settings, and use the amended parameters list as an argument to
+       * PreconditionAMG::initialize(), instead of the AdditionalData object
+       * itself.
+       *
+       * See the documentation for the
+       * <a
+       * href="https://trilinos.org/docs/dev/packages/ml/doc/html/index.html">
+       * Trilinos ML package</a> for details on what options are available for
+       * modification.
+       *
+       * @note Any user-defined parameters that are not in conflict with those
+       * set by this data structure will be retained.
+       */
+      void
+      set_parameters(
+        Teuchos::ParameterList &             parameter_list,
+        std::unique_ptr<Epetra_MultiVector> &distributed_constant_modes,
+        const Epetra_RowMatrix &             matrix) const;
+
+      /**
+       * Fill in a parameter list that can be used to initialize the
+       * AMG preconditioner.
+       *
+       * @note Any user-defined parameters that are not in conflict with those
+       * set by this data structure will be retained.
+       */
+      void
+      set_parameters(
+        Teuchos::ParameterList &             parameter_list,
+        std::unique_ptr<Epetra_MultiVector> &distributed_constant_modes,
+        const SparseMatrix &                 matrix) const;
+
+      /**
+       * Configure the null space setting in the @p parameter_list for
+       * the input @p matrix based on the state of the @p constant_modes
+       * variable.
+       */
+      void
+      set_operator_null_space(
+        Teuchos::ParameterList &             parameter_list,
+        std::unique_ptr<Epetra_MultiVector> &distributed_constant_modes,
+        const Epetra_RowMatrix &             matrix) const;
+
+      /**
+       * Configure the null space setting in the @p parameter_list for
+       * the input @p matrix based on the state of the @p constant_modes
+       * variable.
+       */
+      void
+      set_operator_null_space(
+        Teuchos::ParameterList &             parameter_list,
+        std::unique_ptr<Epetra_MultiVector> &distributed_constant_modes,
+        const SparseMatrix &                 matrix) const;
 
       /**
        * Determines whether the AMG preconditioner should be optimized for
@@ -1574,7 +1653,7 @@ namespace TrilinosWrappers
 
     /**
      * Let Trilinos compute a multilevel hierarchy for the solution of a
-     * linear system with the given matrix. This function takes a deal.ii
+     * linear system with the given matrix. This function takes a deal.II
      * matrix and copies the content into a Trilinos matrix, so the function
      * can be considered rather inefficient.
      */
@@ -1622,7 +1701,7 @@ namespace TrilinosWrappers
 
 
 
-#    if defined(DOXYGEN) || DEAL_II_TRILINOS_VERSION_GTE(11, 14, 0)
+#    if defined(DOXYGEN) || defined(DEAL_II_TRILINOS_WITH_MUELU)
   /**
    * This class implements an algebraic multigrid (AMG) preconditioner based
    * on the Trilinos MueLu implementation, which is a black-box preconditioner
@@ -1631,14 +1710,15 @@ namespace TrilinosWrappers
    * except for the higher_order_elements parameter which does not exist in
    * PreconditionerAMGMueLu.
    *
-   * @note This class requires Trilinos 11.14 or higher. At the moment 64bit-indices
-   * are not supported.
+   * @note You need to configure Trilinos with MueLU support for this
+   * preconditioner to work.
+   *
+   * @note At the moment 64bit-indices are not supported.
    *
    * @warning This interface should not be considered as stable.
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Bruno Turcksin, 2014
    */
   class PreconditionAMGMueLu : public PreconditionBase
   {
@@ -1783,7 +1863,7 @@ namespace TrilinosWrappers
     /**
      * Destructor.
      */
-    ~PreconditionAMGMueLu() override;
+    virtual ~PreconditionAMGMueLu() override = default;
 
     /**
      * Let Trilinos compute a multilevel hierarchy for the solution of a
@@ -1871,8 +1951,6 @@ namespace TrilinosWrappers
    *
    * @ingroup TrilinosWrappers
    * @ingroup Preconditioners
-   * @author Bruno Turcksin, 2013; extension for full compatibility with
-   * LinearOperator class: Jean-Paul Pelteret, 2016
    */
   class PreconditionIdentity : public PreconditionBase
   {

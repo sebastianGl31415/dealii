@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2015 - 2017 by the deal.II authors
+// Copyright (C) 2015 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,27 +13,28 @@
 //
 // ---------------------------------------------------------------------
 
-#include <deal.II/base/std_cxx14/memory.h>
 
 #include <deal.II/fe/fe_nedelec_sz.h>
+
+#include <memory>
 
 DEAL_II_NAMESPACE_OPEN
 
 // Constructor:
 template <int dim, int spacedim>
-FE_NedelecSZ<dim, spacedim>::FE_NedelecSZ(const unsigned int degree)
+FE_NedelecSZ<dim, spacedim>::FE_NedelecSZ(const unsigned int order)
   : FiniteElement<dim, dim>(
-      FiniteElementData<dim>(get_dpo_vector(degree),
+      FiniteElementData<dim>(get_dpo_vector(order),
                              dim,
-                             degree + 1,
+                             order + 1,
                              FiniteElementData<dim>::Hcurl),
-      std::vector<bool>(compute_num_dofs(degree), true),
-      std::vector<ComponentMask>(compute_num_dofs(degree),
+      std::vector<bool>(compute_num_dofs(order), true),
+      std::vector<ComponentMask>(compute_num_dofs(order),
                                  std::vector<bool>(dim, true)))
 {
   Assert(dim >= 2, ExcImpossibleInDim(dim));
 
-  this->mapping_type = mapping_nedelec;
+  this->mapping_kind = mapping_nedelec;
   // Set up the table converting components to base components. Since we have
   // only one base element, everything remains zero except the component in the
   // base, which is the component itself.
@@ -43,7 +44,7 @@ FE_NedelecSZ<dim, spacedim>::FE_NedelecSZ(const unsigned int degree)
     }
 
   // Generate the 1-D polynomial basis.
-  create_polynomials(degree);
+  create_polynomials(order);
 }
 
 
@@ -121,6 +122,7 @@ FE_NedelecSZ<dim, spacedim>::shape_grad_grad_component(
 }
 
 
+
 template <int dim, int spacedim>
 std::unique_ptr<typename dealii::FiniteElement<dim, spacedim>::InternalDataBase>
 FE_NedelecSZ<dim, spacedim>::get_data(
@@ -131,8 +133,11 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                                                      spacedim>
     & /*output_data*/) const
 {
-  auto data         = std_cxx14::make_unique<InternalData>();
-  data->update_each = update_each(update_flags) | update_once(update_flags);
+  std::unique_ptr<
+    typename dealii::FiniteElement<dim, spacedim>::InternalDataBase>
+        data_ptr   = std::make_unique<InternalData>();
+  auto &data       = dynamic_cast<InternalData &>(*data_ptr);
+  data.update_each = requires_update_flags(update_flags);
 
   // Useful quantities:
   const unsigned int degree(this->degree - 1); // Note: FE holds input degree+1
@@ -141,34 +146,36 @@ FE_NedelecSZ<dim, spacedim>::get_data(
   const unsigned int lines_per_cell    = GeometryInfo<dim>::lines_per_cell;
   const unsigned int faces_per_cell    = GeometryInfo<dim>::faces_per_cell;
 
-  const unsigned int n_line_dofs = this->dofs_per_line * lines_per_cell;
-  const unsigned int n_face_dofs = this->dofs_per_quad * faces_per_cell;
+  const unsigned int n_line_dofs = this->n_dofs_per_line() * lines_per_cell;
 
-  const UpdateFlags  flags(data->update_each);
+  // we assume that all quads have the same numer of dofs
+  const unsigned int n_face_dofs = this->n_dofs_per_quad(0) * faces_per_cell;
+
+  const UpdateFlags  flags(data.update_each);
   const unsigned int n_q_points = quadrature.size();
 
   // Resize the internal data storage:
-  data->sigma_imj_values.resize(
+  data.sigma_imj_values.resize(
     n_q_points,
     std::vector<std::vector<double>>(vertices_per_cell,
                                      std::vector<double>(vertices_per_cell)));
 
-  data->sigma_imj_grads.resize(vertices_per_cell,
-                               std::vector<std::vector<double>>(
-                                 vertices_per_cell, std::vector<double>(dim)));
+  data.sigma_imj_grads.resize(vertices_per_cell,
+                              std::vector<std::vector<double>>(
+                                vertices_per_cell, std::vector<double>(dim)));
 
   // Resize shape function arrays according to update flags:
   if (flags & update_values)
     {
-      data->shape_values.resize(this->dofs_per_cell,
-                                std::vector<Tensor<1, dim>>(n_q_points));
+      data.shape_values.resize(this->n_dofs_per_cell(),
+                               std::vector<Tensor<1, dim>>(n_q_points));
     }
 
   if (flags & update_gradients)
     {
-      data->shape_grads.resize(this->dofs_per_cell,
-                               std::vector<DerivativeForm<1, dim, dim>>(
-                                 n_q_points));
+      data.shape_grads.resize(this->n_dofs_per_cell(),
+                              std::vector<DerivativeForm<1, dim, dim>>(
+                                n_q_points));
     }
   // Not implementing second derivatives yet:
   if (flags & update_hessians)
@@ -206,7 +213,7 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                 {
                   for (unsigned int j = 0; j < vertices_per_cell; ++j)
                     {
-                      data->sigma_imj_values[q][i][j] =
+                      data.sigma_imj_values[q][i][j] =
                         sigma[q][i] - sigma[q][j];
                     }
                 }
@@ -255,7 +262,7 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                   // Can now calculate the gradient, only non-zero in the
                   // component given: Note some i,j combinations will be
                   // incorrect, but only on invalid edges.
-                  data->sigma_imj_grads[i][j][sigma_imj_component[i][j]] =
+                  data.sigma_imj_grads[i][j][sigma_imj_component[i][j]] =
                     2.0 * sigma_imj_sign[i][j];
                 }
             }
@@ -264,14 +271,14 @@ FE_NedelecSZ<dim, spacedim>::get_data(
           // with global numbering matching that of the reference element:
 
           // Resize the edge parameterisations
-          data->edge_sigma_values.resize(lines_per_cell);
-          data->edge_sigma_grads.resize(lines_per_cell);
+          data.edge_sigma_values.resize(lines_per_cell);
+          data.edge_sigma_grads.resize(lines_per_cell);
           for (unsigned int m = 0; m < lines_per_cell; ++m)
             {
-              data->edge_sigma_values[m].resize(n_q_points);
+              data.edge_sigma_values[m].resize(n_q_points);
 
               // sigma grads are constant in a cell (no need for quad points)
-              data->edge_sigma_grads[m].resize(dim);
+              data.edge_sigma_grads[m].resize(dim);
             }
 
           // Fill the values for edge lambda and edge sigma:
@@ -281,10 +288,10 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                                                      0,
                                                                      0};
 
-          data->edge_lambda_values.resize(lines_per_cell,
-                                          std::vector<double>(n_q_points));
-          data->edge_lambda_grads_2d.resize(lines_per_cell,
-                                            std::vector<double>(dim));
+          data.edge_lambda_values.resize(lines_per_cell,
+                                         std::vector<double>(n_q_points));
+          data.edge_lambda_grads_2d.resize(lines_per_cell,
+                                           std::vector<double>(dim));
           for (unsigned int m = 0; m < lines_per_cell; ++m)
             {
               // e1=max(reference vertex numbering on this edge)
@@ -296,18 +303,17 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                 GeometryInfo<dim>::line_to_cell_vertices(m, 0));
               for (unsigned int q = 0; q < n_q_points; ++q)
                 {
-                  data->edge_sigma_values[m][q] =
-                    data->sigma_imj_values[q][e2][e1];
-                  data->edge_lambda_values[m][q] =
-                    lambda[q][e1] + lambda[q][e2];
+                  data.edge_sigma_values[m][q] =
+                    data.sigma_imj_values[q][e2][e1];
+                  data.edge_lambda_values[m][q] = lambda[q][e1] + lambda[q][e2];
                 }
 
-              data->edge_sigma_grads[m][edge_sigma_direction[m]] = -2.0;
+              data.edge_sigma_grads[m][edge_sigma_direction[m]] = -2.0;
             }
-          data->edge_lambda_grads_2d[0] = {-1.0, 0.0};
-          data->edge_lambda_grads_2d[1] = {1.0, 0.0};
-          data->edge_lambda_grads_2d[2] = {0.0, -1.0};
-          data->edge_lambda_grads_2d[3] = {0.0, 1.0};
+          data.edge_lambda_grads_2d[0] = {-1.0, 0.0};
+          data.edge_lambda_grads_2d[1] = {1.0, 0.0};
+          data.edge_lambda_grads_2d[2] = {0.0, -1.0};
+          data.edge_lambda_grads_2d[3] = {0.0, 1.0};
 
           // If the polynomial order is 0, then no more work to do:
           if (degree < 1)
@@ -452,29 +458,29 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                               // Type 1:
                               const unsigned int dof_index1(cell_type1_offset +
                                                             shift_ij);
-                              data->shape_values[dof_index1][q][0] =
+                              data.shape_values[dof_index1][q][0] =
                                 2.0 * polyx[i][1] * polyy[j][0];
-                              data->shape_values[dof_index1][q][1] =
+                              data.shape_values[dof_index1][q][1] =
                                 2.0 * polyx[i][0] * polyy[j][1];
 
                               // Type 2:
                               const unsigned int dof_index2(cell_type2_offset +
                                                             shift_ij);
-                              data->shape_values[dof_index2][q][0] =
-                                data->shape_values[dof_index1][q][0];
-                              data->shape_values[dof_index2][q][1] =
-                                -1.0 * data->shape_values[dof_index1][q][1];
+                              data.shape_values[dof_index2][q][0] =
+                                data.shape_values[dof_index1][q][0];
+                              data.shape_values[dof_index2][q][1] =
+                                -1.0 * data.shape_values[dof_index1][q][1];
                             }
                           // Type 3:
                           const unsigned int dof_index3_1(cell_type3_offset1 +
                                                           j);
-                          data->shape_values[dof_index3_1][q][0] = polyy[j][0];
-                          data->shape_values[dof_index3_1][q][1] = 0.0;
+                          data.shape_values[dof_index3_1][q][0] = polyy[j][0];
+                          data.shape_values[dof_index3_1][q][1] = 0.0;
 
                           const unsigned int dof_index3_2(cell_type3_offset2 +
                                                           j);
-                          data->shape_values[dof_index3_2][q][0] = 0.0;
-                          data->shape_values[dof_index3_2][q][1] = polyx[j][0];
+                          data.shape_values[dof_index3_2][q][0] = 0.0;
+                          data.shape_values[dof_index3_2][q][1] = polyx[j][0];
                         }
                     }
                   if (flags & update_gradients)
@@ -489,43 +495,43 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                               // Type 1:
                               const unsigned int dof_index1(cell_type1_offset +
                                                             shift_ij);
-                              data->shape_grads[dof_index1][q][0][0] =
+                              data.shape_grads[dof_index1][q][0][0] =
                                 4.0 * polyx[i][2] * polyy[j][0];
-                              data->shape_grads[dof_index1][q][0][1] =
+                              data.shape_grads[dof_index1][q][0][1] =
                                 4.0 * polyx[i][1] * polyy[j][1];
-                              data->shape_grads[dof_index1][q][1][0] =
-                                data->shape_grads[dof_index1][q][0][1];
-                              data->shape_grads[dof_index1][q][1][1] =
+                              data.shape_grads[dof_index1][q][1][0] =
+                                data.shape_grads[dof_index1][q][0][1];
+                              data.shape_grads[dof_index1][q][1][1] =
                                 4.0 * polyx[i][0] * polyy[j][2];
 
                               // Type 2:
                               const unsigned int dof_index2(cell_type2_offset +
                                                             shift_ij);
-                              data->shape_grads[dof_index2][q][0][0] =
-                                data->shape_grads[dof_index1][q][0][0];
-                              data->shape_grads[dof_index2][q][0][1] =
-                                data->shape_grads[dof_index1][q][0][1];
-                              data->shape_grads[dof_index2][q][1][0] =
-                                -1.0 * data->shape_grads[dof_index1][q][1][0];
-                              data->shape_grads[dof_index2][q][1][1] =
-                                -1.0 * data->shape_grads[dof_index1][q][1][1];
+                              data.shape_grads[dof_index2][q][0][0] =
+                                data.shape_grads[dof_index1][q][0][0];
+                              data.shape_grads[dof_index2][q][0][1] =
+                                data.shape_grads[dof_index1][q][0][1];
+                              data.shape_grads[dof_index2][q][1][0] =
+                                -1.0 * data.shape_grads[dof_index1][q][1][0];
+                              data.shape_grads[dof_index2][q][1][1] =
+                                -1.0 * data.shape_grads[dof_index1][q][1][1];
                             }
                           // Type 3:
                           const unsigned int dof_index3_1(cell_type3_offset1 +
                                                           j);
-                          data->shape_grads[dof_index3_1][q][0][0] = 0.0;
-                          data->shape_grads[dof_index3_1][q][0][1] =
+                          data.shape_grads[dof_index3_1][q][0][0] = 0.0;
+                          data.shape_grads[dof_index3_1][q][0][1] =
                             2.0 * polyy[j][1];
-                          data->shape_grads[dof_index3_1][q][1][0] = 0.0;
-                          data->shape_grads[dof_index3_1][q][1][1] = 0.0;
+                          data.shape_grads[dof_index3_1][q][1][0] = 0.0;
+                          data.shape_grads[dof_index3_1][q][1][1] = 0.0;
 
                           const unsigned int dof_index3_2(cell_type3_offset2 +
                                                           j);
-                          data->shape_grads[dof_index3_2][q][0][0] = 0.0;
-                          data->shape_grads[dof_index3_2][q][0][1] = 0.0;
-                          data->shape_grads[dof_index3_2][q][1][0] =
+                          data.shape_grads[dof_index3_2][q][0][0] = 0.0;
+                          data.shape_grads[dof_index3_2][q][0][1] = 0.0;
+                          data.shape_grads[dof_index3_2][q][1][0] =
                             2.0 * polyx[j][1];
-                          data->shape_grads[dof_index3_2][q][1][1] = 0.0;
+                          data.shape_grads[dof_index3_2][q][1][1] = 0.0;
                         }
                     }
                 }
@@ -574,7 +580,7 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                 {
                   for (unsigned int j = 0; j < vertices_per_cell; ++j)
                     {
-                      data->sigma_imj_values[q][i][j] =
+                      data.sigma_imj_values[q][i][j] =
                         sigma[q][i] - sigma[q][j];
                     }
                 }
@@ -642,7 +648,7 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                   // Can now calculate the gradient, only non-zero in the
                   // component given: Note some i,j combinations will be
                   // incorrect, but only on invalid edges.
-                  data->sigma_imj_grads[i][j][sigma_imj_component[i][j]] =
+                  data.sigma_imj_grads[i][j][sigma_imj_component[i][j]] =
                     2.0 * sigma_imj_sign[i][j];
                 }
             }
@@ -650,30 +656,30 @@ FE_NedelecSZ<dim, spacedim>::get_data(
           // with global numbering matching that of the reference element:
 
           // resize the edge parameterisations
-          data->edge_sigma_values.resize(lines_per_cell);
-          data->edge_lambda_values.resize(lines_per_cell);
-          data->edge_sigma_grads.resize(lines_per_cell);
-          data->edge_lambda_grads_3d.resize(lines_per_cell);
-          data->edge_lambda_gradgrads_3d.resize(lines_per_cell);
+          data.edge_sigma_values.resize(lines_per_cell);
+          data.edge_lambda_values.resize(lines_per_cell);
+          data.edge_sigma_grads.resize(lines_per_cell);
+          data.edge_lambda_grads_3d.resize(lines_per_cell);
+          data.edge_lambda_gradgrads_3d.resize(lines_per_cell);
           for (unsigned int m = 0; m < lines_per_cell; ++m)
             {
-              data->edge_sigma_values[m].resize(n_q_points);
-              data->edge_lambda_values[m].resize(n_q_points);
+              data.edge_sigma_values[m].resize(n_q_points);
+              data.edge_lambda_values[m].resize(n_q_points);
 
               // sigma grads are constant in a cell (no need for quad points)
-              data->edge_sigma_grads[m].resize(dim);
+              data.edge_sigma_grads[m].resize(dim);
 
-              data->edge_lambda_grads_3d[m].resize(n_q_points);
+              data.edge_lambda_grads_3d[m].resize(n_q_points);
               for (unsigned int q = 0; q < n_q_points; ++q)
                 {
-                  data->edge_lambda_grads_3d[m][q].resize(dim);
+                  data.edge_lambda_grads_3d[m][q].resize(dim);
                 }
               // lambda_gradgrads are constant in a cell (no need for quad
               // points)
-              data->edge_lambda_gradgrads_3d[m].resize(dim);
+              data.edge_lambda_gradgrads_3d[m].resize(dim);
               for (unsigned int d = 0; d < dim; ++d)
                 {
-                  data->edge_lambda_gradgrads_3d[m][d].resize(dim);
+                  data.edge_lambda_gradgrads_3d[m][d].resize(dim);
                 }
             }
 
@@ -694,13 +700,12 @@ FE_NedelecSZ<dim, spacedim>::get_data(
 
               for (unsigned int q = 0; q < n_q_points; ++q)
                 {
-                  data->edge_sigma_values[m][q] =
-                    data->sigma_imj_values[q][e2][e1];
-                  data->edge_lambda_values[m][q] =
-                    lambda[q][e1] + lambda[q][e2];
+                  data.edge_sigma_values[m][q] =
+                    data.sigma_imj_values[q][e2][e1];
+                  data.edge_lambda_values[m][q] = lambda[q][e1] + lambda[q][e2];
                 }
 
-              data->edge_sigma_grads[m][edge_sigma_direction[m]] = -2.0;
+              data.edge_sigma_grads[m][edge_sigma_direction[m]] = -2.0;
             }
           // edge_lambda_grads
           for (unsigned int q = 0; q < n_q_points; ++q)
@@ -708,18 +713,18 @@ FE_NedelecSZ<dim, spacedim>::get_data(
               double x(p_list[q][0]);
               double y(p_list[q][1]);
               double z(p_list[q][2]);
-              data->edge_lambda_grads_3d[0][q]  = {z - 1.0, 0.0, x - 1.0};
-              data->edge_lambda_grads_3d[1][q]  = {1.0 - z, 0.0, -x};
-              data->edge_lambda_grads_3d[2][q]  = {0.0, z - 1.0, y - 1.0};
-              data->edge_lambda_grads_3d[3][q]  = {0.0, 1.0 - z, -y};
-              data->edge_lambda_grads_3d[4][q]  = {-z, 0.0, 1.0 - x};
-              data->edge_lambda_grads_3d[5][q]  = {z, 0.0, x};
-              data->edge_lambda_grads_3d[6][q]  = {0.0, -z, 1.0 - y};
-              data->edge_lambda_grads_3d[7][q]  = {0.0, z, y};
-              data->edge_lambda_grads_3d[8][q]  = {y - 1.0, x - 1.0, 0.0};
-              data->edge_lambda_grads_3d[9][q]  = {1.0 - y, -x, 0.0};
-              data->edge_lambda_grads_3d[10][q] = {-y, 1.0 - x, 0.0};
-              data->edge_lambda_grads_3d[11][q] = {y, x, 0.0};
+              data.edge_lambda_grads_3d[0][q]  = {z - 1.0, 0.0, x - 1.0};
+              data.edge_lambda_grads_3d[1][q]  = {1.0 - z, 0.0, -x};
+              data.edge_lambda_grads_3d[2][q]  = {0.0, z - 1.0, y - 1.0};
+              data.edge_lambda_grads_3d[3][q]  = {0.0, 1.0 - z, -y};
+              data.edge_lambda_grads_3d[4][q]  = {-z, 0.0, 1.0 - x};
+              data.edge_lambda_grads_3d[5][q]  = {z, 0.0, x};
+              data.edge_lambda_grads_3d[6][q]  = {0.0, -z, 1.0 - y};
+              data.edge_lambda_grads_3d[7][q]  = {0.0, z, y};
+              data.edge_lambda_grads_3d[8][q]  = {y - 1.0, x - 1.0, 0.0};
+              data.edge_lambda_grads_3d[9][q]  = {1.0 - y, -x, 0.0};
+              data.edge_lambda_grads_3d[10][q] = {-y, 1.0 - x, 0.0};
+              data.edge_lambda_grads_3d[11][q] = {y, x, 0.0};
             }
           // edge_lambda gradgrads:
           const int edge_lambda_sign[GeometryInfo<3>::lines_per_cell] = {
@@ -751,11 +756,11 @@ FE_NedelecSZ<dim, spacedim>::get_data(
               {0, 1}}; // component which edge_lambda[m] depends on.
           for (unsigned int m = 0; m < lines_per_cell; ++m)
             {
-              data->edge_lambda_gradgrads_3d[m][edge_lambda_directions[m][0]]
-                                            [edge_lambda_directions[m][1]] =
+              data.edge_lambda_gradgrads_3d[m][edge_lambda_directions[m][0]]
+                                           [edge_lambda_directions[m][1]] =
                 edge_lambda_sign[m];
-              data->edge_lambda_gradgrads_3d[m][edge_lambda_directions[m][1]]
-                                            [edge_lambda_directions[m][0]] =
+              data.edge_lambda_gradgrads_3d[m][edge_lambda_directions[m][1]]
+                                           [edge_lambda_directions[m][0]] =
                 edge_lambda_sign[m];
             }
           // Precomputation for higher order shape functions,
@@ -763,13 +768,13 @@ FE_NedelecSZ<dim, spacedim>::get_data(
           if (degree > 0)
             {
               // resize required data:
-              data->face_lambda_values.resize(faces_per_cell);
-              data->face_lambda_grads.resize(faces_per_cell);
+              data.face_lambda_values.resize(faces_per_cell);
+              data.face_lambda_grads.resize(faces_per_cell);
               // for face-based shape functions:
               for (unsigned int m = 0; m < faces_per_cell; ++m)
                 {
-                  data->face_lambda_values[m].resize(n_q_points);
-                  data->face_lambda_grads[m].resize(3);
+                  data.face_lambda_values[m].resize(n_q_points);
+                  data.face_lambda_grads[m].resize(3);
                 }
               // Fill in the values (these don't change between cells).
               for (unsigned int q = 0; q < n_q_points; ++q)
@@ -777,20 +782,20 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                   double x(p_list[q][0]);
                   double y(p_list[q][1]);
                   double z(p_list[q][2]);
-                  data->face_lambda_values[0][q] = 1.0 - x;
-                  data->face_lambda_values[1][q] = x;
-                  data->face_lambda_values[2][q] = 1.0 - y;
-                  data->face_lambda_values[3][q] = y;
-                  data->face_lambda_values[4][q] = 1.0 - z;
-                  data->face_lambda_values[5][q] = z;
+                  data.face_lambda_values[0][q] = 1.0 - x;
+                  data.face_lambda_values[1][q] = x;
+                  data.face_lambda_values[2][q] = 1.0 - y;
+                  data.face_lambda_values[3][q] = y;
+                  data.face_lambda_values[4][q] = 1.0 - z;
+                  data.face_lambda_values[5][q] = z;
                 }
               // gradients are constant:
-              data->face_lambda_grads[0] = {-1.0, 0.0, 0.0};
-              data->face_lambda_grads[1] = {1.0, 0.0, 0.0};
-              data->face_lambda_grads[2] = {0.0, -1.0, 0.0};
-              data->face_lambda_grads[3] = {0.0, 1.0, 0.0};
-              data->face_lambda_grads[4] = {0.0, 0.0, -1.0};
-              data->face_lambda_grads[5] = {0.0, 0.0, 1.0};
+              data.face_lambda_grads[0] = {-1.0, 0.0, 0.0};
+              data.face_lambda_grads[1] = {1.0, 0.0, 0.0};
+              data.face_lambda_grads[2] = {0.0, -1.0, 0.0};
+              data.face_lambda_grads[3] = {0.0, 1.0, 0.0};
+              data.face_lambda_grads[4] = {0.0, 0.0, -1.0};
+              data.face_lambda_grads[5] = {0.0, 0.0, 1.0};
 
               // for cell-based shape functions:
               // these don't depend on the cell, so can precompute all here:
@@ -898,13 +903,13 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                       const unsigned int dof_index1(
                                         cell_type1_offset + shift_ijk);
 
-                                      data->shape_values[dof_index1][q][0] =
+                                      data.shape_values[dof_index1][q][0] =
                                         2.0 * polyx[i][1] * polyy[j][0] *
                                         polyz[k][0];
-                                      data->shape_values[dof_index1][q][1] =
+                                      data.shape_values[dof_index1][q][1] =
                                         2.0 * polyx[i][0] * polyy[j][1] *
                                         polyz[k][0];
-                                      data->shape_values[dof_index1][q][2] =
+                                      data.shape_values[dof_index1][q][2] =
                                         2.0 * polyx[i][0] * polyy[j][0] *
                                         polyz[k][1];
 
@@ -914,22 +919,22 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                       const unsigned int dof_index2_2(
                                         cell_type2_offset2 + shift_ijk);
 
-                                      data->shape_values[dof_index2_1][q][0] =
-                                        data->shape_values[dof_index1][q][0];
-                                      data->shape_values[dof_index2_1][q][1] =
+                                      data.shape_values[dof_index2_1][q][0] =
+                                        data.shape_values[dof_index1][q][0];
+                                      data.shape_values[dof_index2_1][q][1] =
                                         -1.0 *
-                                        data->shape_values[dof_index1][q][1];
-                                      data->shape_values[dof_index2_1][q][2] =
-                                        data->shape_values[dof_index1][q][2];
+                                        data.shape_values[dof_index1][q][1];
+                                      data.shape_values[dof_index2_1][q][2] =
+                                        data.shape_values[dof_index1][q][2];
 
-                                      data->shape_values[dof_index2_2][q][0] =
-                                        data->shape_values[dof_index1][q][0];
-                                      data->shape_values[dof_index2_2][q][1] =
+                                      data.shape_values[dof_index2_2][q][0] =
+                                        data.shape_values[dof_index1][q][0];
+                                      data.shape_values[dof_index2_2][q][1] =
                                         -1.0 *
-                                        data->shape_values[dof_index1][q][1];
-                                      data->shape_values[dof_index2_2][q][2] =
+                                        data.shape_values[dof_index1][q][1];
+                                      data.shape_values[dof_index2_2][q][2] =
                                         -1.0 *
-                                        data->shape_values[dof_index1][q][2];
+                                        data.shape_values[dof_index1][q][2];
                                     }
                                   // Type 3: (note we re-use k and j for
                                   // convenience):
@@ -943,19 +948,19 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                   const unsigned int dof_index3_3(
                                     cell_type3_offset3 + shift_ij);
 
-                                  data->shape_values[dof_index3_1][q][0] =
+                                  data.shape_values[dof_index3_1][q][0] =
                                     polyy[j][0] * polyz[k][0];
-                                  data->shape_values[dof_index3_1][q][1] = 0.0;
-                                  data->shape_values[dof_index3_1][q][2] = 0.0;
+                                  data.shape_values[dof_index3_1][q][1] = 0.0;
+                                  data.shape_values[dof_index3_1][q][2] = 0.0;
 
-                                  data->shape_values[dof_index3_2][q][0] = 0.0;
-                                  data->shape_values[dof_index3_2][q][1] =
+                                  data.shape_values[dof_index3_2][q][0] = 0.0;
+                                  data.shape_values[dof_index3_2][q][1] =
                                     polyx[j][0] * polyz[k][0];
-                                  data->shape_values[dof_index3_2][q][2] = 0.0;
+                                  data.shape_values[dof_index3_2][q][2] = 0.0;
 
-                                  data->shape_values[dof_index3_3][q][0] = 0.0;
-                                  data->shape_values[dof_index3_3][q][1] = 0.0;
-                                  data->shape_values[dof_index3_3][q][2] =
+                                  data.shape_values[dof_index3_3][q][0] = 0.0;
+                                  data.shape_values[dof_index3_3][q][1] = 0.0;
+                                  data.shape_values[dof_index3_3][q][2] =
                                     polyx[j][0] * polyy[k][0];
                                 }
                             }
@@ -981,30 +986,30 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                       const unsigned int dof_index1(
                                         cell_type1_offset + shift_ijk);
 
-                                      data->shape_grads[dof_index1][q][0][0] =
+                                      data.shape_grads[dof_index1][q][0][0] =
                                         4.0 * polyx[i][2] * polyy[j][0] *
                                         polyz[k][0];
-                                      data->shape_grads[dof_index1][q][0][1] =
+                                      data.shape_grads[dof_index1][q][0][1] =
                                         4.0 * polyx[i][1] * polyy[j][1] *
                                         polyz[k][0];
-                                      data->shape_grads[dof_index1][q][0][2] =
+                                      data.shape_grads[dof_index1][q][0][2] =
                                         4.0 * polyx[i][1] * polyy[j][0] *
                                         polyz[k][1];
 
-                                      data->shape_grads[dof_index1][q][1][0] =
-                                        data->shape_grads[dof_index1][q][0][1];
-                                      data->shape_grads[dof_index1][q][1][1] =
+                                      data.shape_grads[dof_index1][q][1][0] =
+                                        data.shape_grads[dof_index1][q][0][1];
+                                      data.shape_grads[dof_index1][q][1][1] =
                                         4.0 * polyx[i][0] * polyy[j][2] *
                                         polyz[k][0];
-                                      data->shape_grads[dof_index1][q][1][2] =
+                                      data.shape_grads[dof_index1][q][1][2] =
                                         4.0 * polyx[i][0] * polyy[j][1] *
                                         polyz[k][1];
 
-                                      data->shape_grads[dof_index1][q][2][0] =
-                                        data->shape_grads[dof_index1][q][0][2];
-                                      data->shape_grads[dof_index1][q][2][1] =
-                                        data->shape_grads[dof_index1][q][1][2];
-                                      data->shape_grads[dof_index1][q][2][2] =
+                                      data.shape_grads[dof_index1][q][2][0] =
+                                        data.shape_grads[dof_index1][q][0][2];
+                                      data.shape_grads[dof_index1][q][2][1] =
+                                        data.shape_grads[dof_index1][q][1][2];
+                                      data.shape_grads[dof_index1][q][2][2] =
                                         4.0 * polyx[i][0] * polyy[j][0] *
                                         polyz[k][2];
 
@@ -1016,31 +1021,34 @@ FE_NedelecSZ<dim, spacedim>::get_data(
 
                                       for (unsigned int d = 0; d < dim; ++d)
                                         {
-                                          data->shape_grads[dof_index2_1][q][0]
-                                                           [d] =
-                                            data->shape_grads[dof_index1][q][0]
-                                                             [d];
-                                          data->shape_grads[dof_index2_1][q][1]
-                                                           [d] =
-                                            -1.0 * data->shape_grads[dof_index1]
-                                                                    [q][1][d];
-                                          data->shape_grads[dof_index2_1][q][2]
-                                                           [d] =
-                                            data->shape_grads[dof_index1][q][2]
-                                                             [d];
+                                          data.shape_grads[dof_index2_1][q][0]
+                                                          [d] =
+                                            data
+                                              .shape_grads[dof_index1][q][0][d];
+                                          data.shape_grads[dof_index2_1][q][1]
+                                                          [d] =
+                                            -1.0 *
+                                            data
+                                              .shape_grads[dof_index1][q][1][d];
+                                          data.shape_grads[dof_index2_1][q][2]
+                                                          [d] =
+                                            data
+                                              .shape_grads[dof_index1][q][2][d];
 
-                                          data->shape_grads[dof_index2_2][q][0]
-                                                           [d] =
-                                            data->shape_grads[dof_index1][q][0]
-                                                             [d];
-                                          data->shape_grads[dof_index2_2][q][1]
-                                                           [d] =
-                                            -1.0 * data->shape_grads[dof_index1]
-                                                                    [q][1][d];
-                                          data->shape_grads[dof_index2_2][q][2]
-                                                           [d] =
-                                            -1.0 * data->shape_grads[dof_index1]
-                                                                    [q][2][d];
+                                          data.shape_grads[dof_index2_2][q][0]
+                                                          [d] =
+                                            data
+                                              .shape_grads[dof_index1][q][0][d];
+                                          data.shape_grads[dof_index2_2][q][1]
+                                                          [d] =
+                                            -1.0 *
+                                            data
+                                              .shape_grads[dof_index1][q][1][d];
+                                          data.shape_grads[dof_index2_2][q][2]
+                                                          [d] =
+                                            -1.0 *
+                                            data
+                                              .shape_grads[dof_index1][q][2][d];
                                         }
                                     }
                                   // Type 3: (note we re-use k and j for
@@ -1058,27 +1066,27 @@ FE_NedelecSZ<dim, spacedim>::get_data(
                                     {
                                       for (unsigned int d2 = 0; d2 < dim; ++d2)
                                         {
-                                          data->shape_grads[dof_index3_1][q][d1]
-                                                           [d2] = 0.0;
-                                          data->shape_grads[dof_index3_2][q][d1]
-                                                           [d2] = 0.0;
-                                          data->shape_grads[dof_index3_3][q][d1]
-                                                           [d2] = 0.0;
+                                          data.shape_grads[dof_index3_1][q][d1]
+                                                          [d2] = 0.0;
+                                          data.shape_grads[dof_index3_2][q][d1]
+                                                          [d2] = 0.0;
+                                          data.shape_grads[dof_index3_3][q][d1]
+                                                          [d2] = 0.0;
                                         }
                                     }
-                                  data->shape_grads[dof_index3_1][q][0][1] =
+                                  data.shape_grads[dof_index3_1][q][0][1] =
                                     2.0 * polyy[j][1] * polyz[k][0];
-                                  data->shape_grads[dof_index3_1][q][0][2] =
+                                  data.shape_grads[dof_index3_1][q][0][2] =
                                     2.0 * polyy[j][0] * polyz[k][1];
 
-                                  data->shape_grads[dof_index3_2][q][1][0] =
+                                  data.shape_grads[dof_index3_2][q][1][0] =
                                     2.0 * polyx[j][1] * polyz[k][0];
-                                  data->shape_grads[dof_index3_2][q][1][2] =
+                                  data.shape_grads[dof_index3_2][q][1][2] =
                                     2.0 * polyx[j][0] * polyz[k][1];
 
-                                  data->shape_grads[dof_index3_3][q][2][0] =
+                                  data.shape_grads[dof_index3_3][q][2][0] =
                                     2.0 * polyx[j][1] * polyy[k][0];
-                                  data->shape_grads[dof_index3_3][q][2][1] =
+                                  data.shape_grads[dof_index3_3][q][2][1] =
                                     2.0 * polyx[j][0] * polyy[k][1];
                                 }
                             }
@@ -1093,8 +1101,10 @@ FE_NedelecSZ<dim, spacedim>::get_data(
           Assert(false, ExcNotImplemented());
         }
     }
-  return std::move(data);
+  return data_ptr;
 }
+
+
 
 template <int dim, int spacedim>
 void
@@ -1120,9 +1130,9 @@ FE_NedelecSZ<dim, spacedim>::fill_edge_values(
   const unsigned int n_q_points = quadrature.size();
 
   Assert(!(flags & update_values) ||
-           fe_data.shape_values.size() == this->dofs_per_cell,
+           fe_data.shape_values.size() == this->n_dofs_per_cell(),
          ExcDimensionMismatch(fe_data.shape_values.size(),
-                              this->dofs_per_cell));
+                              this->n_dofs_per_cell()));
   Assert(!(flags & update_values) ||
            fe_data.shape_values[0].size() == n_q_points,
          ExcDimensionMismatch(fe_data.shape_values[0].size(), n_q_points));
@@ -1243,7 +1253,7 @@ FE_NedelecSZ<dim, spacedim>::fill_edge_values(
 
               for (unsigned int m = 0; m < lines_per_cell; ++m)
                 {
-                  const unsigned int shift_m(m * this->dofs_per_line);
+                  const unsigned int shift_m(m * this->n_dofs_per_line());
                   for (unsigned int q = 0; q < n_q_points; ++q)
                     {
                       // Only compute 1d polynomials if degree>0.
@@ -1432,7 +1442,7 @@ FE_NedelecSZ<dim, spacedim>::fill_edge_values(
                 degree, std::vector<double>(poly_length));
               for (unsigned int m = 0; m < lines_per_cell; ++m)
                 {
-                  const unsigned int shift_m(m * this->dofs_per_line);
+                  const unsigned int shift_m(m * this->n_dofs_per_line());
                   for (unsigned int q = 0; q < n_q_points; ++q)
                     {
                       // precompute values of all 1d polynomials required:
@@ -1521,6 +1531,8 @@ FE_NedelecSZ<dim, spacedim>::fill_edge_values(
     }
 }
 
+
+
 template <int dim, int spacedim>
 void
 FE_NedelecSZ<dim, spacedim>::fill_face_values(
@@ -1555,9 +1567,9 @@ FE_NedelecSZ<dim, spacedim>::fill_face_values(
           const unsigned int n_q_points = quadrature.size();
 
           Assert(!(flags & update_values) ||
-                   fe_data.shape_values.size() == this->dofs_per_cell,
+                   fe_data.shape_values.size() == this->n_dofs_per_cell(),
                  ExcDimensionMismatch(fe_data.shape_values.size(),
-                                      this->dofs_per_cell));
+                                      this->n_dofs_per_cell()));
           Assert(!(flags & update_values) ||
                    fe_data.shape_values[0].size() == n_q_points,
                  ExcDimensionMismatch(fe_data.shape_values[0].size(),
@@ -1570,7 +1582,7 @@ FE_NedelecSZ<dim, spacedim>::fill_face_values(
 
           // DoF info:
           const unsigned int n_line_dofs =
-            this->dofs_per_line * GeometryInfo<dim>::lines_per_cell;
+            this->n_dofs_per_line() * GeometryInfo<dim>::lines_per_cell;
 
           // First we find the global face orientations on the current cell.
           std::vector<std::vector<unsigned int>> face_orientation(
@@ -1685,7 +1697,8 @@ FE_NedelecSZ<dim, spacedim>::fill_face_values(
           // Loop through quad points:
           for (unsigned int m = 0; m < faces_per_cell; ++m)
             {
-              const unsigned int shift_m(m * this->dofs_per_quad);
+              // we assume that all quads have the same numer of dofs
+              const unsigned int shift_m(m * this->n_dofs_per_quad(0));
               // Calculate the offsets for each face-based shape function:
               //
               // Type-1 (gradients)
@@ -1895,6 +1908,8 @@ FE_NedelecSZ<dim, spacedim>::fill_face_values(
     }
 }
 
+
+
 template <int dim, int spacedim>
 void
 FE_NedelecSZ<dim, spacedim>::fill_fe_values(
@@ -1910,7 +1925,7 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_values(
     &data) const
 {
   // Convert to the correct internal data class for this FE class.
-  Assert(dynamic_cast<const InternalData *>(&fe_internal) != 0,
+  Assert(dynamic_cast<const InternalData *>(&fe_internal) != nullptr,
          ExcInternalError());
   const InternalData &fe_data = static_cast<const InternalData &>(fe_internal);
 
@@ -1927,9 +1942,9 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_values(
   const unsigned int n_q_points = quadrature.size();
 
   Assert(!(flags & update_values) ||
-           fe_data.shape_values.size() == this->dofs_per_cell,
+           fe_data.shape_values.size() == this->n_dofs_per_cell(),
          ExcDimensionMismatch(fe_data.shape_values.size(),
-                              this->dofs_per_cell));
+                              this->n_dofs_per_cell()));
   Assert(!(flags & update_values) ||
            fe_data.shape_values[0].size() == n_q_points,
          ExcDimensionMismatch(fe_data.shape_values[0].size(), n_q_points));
@@ -1939,7 +1954,7 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_values(
       // Now have all shape_values stored on the reference cell.
       // Must now transform to the physical cell.
       std::vector<Tensor<1, dim>> transformed_shape_values(n_q_points);
-      for (unsigned int dof = 0; dof < this->dofs_per_cell; ++dof)
+      for (unsigned int dof = 0; dof < this->n_dofs_per_cell(); ++dof)
         {
           const unsigned int first =
             data.shape_function_to_row_table[dof * this->n_components() +
@@ -1966,7 +1981,7 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_values(
       // Must now transform to the physical cell.
       std::vector<Tensor<2, dim>> input(n_q_points);
       std::vector<Tensor<2, dim>> transformed_shape_grads(n_q_points);
-      for (unsigned int dof = 0; dof < this->dofs_per_cell; ++dof)
+      for (unsigned int dof = 0; dof < this->n_dofs_per_cell(); ++dof)
         {
           for (unsigned int q = 0; q < n_q_points; ++q)
             {
@@ -2007,12 +2022,14 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_values(
     }
 }
 
+
+
 template <int dim, int spacedim>
 void
 FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
   const typename Triangulation<dim, dim>::cell_iterator &cell,
   const unsigned int                                     face_no,
-  const Quadrature<dim - 1> &                            quadrature,
+  const hp::QCollection<dim - 1> &                       quadrature,
   const Mapping<dim, dim> &                              mapping,
   const typename Mapping<dim, dim>::InternalDataBase &   mapping_internal,
   const dealii::internal::FEValuesImplementation::MappingRelatedData<dim, dim>
@@ -2021,6 +2038,8 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
   dealii::internal::FEValuesImplementation::FiniteElementRelatedData<dim, dim>
     &data) const
 {
+  AssertDimension(quadrature.size(), 1);
+
   // Note for future improvement:
   // We don't have the full quadrature - should use QProjector to create the 2D
   // quadrature.
@@ -2034,7 +2053,7 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
   // data for this class. fails with
   // an exception if that is not
   // possible
-  Assert(dynamic_cast<const InternalData *>(&fe_internal) != 0,
+  Assert(dynamic_cast<const InternalData *>(&fe_internal) != nullptr,
          ExcInternalError());
   const InternalData &fe_data = static_cast<const InternalData &>(fe_internal);
 
@@ -2042,19 +2061,22 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
   // This will fill in the missing items in the InternalData
   // (fe_internal/fe_data) which was not filled in by get_data.
   fill_edge_values(cell,
-                   QProjector<dim>::project_to_all_faces(quadrature),
+                   QProjector<dim>::project_to_all_faces(
+                     this->reference_cell_type(), quadrature[0]),
                    fe_data);
   if (dim == 3 && this->degree > 1)
     {
       fill_face_values(cell,
-                       QProjector<dim>::project_to_all_faces(quadrature),
+                       QProjector<dim>::project_to_all_faces(
+                         this->reference_cell_type(), quadrature[0]),
                        fe_data);
     }
 
   const UpdateFlags  flags(fe_data.update_each);
-  const unsigned int n_q_points = quadrature.size();
-  const typename QProjector<dim>::DataSetDescriptor offset =
-    QProjector<dim>::DataSetDescriptor::face(face_no,
+  const unsigned int n_q_points = quadrature[0].size();
+  const auto         offset =
+    QProjector<dim>::DataSetDescriptor::face(this->reference_cell_type(),
+                                             face_no,
                                              cell->face_orientation(face_no),
                                              cell->face_flip(face_no),
                                              cell->face_rotation(face_no),
@@ -2065,7 +2087,7 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
       // Now have all shape_values stored on the reference cell.
       // Must now transform to the physical cell.
       std::vector<Tensor<1, dim>> transformed_shape_values(n_q_points);
-      for (unsigned int dof = 0; dof < this->dofs_per_cell; ++dof)
+      for (unsigned int dof = 0; dof < this->n_dofs_per_cell(); ++dof)
         {
           mapping.transform(make_array_view(fe_data.shape_values[dof],
                                             offset,
@@ -2095,7 +2117,7 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
       // Must now transform to the physical cell.
       std::vector<Tensor<2, dim>> input(n_q_points);
       std::vector<Tensor<2, dim>> transformed_shape_grads(n_q_points);
-      for (unsigned int dof = 0; dof < this->dofs_per_cell; ++dof)
+      for (unsigned int dof = 0; dof < this->n_dofs_per_cell(); ++dof)
         {
           for (unsigned int q = 0; q < n_q_points; ++q)
             {
@@ -2136,6 +2158,8 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_face_values(
     }
 }
 
+
+
 template <int dim, int spacedim>
 void
 FE_NedelecSZ<dim, spacedim>::fill_fe_subface_values(
@@ -2154,30 +2178,12 @@ FE_NedelecSZ<dim, spacedim>::fill_fe_subface_values(
   Assert(false, ExcNotImplemented());
 }
 
+
+
 template <int dim, int spacedim>
 UpdateFlags
 FE_NedelecSZ<dim, spacedim>::requires_update_flags(
   const UpdateFlags flags) const
-{
-  return update_once(flags) | update_each(flags);
-}
-
-template <int dim, int spacedim>
-UpdateFlags
-FE_NedelecSZ<dim, spacedim>::update_once(const UpdateFlags flags) const
-{
-  const bool values_once = (mapping_type == mapping_none);
-
-  UpdateFlags out = update_default;
-  if (values_once && (flags & update_values))
-    out |= update_values;
-
-  return out;
-}
-
-template <int dim, int spacedim>
-UpdateFlags
-FE_NedelecSZ<dim, spacedim>::update_each(const UpdateFlags flags) const
 {
   UpdateFlags out = update_default;
 
@@ -2199,29 +2205,30 @@ FE_NedelecSZ<dim, spacedim>::update_each(const UpdateFlags flags) const
   return out;
 }
 
+
+
 template <int dim, int spacedim>
 std::string
 FE_NedelecSZ<dim, spacedim>::get_name() const
 {
-  // note that the
-  // FETools::get_fe_from_name
-  // function depends on the
-  // particular format of the string
-  // this function returns, so they
-  // have to be kept in synch
-
+  // note that the FETools::get_fe_by_name function depends on the particular
+  // format of the string this function returns, so they have to be kept in sync
   std::ostringstream namebuf;
   namebuf << "FE_NedelecSZ<" << dim << ">(" << this->degree - 1 << ")";
 
   return namebuf.str();
 }
 
+
+
 template <int dim, int spacedim>
 std::unique_ptr<FiniteElement<dim, dim>>
 FE_NedelecSZ<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<FE_NedelecSZ<dim, spacedim>>(*this);
+  return std::make_unique<FE_NedelecSZ<dim, spacedim>>(*this);
 }
+
+
 
 template <int dim, int spacedim>
 std::vector<unsigned int>
@@ -2243,6 +2250,8 @@ FE_NedelecSZ<dim, spacedim>::get_dpo_vector(const unsigned int degree)
     }
   return dpo;
 }
+
+
 
 template <int dim, int spacedim>
 unsigned int
@@ -2266,6 +2275,8 @@ FE_NedelecSZ<dim, spacedim>::compute_num_dofs(const unsigned int degree) const
     }
 }
 
+
+
 template <int dim, int spacedim>
 void
 FE_NedelecSZ<dim, spacedim>::create_polynomials(const unsigned int degree)
@@ -2274,6 +2285,8 @@ FE_NedelecSZ<dim, spacedim>::create_polynomials(const unsigned int degree)
   IntegratedLegendrePolynomials =
     IntegratedLegendreSZ::generate_complete_basis(degree + 1);
 }
+
+
 
 // explicit instantiations
 #include "fe_nedelec_sz.inst"

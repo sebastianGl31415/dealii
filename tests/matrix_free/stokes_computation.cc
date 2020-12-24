@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2012 - 2018 by the deal.II authors
+// Copyright (C) 2012 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -76,7 +76,6 @@ double pressure_scaling = 1.0;
 
 namespace StokesClass
 {
-  using namespace dealii;
   class QuietException
   {};
 
@@ -475,7 +474,7 @@ namespace StokesClass
   StokesOperator<dim, degree_v, number>::evaluate_2_x_viscosity(
     const Viscosity<dim> &viscosity_function)
   {
-    const unsigned int n_cells = this->data->n_macro_cells();
+    const unsigned int n_cells = this->data->n_cell_batches();
     FEEvaluation<dim, degree_v, degree_v + 1, dim, number> velocity(*this->data,
                                                                     0);
     viscosity_x_2.reinit(n_cells, velocity.n_q_points);
@@ -486,9 +485,7 @@ namespace StokesClass
           {
             VectorizedArray<number> return_value =
               make_vectorized_array<number>(1.);
-            for (unsigned int i = 0;
-                 i < VectorizedArray<number>::n_array_elements;
-                 ++i)
+            for (unsigned int i = 0; i < VectorizedArray<number>::size(); ++i)
               {
                 Point<dim> p;
                 for (unsigned int d = 0; d < dim; ++d)
@@ -517,10 +514,10 @@ namespace StokesClass
       {
         velocity.reinit(cell);
         velocity.read_dof_values(src.block(0));
-        velocity.evaluate(false, true, false);
+        velocity.evaluate(EvaluationFlags::gradients);
         pressure.reinit(cell);
         pressure.read_dof_values(src.block(1));
-        pressure.evaluate(true, false, false);
+        pressure.evaluate(EvaluationFlags::values);
 
         for (unsigned int q = 0; q < velocity.n_q_points; ++q)
           {
@@ -538,9 +535,9 @@ namespace StokesClass
             velocity.submit_symmetric_gradient(sym_grad_u, q);
           }
 
-        velocity.integrate(false, true);
+        velocity.integrate(EvaluationFlags::gradients);
         velocity.distribute_local_to_global(dst.block(0));
-        pressure.integrate(true, false);
+        pressure.integrate(EvaluationFlags::values);
         pressure.distribute_local_to_global(dst.block(1));
       }
   }
@@ -612,7 +609,7 @@ namespace StokesClass
   MassMatrixOperator<dim, degree_p, number>::evaluate_1_over_viscosity(
     const Viscosity<dim> &viscosity_function)
   {
-    const unsigned int n_cells = this->data->n_macro_cells();
+    const unsigned int n_cells = this->data->n_cell_batches();
     FEEvaluation<dim, degree_p, degree_p + 2, 1, number> pressure(*this->data,
                                                                   0);
     one_over_viscosity.reinit(n_cells, pressure.n_q_points);
@@ -623,9 +620,7 @@ namespace StokesClass
           {
             VectorizedArray<number> return_value =
               make_vectorized_array<number>(1.);
-            for (unsigned int i = 0;
-                 i < VectorizedArray<number>::n_array_elements;
-                 ++i)
+            for (unsigned int i = 0; i < VectorizedArray<number>::size(); ++i)
               {
                 Point<dim> p;
                 for (unsigned int d = 0; d < dim; ++d)
@@ -648,17 +643,17 @@ namespace StokesClass
 
     for (unsigned int cell = cell_range.first; cell < cell_range.second; ++cell)
       {
-        AssertDimension(one_over_viscosity.size(0), data.n_macro_cells());
+        AssertDimension(one_over_viscosity.size(0), data.n_cell_batches());
         AssertDimension(one_over_viscosity.size(1), pressure.n_q_points);
 
         pressure.reinit(cell);
         pressure.read_dof_values(src);
-        pressure.evaluate(true, false);
+        pressure.evaluate(EvaluationFlags::values);
         for (unsigned int q = 0; q < pressure.n_q_points; ++q)
           pressure.submit_value(one_over_viscosity(cell, q) *
                                   pressure.get_value(q),
                                 q);
-        pressure.integrate(true, false);
+        pressure.integrate(EvaluationFlags::values);
         pressure.distribute_local_to_global(dst);
       }
   }
@@ -726,12 +721,12 @@ namespace StokesClass
               pressure.begin_dof_values()[j] = VectorizedArray<number>();
             pressure.begin_dof_values()[i] = make_vectorized_array<number>(1.);
 
-            pressure.evaluate(true, false, false);
+            pressure.evaluate(EvaluationFlags::values);
             for (unsigned int q = 0; q < pressure.n_q_points; ++q)
               pressure.submit_value(one_over_viscosity(cell, q) *
                                       pressure.get_value(q),
                                     q);
-            pressure.integrate(true, false);
+            pressure.integrate(EvaluationFlags::values);
 
             diagonal[i] = pressure.begin_dof_values()[i];
           }
@@ -792,7 +787,7 @@ namespace StokesClass
   ABlockOperator<dim, degree_v, number>::evaluate_2_x_viscosity(
     const Viscosity<dim> &viscosity_function)
   {
-    const unsigned int n_cells = this->data->n_macro_cells();
+    const unsigned int n_cells = this->data->n_cell_batches();
     FEEvaluation<dim, degree_v, degree_v + 1, dim, number> velocity(*this->data,
                                                                     0);
     viscosity_x_2.reinit(n_cells, velocity.n_q_points);
@@ -803,9 +798,7 @@ namespace StokesClass
           {
             VectorizedArray<number> return_value =
               make_vectorized_array<number>(1.);
-            for (unsigned int i = 0;
-                 i < VectorizedArray<number>::n_array_elements;
-                 ++i)
+            for (unsigned int i = 0; i < VectorizedArray<number>::size(); ++i)
               {
                 Point<dim> p;
                 for (unsigned int d = 0; d < dim; ++d)
@@ -830,18 +823,18 @@ namespace StokesClass
 
     for (unsigned int cell = cell_range.first; cell < cell_range.second; ++cell)
       {
-        AssertDimension(viscosity_x_2.size(0), data.n_macro_cells());
+        AssertDimension(viscosity_x_2.size(0), data.n_cell_batches());
         AssertDimension(viscosity_x_2.size(1), velocity.n_q_points);
 
         velocity.reinit(cell);
         velocity.read_dof_values(src);
-        velocity.evaluate(false, true, false);
+        velocity.evaluate(EvaluationFlags::gradients);
         for (unsigned int q = 0; q < velocity.n_q_points; ++q)
           {
             velocity.submit_symmetric_gradient(
               viscosity_x_2(cell, q) * velocity.get_symmetric_gradient(q), q);
           }
-        velocity.integrate(false, true);
+        velocity.integrate(EvaluationFlags::gradients);
         velocity.distribute_local_to_global(dst);
       }
   }
@@ -900,14 +893,14 @@ namespace StokesClass
               velocity.begin_dof_values()[j] = VectorizedArray<number>();
             velocity.begin_dof_values()[i] = make_vectorized_array<number>(1.);
 
-            velocity.evaluate(false, true, false);
+            velocity.evaluate(EvaluationFlags::gradients);
             for (unsigned int q = 0; q < velocity.n_q_points; ++q)
               {
                 velocity.submit_symmetric_gradient(
                   viscosity_x_2(cell, q) * velocity.get_symmetric_gradient(q),
                   q);
               }
-            velocity.integrate(false, true);
+            velocity.integrate(EvaluationFlags::gradients);
 
             diagonal[i] = velocity.begin_dof_values()[i];
           }
@@ -1133,7 +1126,7 @@ namespace StokesClass
           MatrixFree<dim, double>::AdditionalData::none;
         additional_data.mapping_update_flags =
           (update_gradients | update_JxW_values | update_quadrature_points);
-        additional_data.level_mg_handler = level;
+        additional_data.mg_level = level;
         std::shared_ptr<MatrixFree<dim, double>> mg_mf_storage_level(
           new MatrixFree<dim, double>());
         mg_mf_storage_level->reinit(dof_handler_u,
@@ -1217,7 +1210,7 @@ namespace StokesClass
       pressure(*stokes_matrix.get_matrix_free(), 1);
 
     for (unsigned int cell = 0;
-         cell < stokes_matrix.get_matrix_free()->n_macro_cells();
+         cell < stokes_matrix.get_matrix_free()->n_cell_batches();
          ++cell)
       {
         velocity.reinit(cell);
@@ -1228,9 +1221,7 @@ namespace StokesClass
             for (unsigned int d = 0; d < dim; ++d)
               rhs_u[d] = make_vectorized_array<double>(1.0);
             VectorizedArray<double> rhs_p = make_vectorized_array<double>(1.0);
-            for (unsigned int i = 0;
-                 i < VectorizedArray<double>::n_array_elements;
-                 ++i)
+            for (unsigned int i = 0; i < VectorizedArray<double>::size(); ++i)
               {
                 Point<dim> p;
                 for (unsigned int d = 0; d < dim; ++d)
@@ -1246,9 +1237,9 @@ namespace StokesClass
             velocity.submit_value(rhs_u, q);
             pressure.submit_value(rhs_p, q);
           }
-        velocity.integrate(true, false);
+        velocity.integrate(EvaluationFlags::values);
         velocity.distribute_local_to_global(system_rhs.block(0));
-        pressure.integrate(true, false);
+        pressure.integrate(EvaluationFlags::values);
         pressure.distribute_local_to_global(system_rhs.block(1));
       }
     system_rhs.compress(VectorOperation::add);

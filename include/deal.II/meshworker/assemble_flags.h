@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 by the deal.II authors
+// Copyright (C) 2017 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -35,8 +35,6 @@ namespace MeshWorker
    *
    * You can select more than one flag by concatenation using the bitwise or
    * <code>operator|(AssembleFlags,AssembleFlags)</code>.
-   *
-   * @author Luca Heltai, 2017.
    */
   enum AssembleFlags
   {

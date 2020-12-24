@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -38,14 +38,12 @@ main()
 
   triangulation.begin_active()->set_all_manifold_ids(spherical_manifold_id);
 
-  for (const auto cell : triangulation.active_cell_iterators())
+  for (const auto &cell : triangulation.active_cell_iterators())
     {
       deallog << "current cell manifold id: " << cell->manifold_id()
               << std::endl;
 
-      for (unsigned int vertex_n = 0;
-           vertex_n < GeometryInfo<1>::vertices_per_cell;
-           ++vertex_n)
+      for (const unsigned int vertex_n : GeometryInfo<1>::vertex_indices())
         {
           deallog << "current vertex: " << cell->vertex(vertex_n) << std::endl;
           deallog << "current vertex manifold id: "

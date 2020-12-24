@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -112,6 +112,12 @@ namespace FEValuesExtractors
      * Constructor. Take the selected vector component as argument.
      */
     Scalar(const unsigned int component);
+
+    /**
+     * Return a string that uniquely identifies this finite element extractor.
+     */
+    std::string
+    get_name() const;
   };
 
 
@@ -162,6 +168,12 @@ namespace FEValuesExtractors
      * FEValues object as argument.
      */
     Vector(const unsigned int first_vector_component);
+
+    /**
+     * Return a string that uniquely identifies this finite element extractor.
+     */
+    std::string
+    get_name() const;
   };
 
 
@@ -180,8 +192,6 @@ namespace FEValuesExtractors
    * module.
    *
    * @ingroup feaccess vector_valued
-   *
-   * @author Andrew McBride, 2009
    */
   template <int rank>
   struct SymmetricTensor
@@ -205,6 +215,12 @@ namespace FEValuesExtractors
      * FEValues object as argument.
      */
     SymmetricTensor(const unsigned int first_tensor_component);
+
+    /**
+     * Return a string that uniquely identifies this finite element extractor.
+     */
+    std::string
+    get_name() const;
   };
 
 
@@ -223,8 +239,6 @@ namespace FEValuesExtractors
    * module.
    *
    * @ingroup feaccess vector_valued
-   *
-   * @author Denis Davydov, 2013
    */
   template <int rank>
   struct Tensor
@@ -248,6 +262,12 @@ namespace FEValuesExtractors
      * FEValues object as argument.
      */
     Tensor(const unsigned int first_tensor_component);
+
+    /**
+     * Return a string that uniquely identifies this finite element extractor.
+     */
+    std::string
+    get_name() const;
   };
 } // namespace FEValuesExtractors
 

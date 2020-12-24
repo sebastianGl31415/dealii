@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2003 - 2018 by the deal.II authors
+// Copyright (C) 2003 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -22,6 +22,7 @@
 #include <deal.II/base/complex_overloads.h>
 
 #include <complex>
+#include <iterator>
 #include <utility>
 
 DEAL_II_NAMESPACE_OPEN
@@ -91,89 +92,28 @@ struct enable_if_all
 
 
 
-template <bool, typename>
-struct constraint_and_return_value;
-
-
 /**
- * This specialization of the general template for the case of a <tt>true</tt>
- * first template argument declares a local alias <tt>type</tt> to the
- * second template argument. It is used in order to construct constraints on
- * template arguments in template (and member template) functions. The
- * negative specialization is missing.
- *
- * Here's how the trick works, called SFINAE (substitution failure is not an
- * error): The C++ standard prescribes that a template function is only
- * considered in a call, if all parts of its signature can be instantiated
- * with the template parameter replaced by the respective types/values in this
- * particular call. Example:
- * @code
- *   template <typename T>
- *   typename T::type  foo(T)
- *   {
- *     ...
- *   };
- *   ...
- *   foo(1);
- * @endcode
- * The compiler should detect that in this call, the template parameter T must
- * be identified with the type "int". However, the return type T::type does
- * not exist. The trick now is that this is not considered an error: this
- * template is simply not considered, the compiler keeps on looking for
- * another possible function foo.
- *
- * The idea is then to make the return type un-instantiatable if certain
- * constraints on the template types are not satisfied:
- * @code
- *   template <bool, typename>
- *   struct constraint_and_return_value;
- *
- *   template <typename T>
- *   struct constraint_and_return_value<true,T>
- *   {
- *     using type = T;
- *   };
- * @endcode
- * constraint_and_return_value<false,T> is not defined. Given something like
- * @code
- *   template <typename>
- *   struct int_or_double
- *   {
- *     static const bool value = false;
- *   };
- *
- *   template <>
- *   struct int_or_double<int>
- *   {
- *     static const bool value = true;
- *   };
- *
- *   template <>
- *   struct int_or_double<double>
- *   {
- *     static const bool value = true;
- *   };
- * @endcode
- * we can write a template
- * @code
- *   template <typename T>
- *   typename constraint_and_return_value<int_or_double<T>::value,void>::type
- *     f (T);
- * @endcode
- * which can only be instantiated if T=int or T=double. A call to f('c') will
- * just fail with a compiler error: "no instance of f(char) found". On the
- * other hand, if the predicate in the first argument to the
- * constraint_and_return_value template is true, then the return type is just
- * the second type in the template.
- *
- * @deprecated Use std::enable_if instead.
- *
- * @author Wolfgang Bangerth, 2003
+ * A type trait that checks to see if a class behaves as an iterable container
+ * that has a beginning and an end. This implies that the class either defines
+ * the `begin()` and `end()` functions, or is a C-style array.
  */
 template <typename T>
-struct DEAL_II_DEPRECATED constraint_and_return_value<true, T>
+class has_begin_and_end
 {
-  using type = T;
+  template <typename C>
+  static std::false_type
+  test(...);
+
+  template <typename C>
+  static auto
+  test(int) -> decltype(std::begin(std::declval<C>()),
+                        std::end(std::declval<C>()),
+                        std::true_type());
+
+public:
+  using type = decltype(test<T>(0));
+
+  static const bool value = type::value;
 };
 
 
@@ -234,8 +174,6 @@ struct DEAL_II_DEPRECATED constraint_and_return_value<true, T>
  *   forward_call(&h, 1);
  * }
  * @endcode
- *
- * @author Wolfgang Bangerth, 2008
  */
 template <typename T>
 struct identity
@@ -260,8 +198,6 @@ struct identity
  * This class implements a comparison function that always returns @p false if
  * the types of its two arguments are different, and returns <tt>p1 == p2</tt>
  * otherwise.
- *
- * @author Wolfgang Bangerth, 2004
  */
 struct PointerComparison
 {
@@ -296,129 +232,6 @@ struct PointerComparison
 namespace internal
 {
   /**
-   * A type that is sometimes used for template tricks. For example, in some
-   * situations one would like to do this:
-   *
-   * @code
-   *   template <int dim>
-   *   class X
-   *   {
-   *     // do something on subdim-dimensional sub-objects of the big
-   *     // dim-dimensional thing (for example on vertices/lines/quads of
-   *     // cells):
-   *     template <int subdim> void f();
-   *   };
-   *
-   *   template <int dim>
-   *   template <>
-   *   void X<dim>::f<0> ()
-   *   {
-   *     ...operate on the vertices of a cell...
-   *   }
-   *
-   *   template <int dim, int subdim> void g(X<dim> &x)
-   *   {
-   *     x.f<subdim> ();
-   *   }
-   * @endcode
-   *
-   * The problem is: the language doesn't allow us to specialize
-   * <code>X::f()</code> without specializing the outer class first. One of
-   * the common tricks is therefore to use something like this:
-   *
-   * @code
-   *   template <int N>
-   *   struct int2type
-   *   {};
-   *
-   *   template <int dim>
-   *   class X
-   *   {
-   *     // do something on subdim-dimensional sub-objects of the big
-   *     // dim-dimensional thing (for example on vertices/lines/quads of
-   *     // cells):
-   *     void f(int2type<0>);
-   *     void f(int2type<1>);
-   *     void f(int2type<2>);
-   *     void f(int2type<3>);
-   *   };
-   *
-   *   template <int dim>
-   *   void X<dim>::f (int2type<0>)
-   *   {
-   *     ...operate on the vertices of a cell...
-   *   }
-   *
-   *   template <int dim>
-   *   void X<dim>::f (int2type<1>)
-   *   {
-   *     ...operate on the lines of a cell...
-   *   }
-   *
-   *   template <int dim, int subdim>
-   *   void g(X<dim> &x)
-   *   {
-   *     x.f (int2type<subdim>());
-   *   }
-   * @endcode
-   *
-   * Note that we have replaced specialization of <code>X::f()</code> by
-   * overloading, but that from inside the function <code>g()</code>, we can
-   * still select which of the different <code>X::f()</code> we want based on
-   * the <code>subdim</code> template argument.
-   *
-   * @deprecated Use std::integral_constant<int, N> instead.
-   *
-   * @author Wolfgang Bangerth, 2006
-   */
-  template <int N>
-  struct DEAL_II_DEPRECATED int2type
-  {};
-
-
-  /**
-   * The equivalent of the int2type class for boolean arguments.
-   *
-   * @deprecated Use std::integral_constant<bool, B> instead.
-   *
-   * @author Wolfgang Bangerth, 2009
-   */
-  template <bool B>
-  struct DEAL_II_DEPRECATED bool2type
-  {};
-} // namespace internal
-
-
-
-/**
- * A type that can be used to determine whether two types are equal. It allows
- * to write code like
- * @code
- *   template <typename T>
- *   void Vector<T>::some_operation ()
- *   {
- *     if (std::is_same<T,double>::value == true)
- *       call_some_blas_function_for_doubles;
- *     else
- *       do_it_by_hand;
- *   }
- * @endcode
- *
- * This construct is made possible through the existence of a partial
- * specialization of the class for template arguments that are equal.
- *
- * @deprecated Use the standard library type trait <code>std::is_same</code>
- * instead of this class.
- */
-template <typename T, typename U>
-struct DEAL_II_DEPRECATED types_are_equal : std::is_same<T, U>
-{};
-
-
-
-namespace internal
-{
-  /**
    * A struct that implements the default product type resulting from the
    * multiplication of two types.
    *
@@ -427,8 +240,6 @@ namespace internal
    * that specialization of this class is only made for unqualified (fully
    * stripped) types and that the ProductType class be used to determine the
    * result of operating with (potentially) qualified types.
-   *
-   * @author Wolfgang Bangerth, Jean-Paul Pelteret, 2017
    */
   template <typename T, typename U>
   struct ProductTypeImpl
@@ -485,8 +296,6 @@ namespace internal
  * In all of these cases, this type is used to identify which type needs to be
  * used for the result of computing the product of unknowns and the values,
  * gradients, or other properties of shape functions.
- *
- * @author Wolfgang Bangerth, 2015, 2017
  */
 template <typename T, typename U>
 struct ProductType
@@ -579,7 +388,7 @@ namespace internal
  *   multiply(1.234, 2.345);
  * @endcode
  * it will deduce @p T to be @p double, and because
- * <code>EnableIfScalar@<double@>::type</code> equals @p double, the compiler
+ * <code>EnableIfScalar@<double@>::%type</code> equals @p double, the compiler
  * will instantiate a function <code>double multiply(const double, const
  * double)</code> from the template above. On the other hand, in a context
  * like
@@ -588,7 +397,7 @@ namespace internal
  *   multiply(v1, v2);
  * @endcode
  * the compiler will deduce @p T to be <code>std::vector@<char@></code> but
- * because <code>EnableIfScalar@<std::vector@<char@>@>::type</code> does not
+ * because <code>EnableIfScalar@<std::vector@<char@>@>::%type</code> does not
  * exist the compiler does not consider the template for instantiation. This
  * technique is called "Substitution Failure is not an Error (SFINAE)". It
  * makes sure that the template function can not even be called, rather than
@@ -597,8 +406,6 @@ namespace internal
  * It also allows the declaration of overloads of a function such as @p
  * multiply for different types of arguments, without resulting in ambiguous
  * call errors by the compiler.
- *
- * @author Wolfgang Bangerth, Matthias Maier, 2015 - 2017
  */
 template <typename T>
 struct EnableIfScalar;

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2018 by the deal.II authors
+// Copyright (C) 1999 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -121,8 +121,8 @@ FullMatrix<number>::all_zero() const
 {
   Assert(!this->empty(), ExcEmptyMatrix());
 
-  const number *      p = &this->values[0];
-  const number *const e = &this->values[0] + this->n_elements();
+  const number *      p = this->values.data();
+  const number *const e = this->values.data() + this->n_elements();
   while (p != e)
     if (*p++ != number(0.0))
       return false;
@@ -137,11 +137,8 @@ FullMatrix<number> &
 FullMatrix<number>::operator*=(const number factor)
 {
   AssertIsFinite(factor);
-
-  number *      p = &(*this)(0, 0);
-  const number *e = &(*this)(0, 0) + n() * m();
-  while (p != e)
-    *p++ *= factor;
+  for (number &v : this->values)
+    v *= factor;
 
   return *this;
 }
@@ -153,18 +150,9 @@ FullMatrix<number> &
 FullMatrix<number>::operator/=(const number factor)
 {
   AssertIsFinite(factor);
-
-  number *      p = &(*this)(0, 0);
-  const number *e = &(*this)(0, 0) + n() * m();
-
   const number factor_inv = number(1.) / factor;
 
-  AssertIsFinite(factor_inv);
-
-  while (p != e)
-    *p++ *= factor_inv;
-
-  return *this;
+  return *this *= factor_inv;
 }
 
 
@@ -183,11 +171,11 @@ FullMatrix<number>::vmult(Vector<number2> &      dst,
 
   Assert(&src != &dst, ExcSourceEqualsDestination());
 
-  const number *e = &this->values[0];
+  const number *e = this->values.data();
   // get access to the data in order to
   // avoid copying it when using the ()
   // operator
-  const number2 * src_ptr = &(*const_cast<Vector<number2> *>(&src))(0);
+  const number2 * src_ptr = src.begin();
   const size_type size_m = m(), size_n = n();
   for (size_type i = 0; i < size_m; ++i)
     {
@@ -214,7 +202,7 @@ FullMatrix<number>::Tvmult(Vector<number2> &      dst,
 
   Assert(&src != &dst, ExcSourceEqualsDestination());
 
-  const number *  e       = &this->values[0];
+  const number *  e       = this->values.data();
   number2 *       dst_ptr = &dst(0);
   const size_type size_m = m(), size_n = n();
 
@@ -529,13 +517,12 @@ FullMatrix<number>::mmult(FullMatrix<number2> &      dst,
   // works for us (it is usually not efficient to use BLAS for very small
   // matrices):
 #ifdef DEAL_II_WITH_LAPACK
+  const size_type max_blas_int = std::numeric_limits<types::blas_int>::max();
   if ((std::is_same<number, double>::value ||
        std::is_same<number, float>::value) &&
       std::is_same<number, number2>::value)
-    if (this->n() * this->m() * src.n() > 300 &&
-        src.n() <= std::numeric_limits<types::blas_int>::max() &&
-        this->m() <= std::numeric_limits<types::blas_int>::max() &&
-        this->n() <= std::numeric_limits<types::blas_int>::max())
+    if (this->n() * this->m() * src.n() > 300 && src.n() <= max_blas_int &&
+        this->m() <= max_blas_int && this->n() <= max_blas_int)
       {
         // In case we have the BLAS function gemm detected by CMake, we
         // use that algorithm for matrix-matrix multiplication since it
@@ -567,7 +554,7 @@ FullMatrix<number>::mmult(FullMatrix<number2> &      dst,
              &alpha,
              &src(0, 0),
              &m,
-             &this->values[0],
+             this->values.data(),
              &k,
              &beta,
              &dst(0, 0),
@@ -583,11 +570,11 @@ FullMatrix<number>::mmult(FullMatrix<number2> &      dst,
   // arrange the loops in a way that we keep write operations low, (writing is
   // usually more costly than reading), even though we need to access the data
   // in src not in a contiguous way.
-  for (size_type i = 0; i < m; i++)
-    for (size_type j = 0; j < n; j++)
+  for (size_type i = 0; i < m; ++i)
+    for (size_type j = 0; j < n; ++j)
       {
         number2 add_value = adding ? dst(i, j) : 0.;
-        for (size_type k = 0; k < l; k++)
+        for (size_type k = 0; k < l; ++k)
           add_value += static_cast<number2>((*this)(i, k)) *
                        static_cast<number2>((src(k, j)));
         dst(i, j) = add_value;
@@ -613,13 +600,12 @@ FullMatrix<number>::Tmmult(FullMatrix<number2> &      dst,
   // works for us (it is usually not efficient to use BLAS for very small
   // matrices):
 #ifdef DEAL_II_WITH_LAPACK
+  const size_type max_blas_int = std::numeric_limits<types::blas_int>::max();
   if ((std::is_same<number, double>::value ||
        std::is_same<number, float>::value) &&
       std::is_same<number, number2>::value)
-    if (this->n() * this->m() * src.n() > 300 &&
-        src.n() <= std::numeric_limits<types::blas_int>::max() &&
-        this->n() <= std::numeric_limits<types::blas_int>::max() &&
-        this->m() <= std::numeric_limits<types::blas_int>::max())
+    if (this->n() * this->m() * src.n() > 300 && src.n() <= max_blas_int &&
+        this->n() <= max_blas_int && this->m() <= max_blas_int)
       {
         // In case we have the BLAS function gemm detected by CMake, we
         // use that algorithm for matrix-matrix multiplication since it
@@ -652,7 +638,7 @@ FullMatrix<number>::Tmmult(FullMatrix<number2> &      dst,
              &alpha,
              &src(0, 0),
              &m,
-             &this->values[0],
+             this->values.data(),
              &n,
              &beta,
              &dst(0, 0),
@@ -689,11 +675,11 @@ FullMatrix<number>::Tmmult(FullMatrix<number2> &      dst,
   // optimized gemm operation in case the matrix is big, so this shouldn't be
   // too bad.
   else
-    for (size_type i = 0; i < m; i++)
-      for (size_type j = 0; j < n; j++)
+    for (size_type i = 0; i < m; ++i)
+      for (size_type j = 0; j < n; ++j)
         {
           number2 add_value = adding ? dst(i, j) : 0.;
-          for (size_type k = 0; k < l; k++)
+          for (size_type k = 0; k < l; ++k)
             add_value += static_cast<number2>((*this)(k, i)) *
                          static_cast<number2>((src(k, j)));
           dst(i, j) = add_value;
@@ -718,13 +704,12 @@ FullMatrix<number>::mTmult(FullMatrix<number2> &      dst,
   // works for us (it is usually not efficient to use BLAS for very small
   // matrices):
 #ifdef DEAL_II_WITH_LAPACK
+  const size_type max_blas_int = std::numeric_limits<types::blas_int>::max();
   if ((std::is_same<number, double>::value ||
        std::is_same<number, float>::value) &&
       std::is_same<number, number2>::value)
-    if (this->n() * this->m() * src.m() > 300 &&
-        src.m() <= std::numeric_limits<types::blas_int>::max() &&
-        this->n() <= std::numeric_limits<types::blas_int>::max() &&
-        this->m() <= std::numeric_limits<types::blas_int>::max())
+    if (this->n() * this->m() * src.m() > 300 && src.m() <= max_blas_int &&
+        this->n() <= max_blas_int && this->m() <= max_blas_int)
       {
         // In case we have the BLAS function gemm detected by CMake, we
         // use that algorithm for matrix-matrix multiplication since it
@@ -757,7 +742,7 @@ FullMatrix<number>::mTmult(FullMatrix<number2> &      dst,
              &alpha,
              &src(0, 0),
              &k,
-             &this->values[0],
+             this->values.data(),
              &k,
              &beta,
              &dst(0, 0),
@@ -791,11 +776,11 @@ FullMatrix<number>::mTmult(FullMatrix<number2> &      dst,
   else
     // arrange the loops in a way that we keep write operations low, (writing is
     // usually more costly than reading).
-    for (size_type i = 0; i < m; i++)
-      for (size_type j = 0; j < n; j++)
+    for (size_type i = 0; i < m; ++i)
+      for (size_type j = 0; j < n; ++j)
         {
           number2 add_value = adding ? dst(i, j) : 0.;
-          for (size_type k = 0; k < l; k++)
+          for (size_type k = 0; k < l; ++k)
             add_value += static_cast<number2>((*this)(i, k)) *
                          static_cast<number2>(src(j, k));
           dst(i, j) = add_value;
@@ -821,13 +806,12 @@ FullMatrix<number>::TmTmult(FullMatrix<number2> &      dst,
   // works for us (it is usually not efficient to use BLAS for very small
   // matrices):
 #ifdef DEAL_II_WITH_LAPACK
+  const size_type max_blas_int = std::numeric_limits<types::blas_int>::max();
   if ((std::is_same<number, double>::value ||
        std::is_same<number, float>::value) &&
       std::is_same<number, number2>::value)
-    if (this->n() * this->m() * src.m() > 300 &&
-        src.m() <= std::numeric_limits<types::blas_int>::max() &&
-        this->n() <= std::numeric_limits<types::blas_int>::max() &&
-        this->m() <= std::numeric_limits<types::blas_int>::max())
+    if (this->n() * this->m() * src.m() > 300 && src.m() <= max_blas_int &&
+        this->n() <= max_blas_int && this->m() <= max_blas_int)
       {
         // In case we have the BLAS function gemm detected by CMake, we
         // use that algorithm for matrix-matrix multiplication since it
@@ -859,7 +843,7 @@ FullMatrix<number>::TmTmult(FullMatrix<number2> &      dst,
              &alpha,
              &src(0, 0),
              &k,
-             &this->values[0],
+             this->values.data(),
              &n,
              &beta,
              &dst(0, 0),
@@ -877,11 +861,11 @@ FullMatrix<number>::TmTmult(FullMatrix<number2> &      dst,
   // in the calling matrix in a non-contiguous way, possibly leading to cache
   // misses. However, we should usually end up in the optimized gemm operation
   // in case the matrix is big, so this shouldn't be too bad.
-  for (size_type i = 0; i < m; i++)
-    for (size_type j = 0; j < n; j++)
+  for (size_type i = 0; i < m; ++i)
+    for (size_type j = 0; j < n; ++j)
       {
         number2 add_value = adding ? dst(i, j) : 0.;
-        for (size_type k = 0; k < l; k++)
+        for (size_type k = 0; k < l; ++k)
           add_value += static_cast<number2>((*this)(k, i)) *
                        static_cast<number2>(src(j, k));
         dst(i, j) = add_value;
@@ -957,7 +941,7 @@ FullMatrix<number>::matrix_norm_square(const Vector<number2> &v) const
 
   number2         sum     = 0.;
   const size_type n_rows  = m();
-  const number *  val_ptr = &this->values[0];
+  const number *  val_ptr = this->values.data();
 
   for (size_type row = 0; row < n_rows; ++row)
     {
@@ -988,7 +972,7 @@ FullMatrix<number>::matrix_scalar_product(const Vector<number2> &u,
   number2         sum     = 0.;
   const size_type n_rows  = m();
   const size_type n_cols  = n();
-  const number *  val_ptr = &this->values[0];
+  const number *  val_ptr = this->values.data();
 
   for (size_type row = 0; row < n_rows; ++row)
     {
@@ -1564,13 +1548,13 @@ FullMatrix<number>::cholesky(const FullMatrix<number2> &A)
       /* reinit *this to 0 */
       this->reinit(A.m(), A.n());
 
-      for (size_type i = 0; i < this->n_cols(); i++)
+      for (size_type i = 0; i < this->n_cols(); ++i)
         {
           double SLik2 = 0.0;
-          for (size_type j = 0; j < i; j++)
+          for (size_type j = 0; j < i; ++j)
             {
               double SLikLjk = 0.0;
-              for (size_type k = 0; k < j; k++)
+              for (size_type k = 0; k < j; ++k)
                 {
                   SLikLjk += (*this)(i, k) * (*this)(j, k);
                 };
@@ -1595,9 +1579,9 @@ FullMatrix<number>::outer_product(const Vector<number2> &V,
          ExcMessage("Vectors V, W must be the same size."));
   this->reinit(V.size(), V.size());
 
-  for (size_type i = 0; i < this->n(); i++)
+  for (size_type i = 0; i < this->n(); ++i)
     {
-      for (size_type j = 0; j < this->n(); j++)
+      for (size_type j = 0; j < this->n(); ++j)
         {
           (*this)(i, j) = V(i) * W(j);
         }
@@ -1701,8 +1685,8 @@ FullMatrix<number>::copy_from(const Tensor<2, dim> &T,
   AssertIndexRange(src_r_i, src_r_j + 1);
   AssertIndexRange(src_c_i, src_c_j + 1);
 
-  for (size_type i = 0; i < src_r_j - src_r_i + 1; i++)
-    for (size_type j = 0; j < src_c_j - src_c_i + 1; j++)
+  for (size_type i = 0; i < src_r_j - src_r_i + 1; ++i)
+    for (size_type j = 0; j < src_c_j - src_c_i + 1; ++j)
       {
         const unsigned int src_r_index = static_cast<unsigned int>(i + src_r_i);
         const unsigned int src_c_index = static_cast<unsigned int>(j + src_c_i);
@@ -1729,8 +1713,8 @@ void FullMatrix<number>::copy_to(Tensor<2, dim> &   T,
   AssertIndexRange(src_r_i, src_r_j + 1);
   AssertIndexRange(src_c_j, src_c_j + 1);
 
-  for (size_type i = 0; i < src_r_j - src_r_i + 1; i++)
-    for (size_type j = 0; j < src_c_j - src_c_i + 1; j++)
+  for (size_type i = 0; i < src_r_j - src_r_i + 1; ++i)
+    for (size_type j = 0; j < src_c_j - src_c_i + 1; ++j)
       {
         const unsigned int dst_r_index = static_cast<unsigned int>(i + dst_r);
         const unsigned int dst_c_index = static_cast<unsigned int>(j + dst_c);
@@ -1829,8 +1813,8 @@ FullMatrix<number>::gauss_jordan()
   // matrices):
 #ifdef DEAL_II_WITH_LAPACK
   if (std::is_same<number, double>::value || std::is_same<number, float>::value)
-    if (this->n_cols() > 15 &&
-        this->n_cols() <= std::numeric_limits<types::blas_int>::max())
+    if (this->n_cols() > 15 && static_cast<types::blas_int>(this->n_cols()) <=
+                                 std::numeric_limits<types::blas_int>::max())
       {
         // In case we have the LAPACK functions
         // getrf and getri detected by CMake,
@@ -1859,7 +1843,7 @@ FullMatrix<number>::gauss_jordan()
 
         // Use the LAPACK function getrf for
         // calculating the LU factorization.
-        getrf(&nn, &nn, &this->values[0], &nn, ipiv.data(), &info);
+        getrf(&nn, &nn, this->values.data(), &nn, ipiv.data(), &info);
 
         Assert(info >= 0, ExcInternalError());
         Assert(info == 0, LACExceptions::ExcSingular());
@@ -1870,8 +1854,13 @@ FullMatrix<number>::gauss_jordan()
         // Use the LAPACK function getri for
         // calculating the actual inverse using
         // the LU factorization.
-        getri(
-          &nn, &this->values[0], &nn, ipiv.data(), inv_work.data(), &nn, &info);
+        getri(&nn,
+              this->values.data(),
+              &nn,
+              ipiv.data(),
+              inv_work.data(),
+              &nn,
+              &info);
 
         Assert(info >= 0, ExcInternalError());
         Assert(info == 0, LACExceptions::ExcSingular());

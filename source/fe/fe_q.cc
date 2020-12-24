@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2000 - 2017 by the deal.II authors
+// Copyright (C) 2000 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -15,7 +15,6 @@
 
 
 #include <deal.II/base/quadrature_lib.h>
-#include <deal.II/base/std_cxx14/memory.h>
 
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_nothing.h>
@@ -23,6 +22,7 @@
 
 #include <deal.II/lac/vector.h>
 
+#include <memory>
 #include <sstream>
 #include <vector>
 
@@ -99,8 +99,10 @@ FE_Q<dim, spacedim>::get_name() const
   std::vector<double> points(this->degree + 1);
 
   // Decode the support points in one coordinate direction.
+  TensorProductPolynomials<dim> *poly_space_derived_ptr =
+    dynamic_cast<TensorProductPolynomials<dim> *>(this->poly_space.get());
   std::vector<unsigned int> lexicographic =
-    this->poly_space.get_numbering_inverse();
+    poly_space_derived_ptr->get_numbering_inverse();
   for (unsigned int j = 0; j <= this->degree; j++)
     points[j] = this->unit_support_points[lexicographic[j]][0];
 
@@ -116,7 +118,7 @@ FE_Q<dim, spacedim>::get_name() const
     {
       if (this->degree > 2)
         namebuf << "FE_Q<" << Utilities::dim_string(dim, spacedim)
-                << ">(QIterated(QTrapez()," << this->degree << "))";
+                << ">(QIterated(QTrapezoid()," << this->degree << "))";
       else
         namebuf << "FE_Q<" << Utilities::dim_string(dim, spacedim) << ">("
                 << this->degree << ")";
@@ -153,9 +155,9 @@ FE_Q<dim, spacedim>::convert_generalized_support_point_values_to_dof_values(
   AssertDimension(support_point_values.size(),
                   this->get_unit_support_points().size());
   AssertDimension(support_point_values.size(), nodal_values.size());
-  AssertDimension(this->dofs_per_cell, nodal_values.size());
+  AssertDimension(this->n_dofs_per_cell(), nodal_values.size());
 
-  for (unsigned int i = 0; i < this->dofs_per_cell; ++i)
+  for (unsigned int i = 0; i < this->n_dofs_per_cell(); ++i)
     {
       AssertDimension(support_point_values[i].size(), 1);
 
@@ -169,7 +171,7 @@ template <int dim, int spacedim>
 std::unique_ptr<FiniteElement<dim, spacedim>>
 FE_Q<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<FE_Q<dim, spacedim>>(*this);
+  return std::make_unique<FE_Q<dim, spacedim>>(*this);
 }
 
 

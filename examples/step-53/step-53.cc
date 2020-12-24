@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2014 - 2018 by the deal.II authors
+ * Copyright (C) 2014 - 2019 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -46,14 +46,9 @@
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/device/file.hpp>
 
-// The last include file is required because we will be using a feature that is
-// not part of the C++11 standard. As some of the C++14 features are very
-// useful, we provide their implementation in an internal namespace, if the
-// compiler does not support them:
-#include <deal.II/base/std_cxx14/memory.h>
-
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <memory>
 
 
 // The final part of the top matter is to open a namespace into which to put
@@ -88,9 +83,7 @@ namespace Step53
   private:
     const Functions::InterpolatedUniformGridData<2> topography_data;
 
-    static std::array<std::pair<double, double>, 2> get_endpoints();
-    static std::array<unsigned int, 2>              n_intervals();
-    static std::vector<double>                      get_data();
+    static std::vector<double> get_data();
   };
 
 
@@ -112,8 +105,9 @@ namespace Step53
   // access any member variables of the class, and (ii) because they are
   // called at a time when the object is not initialized fully anyway.
   AfricaTopography::AfricaTopography()
-    : topography_data(get_endpoints(),
-                      n_intervals(),
+    : topography_data({{std::make_pair(-6.983333, 11.966667),
+                        std::make_pair(25, 35.95)}},
+                      {{379, 219}},
                       Table<2, double>(380, 220, get_data().begin()))
   {}
 
@@ -122,24 +116,6 @@ namespace Step53
   {
     return topography_data.value(
       Point<2>(-lat * 180 / numbers::PI, lon * 180 / numbers::PI));
-  }
-
-
-  std::array<std::pair<double, double>, 2> AfricaTopography::get_endpoints()
-  {
-    std::array<std::pair<double, double>, 2> endpoints;
-    endpoints[0] = std::make_pair(-6.983333, 11.966667);
-    endpoints[1] = std::make_pair(25, 35.95);
-    return endpoints;
-  }
-
-
-  std::array<unsigned int, 2> AfricaTopography::n_intervals()
-  {
-    std::array<unsigned int, 2> endpoints;
-    endpoints[0] = 379;
-    endpoints[1] = 219;
-    return endpoints;
   }
 
 
@@ -245,18 +221,16 @@ namespace Step53
   }
 
 
-  // This function is required by the interface of the Manifold base
-  // class, and allows you to clone the AfricaGeometry class. This is
-  // where we use a feature that is only available in C++14, namely the
-  // make_unique function, that simplifies the creation of
-  // std::unique_ptr objects. Notice that, while the function returns an
-  // std::unique_ptr<Manifold<3,3> >, we internally create a
-  // unique_ptr<AfricaGeometry>. C++11 knows how to handle these cases,
-  // and is able to transform a unique pointer to a derived class to a
-  // unique pointer to its base class automatically:
+  // The next function is required by the interface of the
+  // Manifold base class, and allows cloning the AfricaGeometry
+  // class. Notice that, while the function returns a
+  // `std::unique_ptr<Manifold<3,3>>`, we internally create a
+  // `unique_ptr<AfricaGeometry>`. In other words, the library
+  // requires a pointer-to-base-class, which we provide by creating a
+  // pointer-to-derived-class.
   std::unique_ptr<Manifold<3, 3>> AfricaGeometry::clone() const
   {
-    return std_cxx14::make_unique<AfricaGeometry>();
+    return std::make_unique<AfricaGeometry>();
   }
 
 
@@ -277,10 +251,9 @@ namespace Step53
     const double R_bar = R / std::sqrt(1 - (ellipticity * ellipticity *
                                             std::sin(theta) * std::sin(theta)));
 
-    return Point<3>((R_bar + d) * std::cos(phi) * std::cos(theta),
-                    (R_bar + d) * std::sin(phi) * std::cos(theta),
-                    ((1 - ellipticity * ellipticity) * R_bar + d) *
-                      std::sin(theta));
+    return {(R_bar + d) * std::cos(phi) * std::cos(theta),
+            (R_bar + d) * std::sin(phi) * std::cos(theta),
+            ((1 - ellipticity * ellipticity) * R_bar + d) * std::sin(theta)};
   }
 
   Point<3> AfricaGeometry::pull_back_wgs84(const Point<3> &x) const
@@ -318,20 +291,18 @@ namespace Step53
   Point<3>
   AfricaGeometry::push_forward_topo(const Point<3> &phi_theta_d_hat) const
   {
-    const double   d_hat = phi_theta_d_hat[2];
-    const double   h = topography.value(phi_theta_d_hat[0], phi_theta_d_hat[1]);
-    const double   d = d_hat + (d_hat + 500000) / 500000 * h;
-    const Point<3> phi_theta_d(phi_theta_d_hat[0], phi_theta_d_hat[1], d);
-    return phi_theta_d;
+    const double d_hat = phi_theta_d_hat[2];
+    const double h = topography.value(phi_theta_d_hat[0], phi_theta_d_hat[1]);
+    const double d = d_hat + (d_hat + 500000) / 500000 * h;
+    return {phi_theta_d_hat[0], phi_theta_d_hat[1], d};
   }
 
   Point<3> AfricaGeometry::pull_back_topo(const Point<3> &phi_theta_d) const
   {
-    const double   d     = phi_theta_d[2];
-    const double   h     = topography.value(phi_theta_d[0], phi_theta_d[1]);
-    const double   d_hat = 500000 * (d - h) / (500000 + h);
-    const Point<3> phi_theta_d_hat(phi_theta_d[0], phi_theta_d[1], d_hat);
-    return phi_theta_d_hat;
+    const double d     = phi_theta_d[2];
+    const double h     = topography.value(phi_theta_d[0], phi_theta_d[1]);
+    const double d_hat = 500000 * (d - h) / (500000 + h);
+    return {phi_theta_d[0], phi_theta_d[1], d_hat};
   }
 
 
@@ -355,13 +326,8 @@ namespace Step53
   // a function that takes as its single argument a point in the reference
   // domain and returns the corresponding location in the domain that we
   // want to map to. This is, of course, exactly the push forward
-  // function of the geometry we use. However,
-  // <code>AfricaGeometry::push_forward()</code> requires two arguments:
-  // the <code>AfricaGeometry</code> object to work with via its implicit
-  // <code>this</code> pointer, and the point. We bind the first of these
-  // to the geometry object we have created at the top of the function
-  // and leave the second one open, obtaining the desired object to
-  // do the transformation.
+  // function of the geometry we use. We wrap it by a lambda function to
+  // obtain the kind of function object required for the transformation.
   void run()
   {
     AfricaGeometry   geometry;
@@ -378,10 +344,11 @@ namespace Step53
       GridGenerator::subdivided_hyper_rectangle(
         triangulation, subdivisions, corner_points[0], corner_points[1], true);
 
-      GridTools::transform(std::bind(&AfricaGeometry::push_forward,
-                                     std::cref(geometry),
-                                     std::placeholders::_1),
-                           triangulation);
+      GridTools::transform(
+        [&geometry](const Point<3> &chart_point) {
+          return geometry.push_forward(chart_point);
+        },
+        triangulation);
     }
 
     // The next step is to explain to the triangulation to use our geometry
@@ -394,10 +361,7 @@ namespace Step53
     // mother to children, this also happens after several recursive
     // refinement steps.
     triangulation.set_manifold(0, geometry);
-    for (Triangulation<3>::active_cell_iterator cell =
-           triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       cell->set_all_manifold_ids(0);
 
     // The last step is to refine the mesh beyond its initial $1\times 2\times
@@ -413,12 +377,9 @@ namespace Step53
     // the boundaries by assigning each boundary a unique boundary indicator).
     for (unsigned int i = 0; i < 6; ++i)
       {
-        for (Triangulation<3>::active_cell_iterator cell =
-               triangulation.begin_active();
-             cell != triangulation.end();
-             ++cell)
-          for (unsigned int f = 0; f < GeometryInfo<3>::faces_per_cell; ++f)
-            if (cell->face(f)->boundary_id() == 5)
+        for (const auto &cell : triangulation.active_cell_iterators())
+          for (const auto &face : cell->face_iterators())
+            if (face->boundary_id() == 5)
               {
                 cell->set_refine_flag();
                 break;

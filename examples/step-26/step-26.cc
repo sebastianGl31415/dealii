@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2013 - 2017 by the deal.II authors
+ * Copyright (C) 2013 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -145,7 +145,7 @@ namespace Step26
                                    const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     Assert(dim == 2, ExcNotImplemented());
 
     const double time = this->get_time();
@@ -273,10 +273,10 @@ namespace Step26
   template <int dim>
   void HeatEquation<dim>::solve_time_step()
   {
-    SolverControl solver_control(1000, 1e-8 * system_rhs.l2_norm());
-    SolverCG<>    cg(solver_control);
+    SolverControl            solver_control(1000, 1e-8 * system_rhs.l2_norm());
+    SolverCG<Vector<double>> cg(solver_control);
 
-    PreconditionSSOR<> preconditioner;
+    PreconditionSSOR<SparseMatrix<double>> preconditioner;
     preconditioner.initialize(system_matrix, 1.0);
 
     cg.solve(system_matrix, solution, system_rhs, preconditioner);
@@ -291,7 +291,9 @@ namespace Step26
 
   // @sect4{<code>HeatEquation::output_results</code>}
   //
-  // Neither is there anything new in generating graphical output:
+  // Neither is there anything new in generating graphical output other than the
+  // fact that we tell the DataOut object what the current time and time step
+  // number is, so that this can be written into the output file:
   template <int dim>
   void HeatEquation<dim>::output_results() const
   {
@@ -301,6 +303,8 @@ namespace Step26
     data_out.add_data_vector(solution, "U");
 
     data_out.build_patches();
+
+    data_out.set_flags(DataOutBase::VtkFlags(time, timestep_number));
 
     const std::string filename =
       "solution-" + Utilities::int_to_string(timestep_number, 3) + ".vtk";
@@ -351,15 +355,11 @@ namespace Step26
                                                       0.4);
 
     if (triangulation.n_levels() > max_grid_level)
-      for (typename Triangulation<dim>::active_cell_iterator cell =
-             triangulation.begin_active(max_grid_level);
-           cell != triangulation.end();
-           ++cell)
+      for (const auto &cell :
+           triangulation.active_cell_iterators_on_level(max_grid_level))
         cell->clear_refine_flag();
-    for (typename Triangulation<dim>::active_cell_iterator cell =
-           triangulation.begin_active(min_grid_level);
-         cell != triangulation.end_active(min_grid_level);
-         ++cell)
+    for (const auto &cell :
+         triangulation.active_cell_iterators_on_level(min_grid_level))
       cell->clear_coarsen_flag();
     // These two loops above are slightly different but this is easily
     // explained. In the first loop, instead of calling
@@ -434,11 +434,11 @@ namespace Step26
   // <code>goto</code> is hard to understand. In fact, deal.II contains
   // virtually no occurrences: excluding code that was essentially
   // transcribed from books and not counting duplicated code pieces,
-  // there are 3 locations in about 600,000 lines of code; we also
-  // use it in 4 tutorial programs, in exactly the same context
-  // as here. Instead of trying to justify the occurrence here,
-  // let's first look at the code and we'll come back to the issue
-  // at the end of function.
+  // there are 3 locations in about 600,000 lines of code at the time
+  // this note is written; we also use it in 4 tutorial programs, in
+  // exactly the same context as here. Instead of trying to justify
+  // the occurrence here, let's first look at the code and we'll come
+  // back to the issue at the end of function.
   template <int dim>
   void HeatEquation<dim>::run()
   {
@@ -644,10 +644,14 @@ namespace Step26
 // to read or understand than a <code>goto</code>.
 //
 // In the end, one might simply agree that <i>in general</i>
-// <code>goto</code> statements are a bad idea but be pragmatic
-// and state that there may be occasions where they can help avoid
-// code duplication and awkward control flow. This may be one of these
-// places.
+// <code>goto</code> statements are a bad idea but be pragmatic and
+// state that there may be occasions where they can help avoid code
+// duplication and awkward control flow. This may be one of these
+// places, and it matches the position Steve McConnell takes in his
+// excellent book "Code Complete" @cite CodeComplete about good
+// programming practices (see the mention of this book in the
+// introduction of step-1) that spends a surprising ten pages on the
+// question of <code>goto</code> in general.
 
 
 // @sect3{The <code>main</code> function}
@@ -659,7 +663,6 @@ int main()
 {
   try
     {
-      using namespace dealii;
       using namespace Step26;
 
       HeatEquation<2> heat_equation_solver;

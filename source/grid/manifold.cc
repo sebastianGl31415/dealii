@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,7 +13,6 @@
 //
 // ---------------------------------------------------------------------
 
-#include <deal.II/base/std_cxx14/memory.h>
 #include <deal.II/base/table.h>
 #include <deal.II/base/tensor.h>
 
@@ -27,6 +26,7 @@
 #include <boost/container/small_vector.hpp>
 
 #include <cmath>
+#include <memory>
 
 DEAL_II_NAMESPACE_OPEN
 
@@ -95,15 +95,21 @@ Manifold<dim, spacedim>::get_new_point(
   for (unsigned int i = 1; i < n_points; ++i)
     {
       double weight = 0.0;
-      if ((weights[permutation[i]] + w) < tol)
+      if (std::abs(weights[permutation[i]] + w) < tol)
         weight = 0.0;
       else
         weight = w / (weights[permutation[i]] + w);
 
       if (std::abs(weight) > 1e-14)
-        p = get_intermediate_point(p,
-                                   surrounding_points[permutation[i]],
-                                   1.0 - weight);
+        {
+          p = get_intermediate_point(p,
+                                     surrounding_points[permutation[i]],
+                                     1.0 - weight);
+        }
+      else
+        {
+          p = surrounding_points[permutation[i]];
+        }
       w += weights[permutation[i]];
     }
 
@@ -379,7 +385,7 @@ Manifold<1, 1>::get_new_point_on_face(
   const Triangulation<1, 1>::face_iterator &) const
 {
   Assert(false, ExcImpossibleInDim(1));
-  return Point<1>();
+  return {};
 }
 
 
@@ -390,7 +396,7 @@ Manifold<1, 2>::get_new_point_on_face(
   const Triangulation<1, 2>::face_iterator &) const
 {
   Assert(false, ExcImpossibleInDim(1));
-  return Point<2>();
+  return {};
 }
 
 
@@ -401,7 +407,7 @@ Manifold<1, 3>::get_new_point_on_face(
   const Triangulation<1, 3>::face_iterator &) const
 {
   Assert(false, ExcImpossibleInDim(1));
-  return Point<3>();
+  return {};
 }
 
 
@@ -412,7 +418,7 @@ Manifold<1, 1>::get_new_point_on_quad(
   const Triangulation<1, 1>::quad_iterator &) const
 {
   Assert(false, ExcImpossibleInDim(1));
-  return Point<1>();
+  return {};
 }
 
 
@@ -423,7 +429,7 @@ Manifold<1, 2>::get_new_point_on_quad(
   const Triangulation<1, 2>::quad_iterator &) const
 {
   Assert(false, ExcImpossibleInDim(1));
-  return Point<2>();
+  return {};
 }
 
 
@@ -434,7 +440,7 @@ Manifold<1, 3>::get_new_point_on_quad(
   const Triangulation<1, 3>::quad_iterator &) const
 {
   Assert(false, ExcImpossibleInDim(1));
-  return Point<3>();
+  return {};
 }
 
 
@@ -492,7 +498,7 @@ namespace internal
       // the implementation below is bogus for this case anyway
       // (see the assert at the beginning of that function).
       Assert(false, ExcNotImplemented());
-      return Tensor<1, 3>();
+      return {};
     }
 
 
@@ -521,8 +527,7 @@ template <int dim, int spacedim>
 std::unique_ptr<Manifold<dim, spacedim>>
 FlatManifold<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<FlatManifold<dim, spacedim>>(periodicity,
-                                                             tolerance);
+  return std::make_unique<FlatManifold<dim, spacedim>>(periodicity, tolerance);
 }
 
 
@@ -808,7 +813,7 @@ FlatManifold<1, 1>::normal_vector(const Triangulation<1, 1>::face_iterator &,
                                   const Point<1> &) const
 {
   Assert(false, ExcNotImplemented());
-  return Tensor<1, 1>();
+  return {};
 }
 
 
@@ -819,7 +824,7 @@ FlatManifold<1, 2>::normal_vector(const Triangulation<1, 2>::face_iterator &,
                                   const Point<2> &) const
 {
   Assert(false, ExcNotImplemented());
-  return Tensor<1, 2>();
+  return {};
 }
 
 
@@ -830,7 +835,7 @@ FlatManifold<1, 3>::normal_vector(const Triangulation<1, 3>::face_iterator &,
                                   const Point<3> &) const
 {
   Assert(false, ExcNotImplemented());
-  return Tensor<1, 3>();
+  return {};
 }
 
 
@@ -887,8 +892,19 @@ FlatManifold<dim, spacedim>::normal_vector(
   const unsigned int facedim = dim - 1;
 
   Point<facedim> xi;
-  for (unsigned int i = 0; i < facedim; ++i)
-    xi[i] = 1. / 2;
+
+  const auto face_reference_cell_type = face->reference_cell_type();
+
+  if (face_reference_cell_type == ReferenceCell::get_hypercube(facedim))
+    {
+      for (unsigned int i = 0; i < facedim; ++i)
+        xi[i] = 1. / 2;
+    }
+  else
+    {
+      for (unsigned int i = 0; i < facedim; ++i)
+        xi[i] = 1. / 3;
+    }
 
   const double        eps = 1e-12;
   Tensor<1, spacedim> grad_F[facedim];
@@ -896,19 +912,17 @@ FlatManifold<dim, spacedim>::normal_vector(
   while (true)
     {
       Point<spacedim> F;
-      for (unsigned int v = 0; v < GeometryInfo<facedim>::vertices_per_cell;
-           ++v)
-        F += face->vertex(v) *
-             GeometryInfo<facedim>::d_linear_shape_function(xi, v);
+      for (const unsigned int v : face->vertex_indices())
+        F += face->vertex(v) * ReferenceCell::d_linear_shape_function(
+                                 face_reference_cell_type, xi, v);
 
       for (unsigned int i = 0; i < facedim; ++i)
         {
           grad_F[i] = 0;
-          for (unsigned int v = 0; v < GeometryInfo<facedim>::vertices_per_cell;
-               ++v)
+          for (const unsigned int v : face->vertex_indices())
             grad_F[i] +=
-              face->vertex(v) *
-              GeometryInfo<facedim>::d_linear_shape_function_gradient(xi, v)[i];
+              face->vertex(v) * ReferenceCell::d_linear_shape_function_gradient(
+                                  face_reference_cell_type, xi, v)[i];
         }
 
       Tensor<1, facedim> J;

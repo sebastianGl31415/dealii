@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -71,7 +71,6 @@ DEAL_II_NAMESPACE_OPEN
  * @image html scalapack_invert.png
  *
  * @ingroup Matrix1
- * @author Denis Davydov, Benjamin Brands, 2017
  */
 template <typename NumberType>
 class ScaLAPACKMatrix : protected TransposeTable<NumberType>
@@ -105,7 +104,6 @@ public:
    * The parameter @p block_size is used for the block-cyclic distribution of the matrix.
    * An identical block size is used for the rows and columns of the matrix.
    * In general, it is recommended to use powers of $2$, e.g. $16,32,64, \dots$.
-   *
    */
   ScaLAPACKMatrix(
     const size_type                                           size,
@@ -219,7 +217,7 @@ public:
 
   /**
    * Copies the content of the distributed matrix into the locally replicated @p matrix
-   * on the process with rank @rank. For all processes except @p rank @p matrix is not referenced.
+   * on the process with rank @p rank. For all processes except @p rank @p matrix is not referenced.
    * The distributed matrix and @p matrix on the process @p rank must have matching dimensions.
    *
    * The user has to ensure that all processes call this with identical @p rank.

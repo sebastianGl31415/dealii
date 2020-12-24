@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2013 - 2016 by the deal.II authors
+// Copyright (C) 2013 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -37,6 +37,7 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include "../tests.h"
+
 #include "matrix_vector_mf.h"
 
 
@@ -88,7 +89,7 @@ test()
   AffineConstraints<double> constraints;
   VectorTools::interpolate_boundary_values(dof,
                                            0,
-                                           ZeroFunction<dim>(),
+                                           Functions::ZeroFunction<dim>(),
                                            constraints);
   constraints.close();
 

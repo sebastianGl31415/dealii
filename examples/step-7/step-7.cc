@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2000 - 2018 by the deal.II authors
+ * Copyright (C) 2000 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -178,10 +178,6 @@ namespace Step7
   class Solution : public Function<dim>, protected SolutionBase<dim>
   {
   public:
-    Solution()
-      : Function<dim>()
-    {}
-
     virtual double value(const Point<dim> & p,
                          const unsigned int component = 0) const override;
 
@@ -258,7 +254,7 @@ namespace Step7
         // add up multiples of this distance vector, where the factor is given
         // by the exponentials.
         return_value +=
-          (-2 / (this->width * this->width) *
+          (-2. / (this->width * this->width) *
            std::exp(-x_minus_xi.norm_square() / (this->width * this->width)) *
            x_minus_xi);
       }
@@ -278,10 +274,6 @@ namespace Step7
   class RightHandSide : public Function<dim>, protected SolutionBase<dim>
   {
   public:
-    RightHandSide()
-      : Function<dim>()
-    {}
-
     virtual double value(const Point<dim> & p,
                          const unsigned int component = 0) const override;
   };
@@ -301,8 +293,8 @@ namespace Step7
 
         // The first contribution is the Laplacian:
         return_value +=
-          ((2 * dim -
-            4 * x_minus_xi.norm_square() / (this->width * this->width)) /
+          ((2. * dim -
+            4. * x_minus_xi.norm_square() / (this->width * this->width)) /
            (this->width * this->width) *
            std::exp(-x_minus_xi.norm_square() / (this->width * this->width)));
         // And the second is the solution itself:
@@ -344,8 +336,6 @@ namespace Step7
     HelmholtzProblem(const FiniteElement<dim> &fe,
                      const RefinementMode      refinement_mode);
 
-    ~HelmholtzProblem();
-
     void run();
 
   private:
@@ -378,7 +368,7 @@ namespace Step7
     //
     // We will show here how the library managed to find out that there are
     // still active references to an object and the object is still alive
-    // frome the point of view of a using object. Basically, the method is along
+    // from the point of view of a using object. Basically, the method is along
     // the following line: all objects that are subject to such potentially
     // dangerous pointers are derived from a class called Subscriptor. For
     // example, the Triangulation, DoFHandler, and a base class of the
@@ -449,7 +439,7 @@ namespace Step7
 
   // @sect3{The HelmholtzProblem class implementation}
 
-  // @sect4{HelmholtzProblem::HelmholtzProblem}
+  // @sect4{HelmholtzProblem::HelmholtzProblem constructor}
 
   // In the constructor of this class, we only set the variables passed as
   // arguments, and associate the DoF handler object with the triangulation
@@ -461,16 +451,6 @@ namespace Step7
     , fe(&fe)
     , refinement_mode(refinement_mode)
   {}
-
-
-  // @sect4{HelmholtzProblem::~HelmholtzProblem}
-
-  // This is no different than before:
-  template <int dim>
-  HelmholtzProblem<dim>::~HelmholtzProblem()
-  {
-    dof_handler.clear();
-  }
 
 
   // @sect4{HelmholtzProblem::setup_system}
@@ -541,13 +521,13 @@ namespace Step7
   template <int dim>
   void HelmholtzProblem<dim>::assemble_system()
   {
-    QGauss<dim>     quadrature_formula(3);
-    QGauss<dim - 1> face_quadrature_formula(3);
+    QGauss<dim>     quadrature_formula(fe->degree + 1);
+    QGauss<dim - 1> face_quadrature_formula(fe->degree + 1);
 
     const unsigned int n_q_points      = quadrature_formula.size();
     const unsigned int n_face_q_points = face_quadrature_formula.size();
 
-    const unsigned int dofs_per_cell = fe->dofs_per_cell;
+    const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
 
     FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
     Vector<double>     cell_rhs(dofs_per_cell);
@@ -605,7 +585,7 @@ namespace Step7
     // Neumann values are prescribed. We will, however, be a little bit lazy
     // and use what we already have in information. Real-life programs would
     // to go other ways here, of course.
-    const Solution<dim> exact_solution;
+    Solution<dim> exact_solution;
 
     // Now for the main loop over all cells. This is mostly unchanged from
     // previous examples, so we only comment on the things that have changed.
@@ -649,11 +629,8 @@ namespace Step7
         // <code>run()</code> function further below. (The default value of
         // boundary indicators is <code>0</code>, so faces can only have an
         // indicator equal to <code>1</code> if we have explicitly set it.)
-        for (unsigned int face_number = 0;
-             face_number < GeometryInfo<dim>::faces_per_cell;
-             ++face_number)
-          if (cell->face(face_number)->at_boundary() &&
-              (cell->face(face_number)->boundary_id() == 1))
+        for (const auto &face : cell->face_iterators())
+          if (face->at_boundary() && (face->boundary_id() == 1))
             {
               // If we came into here, then we have found an external face
               // belonging to Gamma2. Next, we have to compute the values of
@@ -661,7 +638,7 @@ namespace Step7
               // need for the computation of the contour integral. This is
               // done using the <code>reinit</code> function which we already
               // know from the FEValue class:
-              fe_face_values.reinit(cell, face_number);
+              fe_face_values.reinit(cell, face);
 
               // And we can then perform the integration by using a loop over
               // all quadrature points.
@@ -735,10 +712,10 @@ namespace Step7
   template <int dim>
   void HelmholtzProblem<dim>::solve()
   {
-    SolverControl solver_control(1000, 1e-12);
-    SolverCG<>    cg(solver_control);
+    SolverControl            solver_control(1000, 1e-12);
+    SolverCG<Vector<double>> cg(solver_control);
 
-    PreconditionSSOR<> preconditioner;
+    PreconditionSSOR<SparseMatrix<double>> preconditioner;
     preconditioner.initialize(system_matrix, 1.2);
 
     cg.solve(system_matrix, solution, system_rhs, preconditioner);
@@ -797,7 +774,7 @@ namespace Step7
 
             KellyErrorEstimator<dim>::estimate(
               dof_handler,
-              QGauss<dim - 1>(3),
+              QGauss<dim - 1>(fe->degree + 1),
               std::map<types::boundary_id, const Function<dim> *>(),
               solution,
               estimated_error_per_cell);
@@ -853,7 +830,7 @@ namespace Step7
                                       solution,
                                       Solution<dim>(),
                                       difference_per_cell,
-                                      QGauss<dim>(3),
+                                      QGauss<dim>(fe->degree + 1),
                                       VectorTools::L2_norm);
     const double L2_error =
       VectorTools::compute_global_error(triangulation,
@@ -871,7 +848,7 @@ namespace Step7
                                       solution,
                                       Solution<dim>(),
                                       difference_per_cell,
-                                      QGauss<dim>(3),
+                                      QGauss<dim>(fe->degree + 1),
                                       VectorTools::H1_seminorm);
     const double H1_error =
       VectorTools::compute_global_error(triangulation,
@@ -879,21 +856,37 @@ namespace Step7
                                         VectorTools::H1_seminorm);
 
     // Finally, we compute the maximum norm. Of course, we can't actually
-    // compute the true maximum, but only the maximum at the quadrature
-    // points. Since this depends quite sensitively on the quadrature rule
-    // being used, and since we would like to avoid false results due to
-    // super-convergence effects at some points, we use a special quadrature
-    // rule that is obtained by iterating the trapezoidal rule five times in
-    // each space direction. Note that the constructor of the QIterated class
-    // takes a one-dimensional quadrature rule and a number that tells it how
-    // often it shall use this rule in each space direction.
+    // compute the true maximum of the error over *all* points in the domain,
+    // but only the maximum over a finite set of evaluation points that, for
+    // convenience, we will still call "quadrature points" and represent by
+    // an object of type Quadrature even though we do not actually perform any
+    // integration.
+    //
+    // There is then the question of what points precisely we want to evaluate
+    // at. It turns out that the result we get depends quite sensitively on the
+    // "quadrature" points being used. There is also the issue of
+    // superconvergence: Finite element solutions are, on some meshes and for
+    // polynomial degrees $k\ge 2$, particularly accurate at the node points as
+    // well as at Gauss-Lobatto points, much more accurate than at randomly
+    // chosen points. (See
+    // @cite Li2019 and the discussion and references in Section 1.2 for more
+    // information on this.) In other words, if we are interested in finding
+    // the largest difference $u(\mathbf x)-u_h(\mathbf x)$, then we ought to
+    // look at points $\mathbf x$ that are specifically not of this "special"
+    // kind of points and we should specifically not use
+    // `QGauss(fe->degree+1)` to define where we evaluate. Rather, we use a
+    // special quadrature rule that is obtained by iterating the trapezoidal
+    // rule by the degree of the finite element times two plus one in each space
+    // direction. Note that the constructor of the QIterated class takes a
+    // one-dimensional quadrature rule and a number that tells it how often it
+    // shall repeat this rule in each space direction.
     //
     // Using this special quadrature rule, we can then try to find the maximal
     // error on each cell. Finally, we compute the global L infinity error
     // from the L infinity errors on each cell with a call to
     // VectorTools::compute_global_error.
-    const QTrapez<1>     q_trapez;
-    const QIterated<dim> q_iterated(q_trapez, 5);
+    const QTrapezoid<1>  q_trapez;
+    const QIterated<dim> q_iterated(q_trapez, fe->degree * 2 + 1);
     VectorTools::integrate_difference(dof_handler,
                                       solution,
                                       Solution<dim>(),
@@ -974,18 +967,16 @@ namespace Step7
       {
         if (cycle == 0)
           {
-            GridGenerator::hyper_cube(triangulation, -1, 1);
+            GridGenerator::hyper_cube(triangulation, -1., 1.);
             triangulation.refine_global(3);
 
             for (const auto &cell : triangulation.cell_iterators())
-              for (unsigned int face_number = 0;
-                   face_number < GeometryInfo<dim>::faces_per_cell;
-                   ++face_number)
+              for (const auto &face : cell->face_iterators())
                 {
-                  const auto center = cell->face(face_number)->center();
-                  if ((std::fabs(center(0) - (-1)) < 1e-12) ||
-                      (std::fabs(center(1) - (-1)) < 1e-12))
-                    cell->face(face_number)->set_boundary_id(1);
+                  const auto center = face->center();
+                  if ((std::fabs(center(0) - (-1.0)) < 1e-12) ||
+                      (std::fabs(center(1) - (-1.0)) < 1e-12))
+                    face->set_boundary_id(1);
                 }
           }
         else

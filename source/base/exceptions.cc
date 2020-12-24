@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -26,6 +26,10 @@
 
 #ifdef DEAL_II_WITH_MPI
 #  include <mpi.h>
+#endif
+
+#ifdef DEAL_II_TRILINOS_WITH_SEACAS
+#  include <exodusII.h>
 #endif
 
 #ifdef DEAL_II_HAVE_GLIBC_STACKTRACE
@@ -87,10 +91,7 @@ ExceptionBase::ExceptionBase()
   , what_str("")
 {
 #ifdef DEAL_II_HAVE_GLIBC_STACKTRACE
-  for (unsigned int i = 0;
-       i < sizeof(raw_stacktrace) / sizeof(raw_stacktrace[0]);
-       ++i)
-    raw_stacktrace[i] = nullptr;
+  std::fill(std::begin(raw_stacktrace), std::end(raw_stacktrace), nullptr);
 #endif
 }
 
@@ -109,10 +110,7 @@ ExceptionBase::ExceptionBase(const ExceptionBase &exc)
                  // by what()
 {
 #ifdef DEAL_II_HAVE_GLIBC_STACKTRACE
-  for (unsigned int i = 0;
-       i < sizeof(raw_stacktrace) / sizeof(raw_stacktrace[0]);
-       ++i)
-    raw_stacktrace[i] = nullptr;
+  std::fill(std::begin(raw_stacktrace), std::end(raw_stacktrace), nullptr);
 #endif
 }
 
@@ -120,7 +118,7 @@ ExceptionBase::ExceptionBase(const ExceptionBase &exc)
 
 ExceptionBase::~ExceptionBase() noexcept
 {
-  free(stacktrace); // free(NULL) is allowed
+  free(stacktrace); // free(nullptr) is allowed
   stacktrace = nullptr;
 }
 
@@ -153,7 +151,7 @@ const char *
 ExceptionBase::what() const noexcept
 {
   // If no error c_string was generated so far, do it now:
-  if (what_str == "")
+  if (what_str.empty())
     {
 #ifdef DEAL_II_HAVE_GLIBC_STACKTRACE
       // We have deferred the symbol lookup to this point to avoid costly
@@ -161,7 +159,7 @@ ExceptionBase::what() const noexcept
       // backtrace_symbols.
 
       // first delete old stacktrace if necessary
-      free(stacktrace); // free(NULL) is allowed
+      free(stacktrace); // free(nullptr) is allowed
       stacktrace = backtrace_symbols(raw_stacktrace, n_stacktrace_frames);
 #endif
 
@@ -353,9 +351,9 @@ ExceptionBase::generate_message() const
 
 
 
-#ifdef DEAL_II_WITH_MPI
 namespace StandardExceptions
 {
+#ifdef DEAL_II_WITH_MPI
   ExcMPI::ExcMPI(const int error_code)
     : error_code(error_code)
   {}
@@ -403,8 +401,30 @@ namespace StandardExceptions
     out << "The numerical value of the original error code is " << error_code
         << "." << std::endl;
   }
-} // namespace StandardExceptions
 #endif // DEAL_II_WITH_MPI
+
+
+
+#ifdef DEAL_II_TRILINOS_WITH_SEACAS
+  ExcExodusII::ExcExodusII(const int error_code)
+    : error_code(error_code)
+  {
+    // To avoid including yet another header in exceptions.h we assume that
+    // EX_NOERR is zero. Check that here:
+    static_assert(EX_NOERR == 0,
+                  "EX_NOERR is assumed to be zero in all versions of ExodusII");
+  }
+
+
+
+  void
+  ExcExodusII::print_info(std::ostream &out) const
+  {
+    out << "Error code is " << error_code << '\n';
+    out << "String description: " << ex_strerror(error_code) << '\n';
+  }
+#endif // DEAL_II_TRILINOS_WITH_SEACAS
+} // namespace StandardExceptions
 
 namespace deal_II_exceptions
 {

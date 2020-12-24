@@ -1,7 +1,7 @@
 
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2013 - 2017 by the deal.II authors
+// Copyright (C) 2013 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -24,11 +24,10 @@
 
 #  include <deal.II/lac/sparsity_tools.h>
 
-#  include <boost/unordered_map.hpp>
-#  include <boost/unordered_set.hpp>
-
 #  include <functional>
 #  include <set>
+#  include <unordered_map>
+#  include <unordered_set>
 #  include <vector>
 
 
@@ -104,8 +103,6 @@ namespace GraphColoring
      * std::vector for efficiency). Each element of the outermost set
      * corresponds to the iterators pointing to objects that are in the same
      * partition (i.e., the same zone).
-     *
-     * @author Martin Kronbichler, Bruno Turcksin
      */
     template <typename Iterator>
     std::vector<std::vector<Iterator>>
@@ -119,7 +116,7 @@ namespace GraphColoring
       unsigned int n_iterators = 0;
 
       // Create a map from conflict indices to iterators
-      boost::unordered_map<types::global_dof_index, std::vector<Iterator>>
+      std::unordered_map<types::global_dof_index, std::vector<Iterator>>
         indices_to_iterators;
       for (Iterator it = begin; it != end; ++it)
         {
@@ -200,12 +197,15 @@ namespace GraphColoring
 
     /**
      * This function uses DSATUR (Degree SATURation) to color the elements of
-     * a set. DSATUR works as follows: -# Arrange the vertices by decreasing
-     * order of degrees. -# Color a vertex of maximal degree with color 1. -#
-     * Choose a vertex with a maximal saturation degree. If there is equality,
-     * choose any vertex of maximal degree in the uncolored subgraph. -# Color
-     * the chosen vertex with the least possible (lowest numbered) color. -#
-     * If all the vertices are colored, stop. Otherwise, return to 3.
+     * a set. DSATUR works as follows:
+     * -# Arrange the vertices by decreasing order of degrees.
+     * -# Color a vertex of maximal degree with color 1.
+     * -# Choose a vertex with a maximal saturation degree. If there is
+     *    equality, choose any vertex of maximal degree in the uncolored
+     *    subgraph.
+     * -# Color the chosen vertex with the least possible (lowest numbered)
+     *    color.
+     * -# If all the vertices are colored, stop. Otherwise, return to 3.
      *
      * @param[in] partition The set of iterators that should be colored.
      * @param[in] get_conflict_indices A user defined function object
@@ -271,7 +271,7 @@ namespace GraphColoring
         }
 
       // Color the graph.
-      std::vector<boost::unordered_set<unsigned int>> colors_used;
+      std::vector<std::unordered_set<unsigned int>> colors_used;
       for (unsigned int i = 0; i < partition_size; ++i)
         {
           const unsigned int current_vertex(sorted_vertices[i]);
@@ -285,8 +285,8 @@ namespace GraphColoring
               // linked to current_vertex is already using the color j, this
               // color cannot be used anymore.
               bool unused_color(true);
-              for (unsigned int k = 0; k < graph[current_vertex].size(); ++k)
-                if (colors_used[j].count(graph[current_vertex][k]) == 1)
+              for (const auto adjacent_vertex : graph[current_vertex])
+                if (colors_used[j].count(adjacent_vertex) == 1)
                   {
                     unused_color = false;
                     break;
@@ -304,7 +304,7 @@ namespace GraphColoring
             {
               partition_coloring.push_back(
                 std::vector<Iterator>(1, partition[current_vertex]));
-              boost::unordered_set<unsigned int> tmp;
+              std::unordered_set<unsigned int> tmp;
               tmp.insert(current_vertex);
               colors_used.push_back(tmp);
             }
@@ -361,7 +361,7 @@ namespace GraphColoring
         {
           if (i != i_color)
             {
-              boost::unordered_set<unsigned int> used_k;
+              std::unordered_set<unsigned int> used_k;
               for (unsigned int j = 0; j < colors_counter[i].size(); ++j)
                 {
                   // Find the color in the current partition with the largest
@@ -416,7 +416,7 @@ namespace GraphColoring
             {
               if (i != i_color)
                 {
-                  boost::unordered_set<unsigned int> used_k;
+                  std::unordered_set<unsigned int> used_k;
                   for (unsigned int j = 0; j < colors_counter[i].size(); ++j)
                     {
                       // Find the color in the current partition with the
@@ -534,8 +534,6 @@ namespace GraphColoring
    * corresponds to the iterators pointing to objects that are in the same
    * partition (have the same color) and consequently do not conflict. The
    * elements of different sets may conflict.
-   *
-   * @author Martin Kronbichler, Bruno Turcksin
    */
   template <typename Iterator>
   std::vector<std::vector<Iterator>>

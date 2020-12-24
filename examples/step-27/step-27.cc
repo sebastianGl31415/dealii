@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2006 - 2017 by the deal.II authors
+ * Copyright (C) 2006 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -47,11 +47,11 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 
-// These are the new files we need. The first and second provide <i>hp</i>
-// versions of the DoFHandler and FEValues classes as described in the
-// introduction of this program. The last one provides Fourier transformation
-// class on the unit cell.
-#include <deal.II/hp/dof_handler.h>
+// These are the new files we need. The first and second provide the
+// FECollection and the <i>hp</i> version of the FEValues class as described in
+// the introduction of this program. The last one provides Fourier
+// transformation class on the unit cell.
+#include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/fe_values.h>
 #include <deal.II/fe/fe_series.h>
 
@@ -79,8 +79,7 @@ namespace Step27
   // computes this estimated smoothness, as discussed in the introduction.
   //
   // As far as member variables are concerned, we use the same structure as
-  // already used in step-6, but instead of a regular DoFHandler we use an
-  // object of type hp::DoFHandler, and we need collections instead of
+  // already used in step-6, but we need collections instead of
   // individual finite element, quadrature, and face quadrature objects. We
   // will fill these collections in the constructor of the class. The last
   // variable, <code>max_degree</code>, indicates the maximal polynomial
@@ -105,13 +104,13 @@ namespace Step27
 
     Triangulation<dim> triangulation;
 
-    hp::DoFHandler<dim>      dof_handler;
+    DoFHandler<dim>          dof_handler;
     hp::FECollection<dim>    fe_collection;
     hp::QCollection<dim>     quadrature_collection;
     hp::QCollection<dim - 1> face_quadrature_collection;
 
     hp::QCollection<dim>                    fourier_q_collection;
-    std::shared_ptr<FESeries::Fourier<dim>> fourier;
+    std::unique_ptr<FESeries::Fourier<dim>> fourier;
     std::vector<double>                     ln_k;
     Table<dim, std::complex<double>>        fourier_coefficients;
 
@@ -136,10 +135,6 @@ namespace Step27
   class RightHandSide : public Function<dim>
   {
   public:
-    RightHandSide()
-      : Function<dim>()
-    {}
-
     virtual double value(const Point<dim> & p,
                          const unsigned int component) const override;
   };
@@ -159,10 +154,10 @@ namespace Step27
 
   // @sect3{Implementation of the main class}
 
-  // @sect4{LaplaceProblem::LaplaceProblem}
+  // @sect4{LaplaceProblem::LaplaceProblem constructor}
 
   // The constructor of this class is fairly straightforward. It associates
-  // the hp::DoFHandler object with the triangulation, and then sets the
+  // the DoFHandler object with the triangulation, and then sets the
   // maximal polynomial degree to 7 (in 1d and 2d) or 5 (in 3d and higher). We
   // do so because using higher order polynomial degrees becomes prohibitively
   // expensive, especially in higher space dimensions.
@@ -234,9 +229,12 @@ namespace Step27
       fourier_q_collection.push_back(quadrature);
 
     // Now we are ready to set-up the FESeries::Fourier object
-    fourier = std::make_shared<FESeries::Fourier<dim>>(N,
-                                                       fe_collection,
-                                                       fourier_q_collection);
+    const std::vector<unsigned int> n_coefficients_per_direction(
+      fe_collection.size(), N);
+    fourier =
+      std::make_unique<FESeries::Fourier<dim>>(n_coefficients_per_direction,
+                                               fe_collection,
+                                               fourier_q_collection);
 
     // We need to resize the matrix of fourier coefficients according to the
     // number of modes N.
@@ -244,7 +242,7 @@ namespace Step27
   }
 
 
-  // @sect4{LaplaceProblem::~LaplaceProblem}
+  // @sect4{LaplaceProblem::~LaplaceProblem destructor}
 
   // The destructor is unchanged from what we already did in step-6:
   template <int dim>
@@ -259,7 +257,7 @@ namespace Step27
   // This function is again a verbatim copy of what we already did in
   // step-6. Despite function calls with exactly the same names and arguments,
   // the algorithms used internally are different in some aspect since the
-  // dof_handler variable here is an hp object.
+  // dof_handler variable here is an hp-object.
   template <int dim>
   void LaplaceProblem<dim>::setup_system()
   {
@@ -321,7 +319,7 @@ namespace Step27
                                      update_quadrature_points |
                                      update_JxW_values);
 
-    const RightHandSide<dim> rhs_function;
+    RightHandSide<dim> rhs_function;
 
     FullMatrix<double> cell_matrix;
     Vector<double>     cell_rhs;
@@ -330,7 +328,7 @@ namespace Step27
 
     for (const auto &cell : dof_handler.active_cell_iterators())
       {
-        const unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+        const unsigned int dofs_per_cell = cell->get_fe().n_dofs_per_cell();
 
         cell_matrix.reinit(dofs_per_cell, dofs_per_cell);
         cell_matrix = 0;
@@ -378,11 +376,11 @@ namespace Step27
   template <int dim>
   void LaplaceProblem<dim>::solve()
   {
-    SolverControl solver_control(system_rhs.size(),
+    SolverControl            solver_control(system_rhs.size(),
                                  1e-12 * system_rhs.l2_norm());
-    SolverCG<>    cg(solver_control);
+    SolverCG<Vector<double>> cg(solver_control);
 
-    PreconditionSSOR<> preconditioner;
+    PreconditionSSOR<SparseMatrix<double>> preconditioner;
     preconditioner.initialize(system_matrix, 1.2);
 
     cg.solve(system_matrix, solution, system_rhs, preconditioner);
@@ -443,12 +441,8 @@ namespace Step27
 
       // With now all data vectors available -- solution, estimated errors and
       // smoothness indicators, and finite element degrees --, we create a
-      // DataOut object for graphical output and attach all data. Note that
-      // the DataOut class has a second template argument (which defaults to
-      // DoFHandler@<dim@>, which is why we have never seen it in previous
-      // tutorial programs) that indicates the type of DoF handler to be
-      // used. Here, we have to use the hp::DoFHandler class:
-      DataOut<dim, hp::DoFHandler<dim>> data_out;
+      // DataOut object for graphical output and attach all data:
+      DataOut<dim> data_out;
 
       data_out.attach_dof_handler(dof_handler);
       data_out.add_data_vector(solution, "solution");
@@ -571,7 +565,7 @@ namespace Step27
     std::vector<CellData<dim>> cells(n_cells, CellData<dim>());
     for (unsigned int i = 0; i < n_cells; ++i)
       {
-        for (unsigned int j = 0; j < GeometryInfo<dim>::vertices_per_cell; ++j)
+        for (unsigned int j = 0; j < cell_vertices[i].size(); ++j)
           cells[i].vertices[j] = cell_vertices[i][j];
         cells[i].material_id = 0;
       }
@@ -678,7 +672,7 @@ namespace Step27
         // that has to be provided with the <code>local_dof_values</code>,
         // <code>cell->active_fe_index()</code> and a Table to store
         // coefficients.
-        local_dof_values.reinit(cell->get_fe().dofs_per_cell);
+        local_dof_values.reinit(cell->get_fe().n_dofs_per_cell());
         cell->get_dof_values(solution, local_dof_values);
 
         fourier->calculate(local_dof_values,
@@ -695,9 +689,9 @@ namespace Step27
         std::pair<std::vector<unsigned int>, std::vector<double>> res =
           FESeries::process_coefficients<dim>(
             fourier_coefficients,
-            std::bind(&LaplaceProblem<dim>::predicate,
-                      this,
-                      std::placeholders::_1),
+            [this](const TableIndices<dim> &indices) {
+              return this->predicate(indices);
+            },
             VectorTools::Linfty_norm);
 
         Assert(res.first.size() == res.second.size(), ExcInternalError());
@@ -742,7 +736,6 @@ int main()
 {
   try
     {
-      using namespace dealii;
       using namespace Step27;
 
       LaplaceProblem<2> laplace_problem;

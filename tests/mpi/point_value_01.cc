@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2001 - 2017 by the deal.II authors
+// Copyright (C) 2001 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -93,7 +93,7 @@ test()
           if (std::abs(value[0] - 1.) > 1e-8)
             ExcInternalError();
         }
-      catch (const VectorTools::ExcPointNotAvailableHere &)
+      catch (...)
         {}
 
       MPI_Barrier(MPI_COMM_WORLD);

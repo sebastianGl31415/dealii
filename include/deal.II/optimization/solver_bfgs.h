@@ -1,6 +1,6 @@
 //-----------------------------------------------------------
 //
-//    Copyright (C) 2018 by the deal.II authors
+//    Copyright (C) 2018 - 2020 by the deal.II authors
 //
 //    This file is part of the deal.II library.
 //
@@ -15,6 +15,8 @@
 
 #ifndef dealii_solver_bfgs_h
 #define dealii_solver_bfgs_h
+
+#include <deal.II/base/config.h>
 
 #include <deal.II/lac/solver.h>
 
@@ -33,7 +35,7 @@ DEAL_II_NAMESPACE_OPEN
  * method for function minimization in which the Hessian matrix is only
  * approximated. In particular, the Hessian is updated using the formula of
  * Broyden, Fletcher, Goldfarb, and Shanno (BFGS):
- * \f[
+ * @f{align*}{
  * H^{(k+1)} &= \left[
  * I-\rho_{(k)} s^{(k)} \otimes y^{(k)}
  * \right]
@@ -46,20 +48,18 @@ DEAL_II_NAMESPACE_OPEN
  * y^{(k)} &\dealcoloneq g^{(k+1)} - g^{(k)} \\
  * s^{(k)} &\dealcoloneq x^{(k+1)} - x^{(k)} \\
  * \rho^{(k)} &\dealcoloneq \frac{1}{y^{(k)} \cdot s^{(k)}}
- * \f]
+ * @f}
  * for a symmetric positive definite $H$. Limited memory variant is
  * implemented via the two-loop recursion.
- *
- * @author Denis Davydov, 2018
  */
 template <typename VectorType>
-class SolverBFGS : public Solver<VectorType>
+class SolverBFGS : public SolverBase<VectorType>
 {
 public:
   /**
    * Number type.
    */
-  typedef typename VectorType::value_type Number;
+  using Number = typename VectorType::value_type;
 
 
   /**
@@ -195,7 +195,7 @@ SolverBFGS<VectorType>::AdditionalData::AdditionalData(
 template <typename VectorType>
 SolverBFGS<VectorType>::SolverBFGS(SolverControl &       solver_control,
                                    const AdditionalData &data)
-  : Solver<VectorType>(solver_control)
+  : SolverBase<VectorType>(solver_control)
   , additional_data(data)
 {}
 

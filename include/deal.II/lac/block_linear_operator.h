@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2010 - 2018 by the deal.II authors
+// Copyright (C) 2010 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -26,7 +26,7 @@
 DEAL_II_NAMESPACE_OPEN
 
 // Forward declarations:
-
+#ifndef DOXYGEN
 namespace internal
 {
   namespace BlockLinearOperatorImplementation
@@ -45,6 +45,7 @@ template <typename Range  = BlockVector<double>,
           typename BlockPayload =
             internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>>
 class BlockLinearOperator;
+#endif
 
 template <typename Range  = BlockVector<double>,
           typename Domain = Range,
@@ -90,41 +91,6 @@ block_diagonal_operator(
   const LinearOperator<typename Range::BlockType,
                        typename Domain::BlockType,
                        typename BlockPayload::BlockType> &op);
-
-// This is a workaround for a bug in <=gcc-4.7 that does not like partial
-// template default values in combination with local lambda expressions [1]
-//
-// [1] https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53624
-//
-// Forward declare functions with partial template defaults:
-
-template <typename Range  = BlockVector<double>,
-          typename Domain = Range,
-          typename BlockPayload =
-            internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>,
-          typename BlockMatrixType>
-BlockLinearOperator<Range, Domain, BlockPayload>
-block_diagonal_operator(const BlockMatrixType &block_matrix);
-
-template <typename Range  = BlockVector<double>,
-          typename Domain = Range,
-          typename BlockPayload =
-            internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>>
-LinearOperator<Domain, Range, typename BlockPayload::BlockType>
-block_forward_substitution(
-  const BlockLinearOperator<Range, Domain, BlockPayload> &,
-  const BlockLinearOperator<Domain, Range, BlockPayload> &);
-
-template <typename Range  = BlockVector<double>,
-          typename Domain = Range,
-          typename BlockPayload =
-            internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>>
-LinearOperator<Domain, Range, typename BlockPayload::BlockType>
-block_back_substitution(
-  const BlockLinearOperator<Range, Domain, BlockPayload> &,
-  const BlockLinearOperator<Domain, Range, BlockPayload> &);
-
-// end of workaround
 
 
 
@@ -193,7 +159,6 @@ block_back_substitution(
  * sizes, and small block structure (as a rule of thumb, matrix blocks greater
  * than $1000\times1000$).
  *
- * @author Matthias Maier, 2015
  *
  * @ingroup LAOperators
  */
@@ -567,7 +532,6 @@ namespace internal
      * PETScWrappers::BlockSparseMatrix one must initialize a
      * BlockLinearOperator with their associated BlockPayload.
      *
-     * @author Jean-Paul Pelteret, Matthias Maier, 2016
      *
      * @ingroup LAOperators
      */
@@ -623,8 +587,8 @@ block_operator(const BlockMatrixType &block_matrix)
   using BlockType =
     typename BlockLinearOperator<Range, Domain, BlockPayload>::BlockType;
 
-  BlockLinearOperator<Range, Domain, BlockPayload> return_op(
-    BlockPayload(block_matrix, block_matrix));
+  BlockLinearOperator<Range, Domain, BlockPayload> return_op{
+    BlockPayload(block_matrix, block_matrix)};
 
   return_op.n_block_rows = [&block_matrix]() -> unsigned int {
     return block_matrix.n_block_rows();
@@ -639,8 +603,8 @@ block_operator(const BlockMatrixType &block_matrix)
 #ifdef DEBUG
     const unsigned int m = block_matrix.n_block_rows();
     const unsigned int n = block_matrix.n_block_cols();
-    Assert(i < m, ExcIndexRange(i, 0, m));
-    Assert(j < n, ExcIndexRange(j, 0, n));
+    AssertIndexRange(i, m);
+    AssertIndexRange(j, n);
 #endif
 
     return BlockType(block_matrix.block(i, j));
@@ -698,17 +662,16 @@ block_operator(
   using BlockType =
     typename BlockLinearOperator<Range, Domain, BlockPayload>::BlockType;
 
-  BlockLinearOperator<Range, Domain, BlockPayload> return_op(
-    (BlockPayload())); // TODO: Create block payload so that this can be
-                       // initialized correctly
+  // TODO: Create block payload so that this can be initialized correctly
+  BlockLinearOperator<Range, Domain, BlockPayload> return_op{BlockPayload()};
 
   return_op.n_block_rows = []() -> unsigned int { return m; };
 
   return_op.n_block_cols = []() -> unsigned int { return n; };
 
   return_op.block = [ops](unsigned int i, unsigned int j) -> BlockType {
-    Assert(i < m, ExcIndexRange(i, 0, m));
-    Assert(j < n, ExcIndexRange(j, 0, n));
+    AssertIndexRange(i, m);
+    AssertIndexRange(j, n);
 
     return ops[i][j];
   };
@@ -734,9 +697,10 @@ block_operator(
  *
  * @ingroup LAOperators
  */
-template <typename Range,
-          typename Domain,
-          typename BlockPayload,
+template <typename Range  = BlockVector<double>,
+          typename Domain = Range,
+          typename BlockPayload =
+            internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>,
           typename BlockMatrixType>
 BlockLinearOperator<Range, Domain, BlockPayload>
 block_diagonal_operator(const BlockMatrixType &block_matrix)
@@ -744,8 +708,8 @@ block_diagonal_operator(const BlockMatrixType &block_matrix)
   using BlockType =
     typename BlockLinearOperator<Range, Domain, BlockPayload>::BlockType;
 
-  BlockLinearOperator<Range, Domain, BlockPayload> return_op(
-    BlockPayload(block_matrix, block_matrix));
+  BlockLinearOperator<Range, Domain, BlockPayload> return_op{
+    BlockPayload(block_matrix, block_matrix)};
 
   return_op.n_block_rows = [&block_matrix]() -> unsigned int {
     return block_matrix.n_block_rows();
@@ -761,8 +725,8 @@ block_diagonal_operator(const BlockMatrixType &block_matrix)
     const unsigned int m = block_matrix.n_block_rows();
     const unsigned int n = block_matrix.n_block_cols();
     Assert(m == n, ExcDimensionMismatch(m, n));
-    Assert(i < m, ExcIndexRange(i, 0, m));
-    Assert(j < n, ExcIndexRange(j, 0, n));
+    AssertIndexRange(i, m);
+    AssertIndexRange(j, n);
 #endif
     if (i == j)
       return BlockType(block_matrix.block(i, j));
@@ -904,14 +868,17 @@ block_diagonal_operator(
  *
  * @ingroup LAOperators
  */
-template <typename Range, typename Domain, typename BlockPayload>
+template <typename Range  = BlockVector<double>,
+          typename Domain = Range,
+          typename BlockPayload =
+            internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>>
 LinearOperator<Domain, Range, typename BlockPayload::BlockType>
 block_forward_substitution(
   const BlockLinearOperator<Range, Domain, BlockPayload> &block_operator,
   const BlockLinearOperator<Domain, Range, BlockPayload> &diagonal_inverse)
 {
-  LinearOperator<Range, Range, typename BlockPayload::BlockType> return_op(
-    (typename BlockPayload::BlockType(diagonal_inverse)));
+  LinearOperator<Range, Range, typename BlockPayload::BlockType> return_op{
+    typename BlockPayload::BlockType(diagonal_inverse)};
 
   return_op.reinit_range_vector  = diagonal_inverse.reinit_range_vector;
   return_op.reinit_domain_vector = diagonal_inverse.reinit_domain_vector;
@@ -1019,14 +986,17 @@ block_forward_substitution(
  *
  * @ingroup LAOperators
  */
-template <typename Range, typename Domain, typename BlockPayload>
+template <typename Range  = BlockVector<double>,
+          typename Domain = Range,
+          typename BlockPayload =
+            internal::BlockLinearOperatorImplementation::EmptyBlockPayload<>>
 LinearOperator<Domain, Range, typename BlockPayload::BlockType>
 block_back_substitution(
   const BlockLinearOperator<Range, Domain, BlockPayload> &block_operator,
   const BlockLinearOperator<Domain, Range, BlockPayload> &diagonal_inverse)
 {
-  LinearOperator<Range, Range, typename BlockPayload::BlockType> return_op(
-    (typename BlockPayload::BlockType(diagonal_inverse)));
+  LinearOperator<Range, Range, typename BlockPayload::BlockType> return_op{
+    typename BlockPayload::BlockType(diagonal_inverse)};
 
   return_op.reinit_range_vector  = diagonal_inverse.reinit_range_vector;
   return_op.reinit_domain_vector = diagonal_inverse.reinit_domain_vector;

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2013 - 2018 by the deal.II authors
+// Copyright (C) 2013 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,11 +13,11 @@
 //
 // ---------------------------------------------------------------------
 
-#include <deal.II/base/std_cxx14/memory.h>
 #include <deal.II/base/table.h>
 #include <deal.II/base/tensor.h>
 
 #include <deal.II/fe/mapping.h>
+#include <deal.II/fe/mapping_q_internal.h>
 
 #include <deal.II/grid/manifold_lib.h>
 #include <deal.II/grid/tria.h>
@@ -26,7 +26,10 @@
 
 #include <deal.II/lac/vector.h>
 
+#include <boost/container/small_vector.hpp>
+
 #include <cmath>
+#include <memory>
 
 DEAL_II_NAMESPACE_OPEN
 
@@ -131,7 +134,7 @@ template <int dim, int spacedim>
 std::unique_ptr<Manifold<dim, spacedim>>
 PolarManifold<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<PolarManifold<dim, spacedim>>(center);
+  return std::make_unique<PolarManifold<dim, spacedim>>(center);
 }
 
 
@@ -274,6 +277,77 @@ PolarManifold<dim, spacedim>::push_forward_gradient(
 
 
 
+namespace
+{
+  template <int dim, int spacedim>
+  bool
+  spherical_face_is_horizontal(
+    const typename Triangulation<dim, spacedim>::face_iterator &face,
+    const Point<spacedim> &                                     manifold_center)
+  {
+    // We test whether a face is horizontal by checking that the vertices
+    // all have roughly the same distance from the center: If the
+    // maximum deviation for the distances from the vertices to the
+    // center is less than 1.e-5 of the distance between vertices (as
+    // measured by the minimum distance from any of the other vertices
+    // to the first vertex), then we call this a horizontal face.
+    constexpr unsigned int n_vertices =
+      GeometryInfo<spacedim>::vertices_per_face;
+    std::array<double, n_vertices>     sqr_distances_to_center;
+    std::array<double, n_vertices - 1> sqr_distances_to_first_vertex;
+    sqr_distances_to_center[0] =
+      (face->vertex(0) - manifold_center).norm_square();
+    for (unsigned int i = 1; i < n_vertices; ++i)
+      {
+        sqr_distances_to_center[i] =
+          (face->vertex(i) - manifold_center).norm_square();
+        sqr_distances_to_first_vertex[i - 1] =
+          (face->vertex(i) - face->vertex(0)).norm_square();
+      }
+    const auto minmax_sqr_distance =
+      std::minmax_element(sqr_distances_to_center.begin(),
+                          sqr_distances_to_center.end());
+    const auto min_sqr_distance_to_first_vertex =
+      std::min_element(sqr_distances_to_first_vertex.begin(),
+                       sqr_distances_to_first_vertex.end());
+
+    return (*minmax_sqr_distance.second - *minmax_sqr_distance.first <
+            1.e-10 * *min_sqr_distance_to_first_vertex);
+  }
+} // namespace
+
+
+
+template <int dim, int spacedim>
+Tensor<1, spacedim>
+PolarManifold<dim, spacedim>::normal_vector(
+  const typename Triangulation<dim, spacedim>::face_iterator &face,
+  const Point<spacedim> &                                     p) const
+{
+  // Let us first test whether we are on a "horizontal" face
+  // (tangential to the sphere).  In this case, the normal vector is
+  // easy to compute since it is proportional to the vector from the
+  // center to the point 'p'.
+  if (spherical_face_is_horizontal<dim, spacedim>(face, center))
+    {
+      // So, if this is a "horizontal" face, then just compute the normal
+      // vector as the one from the center to the point 'p', adequately
+      // scaled.
+      const Tensor<1, spacedim> unnormalized_spherical_normal = p - center;
+      const Tensor<1, spacedim> normalized_spherical_normal =
+        unnormalized_spherical_normal / unnormalized_spherical_normal.norm();
+      return normalized_spherical_normal;
+    }
+  else
+    // If it is not a horizontal face, just use the machinery of the
+    // base class.
+    return Manifold<dim, spacedim>::normal_vector(face, p);
+
+  return Tensor<1, spacedim>();
+}
+
+
+
 // ============================================================
 // SphericalManifold
 // ============================================================
@@ -291,7 +365,7 @@ template <int dim, int spacedim>
 std::unique_ptr<Manifold<dim, spacedim>>
 SphericalManifold<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<SphericalManifold<dim, spacedim>>(center);
+  return std::make_unique<SphericalManifold<dim, spacedim>>(center);
 }
 
 
@@ -419,35 +493,26 @@ SphericalManifold<dim, spacedim>::normal_vector(
   const typename Triangulation<dim, spacedim>::face_iterator &face,
   const Point<spacedim> &                                     p) const
 {
-  // if the maximum deviation for the distance from the vertices to the center
-  // is less than 1.e-5 of the minimum distance to the first vertex, assume we
-  // can simply return p-center. otherwise, we compute the normal using
-  // get_normal_vector
-  constexpr unsigned int n_vertices = GeometryInfo<spacedim>::vertices_per_face;
-  std::array<double, n_vertices>     distances_to_center;
-  std::array<double, n_vertices - 1> distances_to_first_vertex;
-  distances_to_center[0] = (face->vertex(0) - center).norm_square();
-  for (unsigned int i = 1; i < n_vertices; ++i)
+  // Let us first test whether we are on a "horizontal" face
+  // (tangential to the sphere).  In this case, the normal vector is
+  // easy to compute since it is proportional to the vector from the
+  // center to the point 'p'.
+  if (spherical_face_is_horizontal<dim, spacedim>(face, center))
     {
-      distances_to_center[i] = (face->vertex(i) - center).norm_square();
-      distances_to_first_vertex[i - 1] =
-        (face->vertex(i) - face->vertex(0)).norm_square();
-    }
-  const auto minmax_distance =
-    std::minmax_element(distances_to_center.begin(), distances_to_center.end());
-  const auto min_distance_to_first_vertex =
-    std::min_element(distances_to_first_vertex.begin(),
-                     distances_to_first_vertex.end());
-
-  if (*minmax_distance.second - *minmax_distance.first <
-      1.e-10 * *min_distance_to_first_vertex)
-    {
+      // So, if this is a "horizontal" face, then just compute the normal
+      // vector as the one from the center to the point 'p', adequately
+      // scaled.
       const Tensor<1, spacedim> unnormalized_spherical_normal = p - center;
       const Tensor<1, spacedim> normalized_spherical_normal =
         unnormalized_spherical_normal / unnormalized_spherical_normal.norm();
       return normalized_spherical_normal;
     }
-  return Manifold<dim, spacedim>::normal_vector(face, p);
+  else
+    // If it is not a horizontal face, just use the machinery of the
+    // base class.
+    return Manifold<dim, spacedim>::normal_vector(face, p);
+
+  return Tensor<1, spacedim>();
 }
 
 
@@ -481,30 +546,18 @@ SphericalManifold<dim, spacedim>::get_normals_at_vertices(
   typename Manifold<dim, spacedim>::FaceVertexNormals &face_vertex_normals)
   const
 {
-  // if the maximum deviation for the distance from the vertices to the center
-  // is less than 1.e-5 of the minimum distance to the first vertex, assume we
-  // can simply return vertex-center. otherwise, we compute the normal using
-  // get_normal_vector
-  constexpr unsigned int n_vertices = GeometryInfo<spacedim>::vertices_per_face;
-  std::array<double, n_vertices>     distances_to_center;
-  std::array<double, n_vertices - 1> distances_to_first_vertex;
-  distances_to_center[0] = (face->vertex(0) - center).norm_square();
-  for (unsigned int i = 1; i < n_vertices; ++i)
+  // Let us first test whether we are on a "horizontal" face
+  // (tangential to the sphere).  In this case, the normal vector is
+  // easy to compute since it is proportional to the vector from the
+  // center to the point 'p'.
+  if (spherical_face_is_horizontal<dim, spacedim>(face, center))
     {
-      distances_to_center[i] = (face->vertex(i) - center).norm_square();
-      distances_to_first_vertex[i - 1] =
-        (face->vertex(i) - face->vertex(0)).norm_square();
-    }
-  const auto minmax_distance =
-    std::minmax_element(distances_to_center.begin(), distances_to_center.end());
-  const auto min_distance_to_first_vertex =
-    std::min_element(distances_to_first_vertex.begin(),
-                     distances_to_first_vertex.end());
-
-  if (*minmax_distance.second - *minmax_distance.first <
-      1.e-10 * *min_distance_to_first_vertex)
-    {
-      for (unsigned int vertex = 0; vertex < n_vertices; ++vertex)
+      // So, if this is a "horizontal" face, then just compute the normal
+      // vector as the one from the center to the point 'p', adequately
+      // scaled.
+      for (unsigned int vertex = 0;
+           vertex < GeometryInfo<spacedim>::vertices_per_face;
+           ++vertex)
         face_vertex_normals[vertex] = face->vertex(vertex) - center;
     }
   else
@@ -1022,8 +1075,9 @@ template <int dim, int spacedim>
 std::unique_ptr<Manifold<dim, spacedim>>
 CylindricalManifold<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<CylindricalManifold<dim, spacedim>>(
-    direction, point_on_axis, tolerance);
+  return std::make_unique<CylindricalManifold<dim, spacedim>>(direction,
+                                                              point_on_axis,
+                                                              tolerance);
 }
 
 
@@ -1049,7 +1103,7 @@ CylindricalManifold<dim, spacedim>::get_new_point(
   const double lambda = middle * direction;
 
   if ((middle - direction * lambda).square() < tolerance * average_length)
-    return Point<spacedim>() + direction * lambda;
+    return point_on_axis + direction * lambda;
   else // If not, using the ChartManifold should yield valid results.
     return ChartManifold<dim, spacedim, 3>::get_new_point(surrounding_points,
                                                           weights);
@@ -1091,11 +1145,7 @@ CylindricalManifold<dim, spacedim>::push_forward(
   Assert(spacedim == 3,
          ExcMessage("CylindricalManifold can only be used for spacedim==3!"));
 
-  // Rotate the orthogonal direction by the given angle.
-  // Formula from Section 5.2 in
-  // http://inside.mines.edu/fs_home/gmurray/ArbitraryAxisRotation/
-  // simplified assuming normal_direction and direction are orthogonal
-  // and unit vectors.
+  // Rotate the orthogonal direction by the given angle
   const double sine_r           = std::sin(chart_point(1)) * chart_point(0);
   const double cosine_r         = std::cos(chart_point(1)) * chart_point(0);
   const Tensor<1, spacedim> dxn = cross_product_3d(direction, normal_direction);
@@ -1118,31 +1168,32 @@ CylindricalManifold<dim, spacedim>::push_forward_gradient(
 
   Tensor<2, 3> derivatives;
 
-  // Rotate the orthogonal direction by the given angle.
-  // Formula from Section 5.2 in
-  // http://inside.mines.edu/fs_home/gmurray/ArbitraryAxisRotation/
-  // simplified assuming normal_direction and direction are orthogonal
-  // and unit vectors.
+  // Rotate the orthogonal direction by the given angle
   const double              sine   = std::sin(chart_point(1));
   const double              cosine = std::cos(chart_point(1));
   const Tensor<1, spacedim> dxn = cross_product_3d(direction, normal_direction);
   const Tensor<1, spacedim> intermediate =
     normal_direction * cosine + dxn * sine;
 
+  // avoid compiler warnings
+  constexpr int s0 = 0 % spacedim;
+  constexpr int s1 = 1 % spacedim;
+  constexpr int s2 = 2 % spacedim;
+
   // derivative w.r.t the radius
-  derivatives[0][0] = intermediate[0];
-  derivatives[1][0] = intermediate[1];
-  derivatives[2][0] = intermediate[2];
+  derivatives[s0][s0] = intermediate[s0];
+  derivatives[s1][s0] = intermediate[s1];
+  derivatives[s2][s0] = intermediate[s2];
 
   // derivatives w.r.t the angle
-  derivatives[0][1] = -normal_direction[0] * sine + dxn[0] * cosine;
-  derivatives[1][1] = -normal_direction[1] * sine + dxn[1] * cosine;
-  derivatives[2][1] = -normal_direction[2] * sine + dxn[2] * cosine;
+  derivatives[s0][s1] = -normal_direction[s0] * sine + dxn[s0] * cosine;
+  derivatives[s1][s1] = -normal_direction[s1] * sine + dxn[s1] * cosine;
+  derivatives[s2][s1] = -normal_direction[s2] * sine + dxn[s2] * cosine;
 
   // derivatives w.r.t the direction of the axis
-  derivatives[0][2] = direction[0];
-  derivatives[1][2] = direction[1];
-  derivatives[2][2] = direction[2];
+  derivatives[s0][s2] = direction[s0];
+  derivatives[s1][s2] = direction[s1];
+  derivatives[s2][s2] = direction[s2];
 
   return derivatives;
 }
@@ -1184,8 +1235,9 @@ std::unique_ptr<Manifold<dim, spacedim>>
 EllipticalManifold<dim, spacedim>::clone() const
 {
   const double eccentricity = 1.0 / cosh_u;
-  return std_cxx14::make_unique<EllipticalManifold<dim, spacedim>>(
-    center, direction, eccentricity);
+  return std::make_unique<EllipticalManifold<dim, spacedim>>(center,
+                                                             direction,
+                                                             eccentricity);
 }
 
 
@@ -1268,7 +1320,7 @@ EllipticalManifold<2, 2>::pull_back(const Point<2> &space_point) const
     }
   const double eta = std::acos(cos_eta);
   const double pt1 = (std::signbit(y) ? 2.0 * numbers::PI - eta : eta);
-  return Point<2>(pt0, pt1);
+  return {pt0, pt1};
 }
 
 
@@ -1279,7 +1331,7 @@ EllipticalManifold<dim, spacedim>::push_forward_gradient(
   const Point<spacedim> &) const
 {
   Assert(false, ExcNotImplemented());
-  return DerivativeForm<1, spacedim, spacedim>();
+  return {};
 }
 
 
@@ -1289,14 +1341,19 @@ DerivativeForm<1, 2, 2>
 EllipticalManifold<2, 2>::push_forward_gradient(
   const Point<2> &chart_point) const
 {
-  const double            cs = std::cos(chart_point[1]);
-  const double            sn = std::sin(chart_point[1]);
-  DerivativeForm<1, 2, 2> dX;
+  const double cs = std::cos(chart_point[1]);
+  const double sn = std::sin(chart_point[1]);
+  Tensor<2, 2> dX;
   dX[0][0] = cosh_u * cs;
   dX[0][1] = -chart_point[0] * cosh_u * sn;
   dX[1][0] = sinh_u * sn;
-  dX[1][1] = chart_point[1] * sinh_u * cs;
-  return dX;
+  dX[1][1] = chart_point[0] * sinh_u * cs;
+
+  // rotate according to the major axis direction
+  Tensor<2, 2, double> rot{
+    {{+direction[0], -direction[1]}, {direction[1], direction[0]}}};
+
+  return rot * dX;
 }
 
 
@@ -1311,6 +1368,7 @@ FunctionManifold<dim, spacedim, chartdim>::FunctionManifold(
   const Tensor<1, chartdim> &periodicity,
   const double               tolerance)
   : ChartManifold<dim, spacedim, chartdim>(periodicity)
+  , const_map()
   , push_forward_function(&push_forward_function)
   , pull_back_function(&pull_back_function)
   , tolerance(tolerance)
@@ -1319,6 +1377,26 @@ FunctionManifold<dim, spacedim, chartdim>::FunctionManifold(
 {
   AssertDimension(push_forward_function.n_components, spacedim);
   AssertDimension(pull_back_function.n_components, chartdim);
+}
+
+
+
+template <int dim, int spacedim, int chartdim>
+FunctionManifold<dim, spacedim, chartdim>::FunctionManifold(
+  std::unique_ptr<Function<chartdim>> push_forward,
+  std::unique_ptr<Function<spacedim>> pull_back,
+  const Tensor<1, chartdim> &         periodicity,
+  const double                        tolerance)
+  : ChartManifold<dim, spacedim, chartdim>(periodicity)
+  , const_map()
+  , push_forward_function(push_forward.release())
+  , pull_back_function(pull_back.release())
+  , tolerance(tolerance)
+  , owns_pointers(true)
+  , finite_difference_step(0)
+{
+  AssertDimension(push_forward_function->n_components, spacedim);
+  AssertDimension(pull_back_function->n_components, chartdim);
 }
 
 
@@ -1378,15 +1456,17 @@ FunctionManifold<dim, spacedim, chartdim>::clone() const
   // push forward and the pull back charts, or by providing two Function
   // objects. In the first case, the push_forward and pull_back functions are
   // created internally in FunctionManifold, and destroyed when this object is
-  // deleted. We need to make sure that our cloned object is constructed in the
+  // deleted. In the second case, the function objects are destroyed if they
+  // are passed as pointers upon construction.
+  // We need to make sure that our cloned object is constructed in the
   // same way this class was constructed, and that its internal Function
   // pointers point either to the same Function objects used to construct this
-  // function (owns_pointers == false) or that the newly generated manifold
-  // creates internally the push_forward and pull_back functions using the same
-  // expressions that were used to construct this class (own_pointers == true).
-  if (owns_pointers == true)
+  // function or that the newly generated manifold creates internally the
+  // push_forward and pull_back functions using the same expressions that were
+  // used to construct this class.
+  if (!(push_forward_expression.empty() && pull_back_expression.empty()))
     {
-      return std_cxx14::make_unique<FunctionManifold<dim, spacedim, chartdim>>(
+      return std::make_unique<FunctionManifold<dim, spacedim, chartdim>>(
         push_forward_expression,
         pull_back_expression,
         this->get_periodicity(),
@@ -1397,11 +1477,13 @@ FunctionManifold<dim, spacedim, chartdim>::clone() const
         finite_difference_step);
     }
   else
-    return std_cxx14::make_unique<FunctionManifold<dim, spacedim, chartdim>>(
-      *push_forward_function,
-      *pull_back_function,
-      this->get_periodicity(),
-      tolerance);
+    {
+      return std::make_unique<FunctionManifold<dim, spacedim, chartdim>>(
+        *push_forward_function,
+        *pull_back_function,
+        this->get_periodicity(),
+        tolerance);
+    }
 }
 
 
@@ -1481,7 +1563,7 @@ TorusManifold<dim>::pull_back(const Point<3> &p) const
   double w     = std::sqrt(std::pow(y - std::sin(phi) * R, 2.0) +
                        std::pow(x - std::cos(phi) * R, 2.0) + z * z) /
              r;
-  return Point<3>(phi, theta, w);
+  return {phi, theta, w};
 }
 
 
@@ -1494,9 +1576,9 @@ TorusManifold<dim>::push_forward(const Point<3> &chart_point) const
   double theta = chart_point(1);
   double w     = chart_point(2);
 
-  return Point<3>(std::cos(phi) * R + r * w * std::cos(theta) * std::cos(phi),
-                  r * w * std::sin(theta),
-                  std::sin(phi) * R + r * w * std::cos(theta) * std::sin(phi));
+  return {std::cos(phi) * R + r * w * std::cos(theta) * std::cos(phi),
+          r * w * std::sin(theta),
+          std::sin(phi) * R + r * w * std::cos(theta) * std::sin(phi)};
 }
 
 
@@ -1519,7 +1601,7 @@ template <int dim>
 std::unique_ptr<Manifold<dim, 3>>
 TorusManifold<dim>::clone() const
 {
-  return std_cxx14::make_unique<TorusManifold<dim>>(R, r);
+  return std::make_unique<TorusManifold<dim>>(R, r);
 }
 
 
@@ -1593,17 +1675,21 @@ TransfiniteInterpolationManifold<dim, spacedim>::initialize(
   const Triangulation<dim, spacedim> &triangulation)
 {
   this->triangulation = &triangulation;
-  // in case the triangulatoin is cleared, remove the pointers by a signal
+  // in case the triangulation is cleared, remove the pointers by a signal
+  clear_signal.disconnect();
   clear_signal = triangulation.signals.clear.connect([&]() -> void {
     this->triangulation = nullptr;
     this->level_coarse  = -1;
   });
   level_coarse = triangulation.last()->level();
   coarse_cell_is_flat.resize(triangulation.n_cells(level_coarse), false);
-  typename Triangulation<dim, spacedim>::active_cell_iterator
-    cell = triangulation.begin(level_coarse),
-    endc = triangulation.end(level_coarse);
-  for (; cell != endc; ++cell)
+  quadratic_approximation.clear();
+
+  std::vector<Point<dim>> unit_points =
+    QIterated<dim>(QTrapez<1>(), 2).get_points();
+  std::vector<Point<spacedim>> real_points(unit_points.size());
+
+  for (const auto &cell : triangulation.active_cell_iterators())
     {
       bool cell_is_flat = true;
       for (unsigned int l = 0; l < GeometryInfo<dim>::lines_per_cell; ++l)
@@ -1618,6 +1704,11 @@ TransfiniteInterpolationManifold<dim, spacedim>::initialize(
       AssertIndexRange(static_cast<unsigned int>(cell->index()),
                        coarse_cell_is_flat.size());
       coarse_cell_is_flat[cell->index()] = cell_is_flat;
+
+      // build quadratic interpolation
+      for (unsigned int i = 0; i < unit_points.size(); ++i)
+        real_points[i] = push_forward(cell, unit_points[i]);
+      quadratic_approximation.emplace_back(real_points, unit_points);
     }
 }
 
@@ -1666,7 +1757,7 @@ namespace
 
     Point<spacedim> new_point;
     if (cell_is_flat)
-      for (unsigned int v = 0; v < GeometryInfo<2>::vertices_per_cell; ++v)
+      for (const unsigned int v : GeometryInfo<2>::vertex_indices())
         new_point += weights_vertices[v] * vertices[v];
     else
       {
@@ -1724,7 +1815,7 @@ namespace
           }
 
         // subtract contribution from the vertices (second line in formula)
-        for (unsigned int v = 0; v < GeometryInfo<2>::vertices_per_cell; ++v)
+        for (const unsigned int v : GeometryInfo<2>::vertex_indices())
           new_point -= weights_vertices[v] * vertices[v];
       }
 
@@ -1804,10 +1895,8 @@ namespace
         // identify the weights for the lines to be accumulated (vertex
         // weights are set outside and coincide with the flat manifold case)
 
-        double weights_lines[GeometryInfo<3>::lines_per_cell];
-        for (unsigned int line = 0; line < GeometryInfo<3>::lines_per_cell;
-             ++line)
-          weights_lines[line] = 0;
+        std::array<double, GeometryInfo<3>::lines_per_cell> weights_lines;
+        std::fill(weights_lines.begin(), weights_lines.end(), 0.0);
 
         // start with the contributions of the faces
         std::array<double, GeometryInfo<2>::vertices_per_cell>          weights;
@@ -1817,8 +1906,7 @@ namespace
           make_array_view(weights.begin(), weights.end());
         const auto points_view = make_array_view(points.begin(), points.end());
 
-        for (unsigned int face = 0; face < GeometryInfo<3>::faces_per_cell;
-             ++face)
+        for (const unsigned int face : GeometryInfo<3>::face_indices())
           {
             const double       my_weight = linear_shapes[face];
             const unsigned int face_even = face - face % 2;
@@ -1861,8 +1949,7 @@ namespace
               }
             else
               {
-                for (unsigned int v = 0; v < GeometryInfo<2>::vertices_per_cell;
-                     ++v)
+                for (const unsigned int v : GeometryInfo<2>::vertex_indices())
                   points[v] = vertices[face_to_cell_vertices_3d[face][v]];
                 weights[0] =
                   linear_shapes[face_even + 2] * linear_shapes[face_even + 4];
@@ -1929,7 +2016,7 @@ namespace
           }
 
         // finally add the contribution of the
-        for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+        for (const unsigned int v : GeometryInfo<dim>::vertex_indices())
           new_point += weights_vertices[v] * vertices[v];
       }
     return new_point;
@@ -1947,9 +2034,9 @@ TransfiniteInterpolationManifold<dim, spacedim>::push_forward(
   AssertDimension(cell->level(), level_coarse);
 
   // check that the point is in the unit cell which is the current chart
-  // Tolerance 1e-6 chosen that the method also works with
-  // SphericalManifold
-  Assert(GeometryInfo<dim>::is_inside_unit_cell(chart_point, 1e-6),
+  // Tolerance 5e-4 chosen that the method also works with manifolds
+  // that have some discretization error like SphericalManifold
+  Assert(GeometryInfo<dim>::is_inside_unit_cell(chart_point, 5e-4),
          ExcMessage("chart_point is not in unit interval"));
 
   return compute_transfinite_interpolation(*cell,
@@ -2016,6 +2103,7 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
   const double tolerance = 1e-21 * Utilities::fixed_power<2>(cell->diameter());
   double       residual_norm_square = residual.norm_square();
   DerivativeForm<1, dim, spacedim> inv_grad;
+  bool                             must_recompute_jacobian = true;
   for (unsigned int i = 0; i < 100; ++i)
     {
       if (residual_norm_square < tolerance)
@@ -2031,7 +2119,7 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
           return chart_point + update;
         }
 
-      // every 8 iterations, including the first time around, we create an
+      // every 9 iterations, including the first time around, we create an
       // approximation of the Jacobian with finite differences. Broyden's
       // method usually does not need more than 5-8 iterations, but sometimes
       // we might have had a bad initial guess and then we can accelerate
@@ -2040,7 +2128,7 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
       // much as 3 more iterations). this usually happens close to convergence
       // and one more step with the finite-differenced Jacobian leads to
       // convergence
-      if (i % 8 == 0)
+      if (must_recompute_jacobian || i % 9 == 0)
         {
           // if the determinant is zero or negative, the mapping is either not
           // invertible or already has inverted and we are outside the valid
@@ -2053,7 +2141,8 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
                                   Point<spacedim>(point - residual));
           if (grad.determinant() <= 0.0)
             return outside;
-          inv_grad = grad.covariant_form();
+          inv_grad                = grad.covariant_form();
+          must_recompute_jacobian = false;
         }
       Tensor<1, dim> update;
       for (unsigned int d = 0; d < spacedim; ++d)
@@ -2072,15 +2161,16 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
         alpha *= 0.5;
 
       const Tensor<1, spacedim> old_residual = residual;
-      while (alpha > 1e-7)
+      while (alpha > 1e-4)
         {
-          Point<dim> guess = chart_point + alpha * update;
-          residual =
+          Point<dim>                guess = chart_point + alpha * update;
+          const Tensor<1, spacedim> residual_guess =
             point - compute_transfinite_interpolation(
                       *cell, guess, coarse_cell_is_flat[cell->index()]);
-          const double residual_norm_new = residual.norm_square();
+          const double residual_norm_new = residual_guess.norm_square();
           if (residual_norm_new < residual_norm_square)
             {
+              residual             = residual_guess;
               residual_norm_square = residual_norm_new;
               chart_point += alpha * update;
               break;
@@ -2088,16 +2178,23 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
           else
             alpha *= 0.5;
         }
-      if (alpha < 1e-7)
-        return outside;
+      // If alpha got very small, it is likely due to a bad Jacobian
+      // approximation with Broyden's method (relatively far away from the
+      // zero), which can be corrected by the outer loop when a Newton update
+      // is recomputed. The second case is when the Jacobian is actually bad
+      // and we should fail as early as possible. Since we cannot really
+      // distinguish the two, we must continue here in any case.
+      if (alpha <= 1e-4)
+        must_recompute_jacobian = true;
 
       // update the inverse Jacobian with "Broyden's good method" and
       // Sherman-Morrison formula for the update of the inverse, see
       // https://en.wikipedia.org/wiki/Broyden%27s_method
-      const Tensor<1, dim> delta_x = alpha * update;
+      // J^{-1}_n = J^{-1}_{n-1} + (delta x_n - J^{-1}_{n-1} delta f_n) /
+      // (delta x_n^T J_{-1}_{n-1} delta f_n) delta x_n^T J^{-1}_{n-1}
 
-      // switch sign in residual as compared to the wikipedia article because
-      // we use a negative definition of the residual with respect to the
+      // switch sign in residual as compared to the formula above because we
+      // use a negative definition of the residual with respect to the
       // Jacobian
       const Tensor<1, spacedim> delta_f = old_residual - residual;
 
@@ -2105,15 +2202,24 @@ TransfiniteInterpolationManifold<dim, spacedim>::pull_back(
       for (unsigned int d = 0; d < spacedim; ++d)
         for (unsigned int e = 0; e < dim; ++e)
           Jinv_deltaf[e] += inv_grad[d][e] * delta_f[d];
-      const Tensor<1, dim> factor =
-        (delta_x - Jinv_deltaf) / (delta_x * Jinv_deltaf);
-      Tensor<1, spacedim> jac_update;
-      for (unsigned int d = 0; d < spacedim; ++d)
-        for (unsigned int e = 0; e < dim; ++e)
-          jac_update[d] += delta_x[e] * inv_grad[d][e];
-      for (unsigned int d = 0; d < spacedim; ++d)
-        for (unsigned int e = 0; e < dim; ++e)
-          inv_grad[d][e] += factor[e] * jac_update[d];
+
+      const Tensor<1, dim> delta_x = alpha * update;
+
+      // prevent division by zero. This number should be scale-invariant
+      // because Jinv_deltaf carries no units and x is in reference
+      // coordinates.
+      if (std::abs(delta_x * Jinv_deltaf) > 1e-12 && !must_recompute_jacobian)
+        {
+          const Tensor<1, dim> factor =
+            (delta_x - Jinv_deltaf) / (delta_x * Jinv_deltaf);
+          Tensor<1, spacedim> jac_update;
+          for (unsigned int d = 0; d < spacedim; ++d)
+            for (unsigned int e = 0; e < dim; ++e)
+              jac_update[d] += delta_x[e] * inv_grad[d][e];
+          for (unsigned int d = 0; d < spacedim; ++d)
+            for (unsigned int e = 0; e < dim; ++e)
+              inv_grad[d][e] += factor[e] * jac_update[d];
+        }
     }
   return outside;
 }
@@ -2132,7 +2238,7 @@ TransfiniteInterpolationManifold<dim, spacedim>::
   Assert(triangulation != nullptr, ExcNotInitialized());
   Assert(triangulation->begin_active()->level() >= level_coarse,
          ExcMessage("The manifold was initialized with level " +
-                    Utilities::to_string(level_coarse) + " but there are now" +
+                    std::to_string(level_coarse) + " but there are now" +
                     "active cells on a lower level. Coarsening the mesh is " +
                     "currently not supported"));
 
@@ -2154,9 +2260,7 @@ TransfiniteInterpolationManifold<dim, spacedim>::
 
       std::array<Point<spacedim>, GeometryInfo<dim>::vertices_per_cell>
         vertices;
-      for (unsigned int vertex_n = 0;
-           vertex_n < GeometryInfo<dim>::vertices_per_cell;
-           ++vertex_n)
+      for (const unsigned int vertex_n : GeometryInfo<dim>::vertex_indices())
         {
           vertices[vertex_n] = cell->vertex(vertex_n);
         }
@@ -2165,11 +2269,11 @@ TransfiniteInterpolationManifold<dim, spacedim>::
       // center of the loop, we can skip the expensive part below (this assumes
       // that the manifold does not deform the grid too much)
       Point<spacedim> center;
-      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+      for (const unsigned int v : GeometryInfo<dim>::vertex_indices())
         center += vertices[v];
       center *= 1. / GeometryInfo<dim>::vertices_per_cell;
       double radius_square = 0.;
-      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+      for (const unsigned int v : GeometryInfo<dim>::vertex_indices())
         radius_square =
           std::max(radius_square, (center - vertices[v]).norm_square());
       bool inside_circle = true;
@@ -2187,10 +2291,11 @@ TransfiniteInterpolationManifold<dim, spacedim>::
       for (unsigned int i = 0; i < points.size(); ++i)
         {
           Point<dim> point =
-            cell->real_to_unit_cell_affine_approximation(points[i]);
+            quadratic_approximation[cell->index()].compute(points[i]);
           current_distance += GeometryInfo<dim>::distance_to_unit_cell(point);
         }
-      distances_and_cells.emplace_back(current_distance, cell->index());
+      distances_and_cells.push_back(
+        std::make_pair(current_distance, cell->index()));
     }
   // no coarse cell could be found -> transformation failed
   AssertThrow(distances_and_cells.size() > 0,
@@ -2333,6 +2438,76 @@ TransfiniteInterpolationManifold<dim, spacedim>::compute_chart_points(
            (use_structdim_2_guesses ^ use_structdim_3_guesses),
          ExcInternalError());
 
+
+
+  auto compute_chart_point =
+    [&](const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+        const unsigned int point_index) {
+      Point<dim> guess;
+      // an optimization: keep track of whether or not we used the quadratic
+      // approximation so that we don't call pull_back with the same
+      // initial guess twice (i.e., if pull_back fails the first time,
+      // don't try again with the same function arguments).
+      bool used_quadratic_approximation = false;
+      // if we have already computed three points, we can guess the fourth
+      // to be the missing corner point of a rectangle
+      if (point_index == 3 && surrounding_points.size() >= 8)
+        guess = chart_points[1] + (chart_points[2] - chart_points[0]);
+      else if (use_structdim_2_guesses && 3 < point_index)
+        guess = guess_chart_point_structdim_2(point_index);
+      else if (use_structdim_3_guesses && 4 < point_index)
+        guess = guess_chart_point_structdim_3(point_index);
+      else if (dim == 3 && point_index > 7 && surrounding_points.size() == 26)
+        {
+          if (point_index < 20)
+            guess =
+              0.5 * (chart_points[GeometryInfo<dim>::line_to_cell_vertices(
+                       point_index - 8, 0)] +
+                     chart_points[GeometryInfo<dim>::line_to_cell_vertices(
+                       point_index - 8, 1)]);
+          else
+            guess =
+              0.25 * (chart_points[GeometryInfo<dim>::face_to_cell_vertices(
+                        point_index - 20, 0)] +
+                      chart_points[GeometryInfo<dim>::face_to_cell_vertices(
+                        point_index - 20, 1)] +
+                      chart_points[GeometryInfo<dim>::face_to_cell_vertices(
+                        point_index - 20, 2)] +
+                      chart_points[GeometryInfo<dim>::face_to_cell_vertices(
+                        point_index - 20, 3)]);
+        }
+      else
+        {
+          guess = quadratic_approximation[cell->index()].compute(
+            surrounding_points[point_index]);
+          used_quadratic_approximation = true;
+        }
+      chart_points[point_index] =
+        pull_back(cell, surrounding_points[point_index], guess);
+
+      // the initial guess may not have been good enough: if applicable,
+      // try again with the affine approximation (which is more accurate
+      // than the cheap methods used above)
+      if (chart_points[point_index][0] ==
+            internal::invalid_pull_back_coordinate &&
+          !used_quadratic_approximation)
+        {
+          guess = quadratic_approximation[cell->index()].compute(
+            surrounding_points[point_index]);
+          chart_points[point_index] =
+            pull_back(cell, surrounding_points[point_index], guess);
+        }
+
+      if (chart_points[point_index][0] ==
+          internal::invalid_pull_back_coordinate)
+        {
+          for (unsigned int d = 0; d < dim; ++d)
+            guess[d] = 0.5;
+          chart_points[point_index] =
+            pull_back(cell, surrounding_points[point_index], guess);
+        }
+    };
+
   // check whether all points are inside the unit cell of the current chart
   for (unsigned int c = 0; c < nearby_cells.size(); ++c)
     {
@@ -2341,42 +2516,11 @@ TransfiniteInterpolationManifold<dim, spacedim>::compute_chart_points(
       bool inside_unit_cell = true;
       for (unsigned int i = 0; i < surrounding_points.size(); ++i)
         {
-          Point<dim> guess;
-          // an optimization: keep track of whether or not we used the affine
-          // approximation so that we don't call pull_back with the same
-          // initial guess twice (i.e., if pull_back fails the first time,
-          // don't try again with the same function arguments).
-          bool used_affine_approximation = false;
-          // if we have already computed three points, we can guess the fourth
-          // to be the missing corner point of a rectangle
-          if (i == 3 && surrounding_points.size() == 8)
-            guess = chart_points[1] + (chart_points[2] - chart_points[0]);
-          else if (use_structdim_2_guesses && 3 < i)
-            guess = guess_chart_point_structdim_2(i);
-          else if (use_structdim_3_guesses && 4 < i)
-            guess = guess_chart_point_structdim_3(i);
-          else
-            {
-              guess = cell->real_to_unit_cell_affine_approximation(
-                surrounding_points[i]);
-              used_affine_approximation = true;
-            }
-          chart_points[i] = pull_back(cell, surrounding_points[i], guess);
+          compute_chart_point(cell, i);
 
-          // the initial guess may not have been good enough: if applicable,
-          // try again with the affine approximation (which is more accurate
-          // than the cheap methods used above)
-          if (chart_points[i][0] == internal::invalid_pull_back_coordinate &&
-              !used_affine_approximation)
-            {
-              guess = cell->real_to_unit_cell_affine_approximation(
-                surrounding_points[i]);
-              chart_points[i] = pull_back(cell, surrounding_points[i], guess);
-            }
-
-          // Tolerance 1e-6 chosen that the method also works with
-          // SphericalManifold
-          if (GeometryInfo<dim>::is_inside_unit_cell(chart_points[i], 1e-6) ==
+          // Tolerance 5e-4 chosen that the method also works with manifolds
+          // that have some discretization error like SphericalManifold
+          if (GeometryInfo<dim>::is_inside_unit_cell(chart_points[i], 5e-4) ==
               false)
             {
               inside_unit_cell = false;
@@ -2389,7 +2533,7 @@ TransfiniteInterpolationManifold<dim, spacedim>::compute_chart_points(
         }
 
       // if we did not find a point and this was the last valid cell (the next
-      // iterate being the end of the array or an unvalid tag), we must stop
+      // iterate being the end of the array or an invalid tag), we must stop
       if (c == nearby_cells.size() - 1 ||
           nearby_cells[c + 1] == numbers::invalid_unsigned_int)
         {
@@ -2402,20 +2546,15 @@ TransfiniteInterpolationManifold<dim, spacedim>::compute_chart_points(
                 triangulation, level_coarse, nearby_cells[b]);
               message << "Looking at cell " << cell->id()
                       << " with vertices: " << std::endl;
-              for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell;
-                   ++v)
+              for (const unsigned int v : GeometryInfo<dim>::vertex_indices())
                 message << cell->vertex(v) << "    ";
               message << std::endl;
               message << "Transformation to chart coordinates: " << std::endl;
               for (unsigned int i = 0; i < surrounding_points.size(); ++i)
                 {
-                  message
-                    << surrounding_points[i] << " -> "
-                    << pull_back(cell,
-                                 surrounding_points[i],
-                                 cell->real_to_unit_cell_affine_approximation(
-                                   surrounding_points[i]))
-                    << std::endl;
+                  compute_chart_point(cell, i);
+                  message << surrounding_points[i] << " -> " << chart_points[i]
+                          << std::endl;
                 }
             }
 

@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2012 - 2018 by the deal.II authors
+## Copyright (C) 2012 - 2020 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -51,18 +51,19 @@ SET(_unity_include_src
   fe_series_legendre.cc
   fe_system.cc
   fe_enriched.cc
-  fe_tools.cc
   fe_trace.cc
   mapping_c1.cc
   mapping_cartesian.cc
   mapping.cc
   mapping_q1.cc
   mapping_q.cc
+  mapping_q_cache.cc
   mapping_manifold.cc
   )
 
 SET(_separate_src
   fe_values.cc
+  fe_values_extractors.cc
   fe_values_inst2.cc
   fe_values_inst3.cc
   fe_values_inst4.cc
@@ -70,8 +71,10 @@ SET(_separate_src
   fe_values_inst6.cc
   mapping_fe_field.cc
   mapping_fe_field_inst2.cc
+  fe_tools.cc
   fe_tools_interpolate.cc
   fe_tools_extrapolate.cc
+  mapping_fe.cc
   mapping_q_generic.cc
   mapping_q1_eulerian.cc
   mapping_q_eulerian.cc
@@ -128,10 +131,12 @@ SET(_inst
   mapping_c1.inst.in
   mapping_cartesian.inst.in
   mapping.inst.in
+  mapping_fe.inst.in
   mapping_fe_field.inst.in
   mapping_q_generic.inst.in
   mapping_q1_eulerian.inst.in
   mapping_q1.inst.in
+  mapping_q_cache.inst.in
   mapping_q_eulerian.inst.in
   mapping_q.inst.in
   mapping_manifold.inst.in

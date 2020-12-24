@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2017 by the deal.II authors
+// Copyright (C) 2016 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -15,7 +15,7 @@
 
 
 
-// Check that QuadraturePointManager class. To that end first evaluate some
+// Check CellDataStorage class. To that end first evaluate some
 // quadratic function at quadrature points. Then refine cells and project using
 // FE_Q(2). Finally check that the values at quadrature points are still
 // consistent with the original function. Same as quadrature_point_data.cc, but
@@ -28,6 +28,7 @@
 
 #include <deal.II/distributed/tria.h>
 
+#include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
 
@@ -40,7 +41,6 @@
 #include "../tests.h"
 
 
-using namespace dealii;
 
 template <int dim>
 class MyFunction : public Function<dim>

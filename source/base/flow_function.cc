@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2007 - 2017 by the deal.II authors
+// Copyright (C) 2007 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -103,7 +103,7 @@ namespace Functions
   FlowFunction<dim>::value(const Point<dim> & point,
                            const unsigned int comp) const
   {
-    Assert(comp < dim + 1, ExcIndexRange(comp, 0, dim + 1));
+    AssertIndexRange(comp, dim + 1);
     const unsigned int      n_points = 1;
     std::vector<Point<dim>> points(1);
     points[0] = point;
@@ -281,9 +281,8 @@ namespace Functions
     for (unsigned int d = 0; d < dim + 1; ++d)
       Assert(values[d].size() == n, ExcDimensionMismatch(values[d].size(), n));
 
-    for (unsigned int d = 0; d < values.size(); ++d)
-      for (unsigned int k = 0; k < values[d].size(); ++k)
-        values[d][k] = 0.;
+    for (auto &point_values : values)
+      std::fill(point_values.begin(), point_values.end(), 0.);
   }
 
   //----------------------------------------------------------------------//
@@ -437,14 +436,13 @@ namespace Functions
       {
         vector_values(points, values);
         for (unsigned int d = 0; d < dim; ++d)
-          for (unsigned int k = 0; k < values[d].size(); ++k)
-            values[d][k] *= -reaction;
+          for (double &point_value : values[d])
+            point_value *= -reaction;
       }
     else
       {
         for (unsigned int d = 0; d < dim; ++d)
-          for (unsigned int k = 0; k < values[d].size(); ++k)
-            values[d][k] = 0.;
+          std::fill(values[d].begin(), values[d].end(), 0.);
       }
 
 
@@ -658,9 +656,8 @@ namespace Functions
     for (unsigned int d = 0; d < 2 + 1; ++d)
       Assert(values[d].size() == n, ExcDimensionMismatch(values[d].size(), n));
 
-    for (unsigned int d = 0; d < values.size(); ++d)
-      for (unsigned int k = 0; k < values[d].size(); ++k)
-        values[d][k] = 0.;
+    for (auto &point_values : values)
+      std::fill(point_values.begin(), point_values.end(), 0.);
   }
 
 
@@ -771,9 +768,8 @@ namespace Functions
       }
     else
       {
-        for (unsigned int d = 0; d < values.size(); ++d)
-          for (unsigned int k = 0; k < values[d].size(); ++k)
-            values[d][k] = 0.;
+        for (auto &point_values : values)
+          std::fill(point_values.begin(), point_values.end(), 0.);
       }
   }
 

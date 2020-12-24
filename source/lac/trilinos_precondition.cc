@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2008 - 2018 by the deal.II authors
+// Copyright (C) 2008 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -77,7 +77,7 @@ namespace TrilinosWrappers
   Epetra_Operator &
   PreconditionBase::trilinos_operator() const
   {
-    AssertThrow(preconditioner,
+    AssertThrow(!preconditioner.is_null(),
                 ExcMessage("Trying to dereference a null pointer."));
     return (*preconditioner);
   }
@@ -679,9 +679,8 @@ namespace TrilinosWrappers
   PreconditionChebyshev::initialize(const SparseMatrix &  matrix,
                                     const AdditionalData &additional_data)
   {
-    preconditioner.reset();
     preconditioner =
-      std::make_shared<Ifpack_Chebyshev>(&matrix.trilinos_matrix());
+      Teuchos::rcp(new Ifpack_Chebyshev(&matrix.trilinos_matrix()));
 
     Ifpack_Chebyshev *ifpack =
       dynamic_cast<Ifpack_Chebyshev *>(preconditioner.get());
@@ -789,6 +788,7 @@ namespace TrilinosWrappers
     dst = src;
   }
 
+#  ifndef DOXYGEN
   void
   PreconditionIdentity::vmult(
     LinearAlgebra::distributed::Vector<double> &      dst,
@@ -804,6 +804,7 @@ namespace TrilinosWrappers
   {
     dst = src;
   }
+#  endif // DOXYGEN
 } // namespace TrilinosWrappers
 
 DEAL_II_NAMESPACE_CLOSE

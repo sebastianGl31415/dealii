@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 by the deal.II authors
+// Copyright (C) 2017 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -292,9 +292,9 @@ test()
                  ++i)
               filenames.push_back(output_name(i));
 
-            const std::string master_name = "output.pvtu";
-            std::ofstream     pvtu_master(master_name.c_str());
-            data_out.write_pvtu_record(pvtu_master, filenames);
+            const std::string pvtu_filename = "output.pvtu";
+            std::ofstream     pvtu_output(pvtu_filename.c_str());
+            data_out.write_pvtu_record(pvtu_output, filenames);
           }
       }
     }

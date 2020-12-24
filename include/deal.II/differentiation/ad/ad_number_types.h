@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2017 by the deal.II authors
+// Copyright (C) 2016 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -30,11 +30,21 @@ namespace Differentiation
      * An enumeration to indicate which type of auto-differentiable number
      * is to be used for computations. If a type that is selected for use
      * is not available in the library, a run-time error will be thrown.
-     *
-     * @author Jean-Paul Pelteret, 2017
      */
     enum class NumberTypes
     {
+      /**
+       * A dummy type for floating point numbers (i.e., non-differentiable
+       * scalar types).
+       *
+       * This option exists to facilitate the use of template meta-programming
+       * techniques to select, based on this enumeration, which
+       * auto-differentiable number type will be used to perform calculations.
+       * It will not permit any computations because the underlying number types
+       * resulting from its selection are floating point types, rather than
+       * auto-differentiable numbers.
+       */
+      none,
       /**
        * Taped forward and reverse-mode ADOL-C number type (n-differentiable).
        *
@@ -74,6 +84,11 @@ namespace Differentiation
        *
        * First derivatives will be computed using reverse mode, while the second
        * derivatives will be computed using forward mode.
+       *
+       * Note that the repeated use of the nested reverse-forward mode results
+       * in a memory leak described in this <a
+       * href="https://github.com/trilinos/Trilinos/issues/7741"> Trilinos
+       * issue.</a>
        */
       sacado_rad_dfad
     };

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2008 - 2018 by the deal.II authors
+// Copyright (C) 2008 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -15,7 +15,6 @@
 
 
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/std_cxx14/memory.h>
 
 #include <deal.II/lac/exceptions.h>
 #include <deal.II/lac/sparsity_pattern.h>
@@ -23,6 +22,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <set>
 
 #ifdef DEAL_II_WITH_MPI
@@ -311,8 +311,7 @@ namespace SparsityTools
       (void)cell_weights;
 
       // MPI environment must have been initialized by this point.
-      std::unique_ptr<Zoltan> zz =
-        std_cxx14::make_unique<Zoltan>(MPI_COMM_SELF);
+      std::unique_ptr<Zoltan> zz = std::make_unique<Zoltan>(MPI_COMM_SELF);
 
       // General parameters
       // DEBUG_LEVEL call must precede the call to LB_METHOD
@@ -388,6 +387,7 @@ namespace SparsityTools
       std::fill(partition_indices.begin(), partition_indices.end(), 0);
 
       // copy from export_to_part to partition_indices, whose part_ids != 0.
+      Assert(export_to_part != nullptr, ExcInternalError());
       for (int i = 0; i < num_export; i++)
         partition_indices[export_local_ids[i]] = export_to_part[i];
 #endif
@@ -464,7 +464,7 @@ namespace SparsityTools
     return 0;
 #else
     // coloring algorithm is run in serial by each processor.
-    std::unique_ptr<Zoltan> zz = std_cxx14::make_unique<Zoltan>(MPI_COMM_SELF);
+    std::unique_ptr<Zoltan> zz = std::make_unique<Zoltan>(MPI_COMM_SELF);
 
     // Coloring parameters
     // DEBUG_LEVEL must precede all other calls
@@ -592,11 +592,14 @@ namespace SparsityTools
              sparsity.row_index_set().size() == sparsity.n_rows(),
            ExcMessage(
              "Only valid for sparsity patterns which store all rows."));
-    for (SparsityPattern::size_type i = 0; i < starting_indices.size(); ++i)
-      Assert(starting_indices[i] < sparsity.n_rows(),
-             ExcMessage("Invalid starting index: All starting indices need "
-                        "to be between zero and the number of rows in the "
-                        "sparsity pattern."));
+    for (const auto starting_index : starting_indices)
+      {
+        (void)starting_index;
+        Assert(starting_index < sparsity.n_rows(),
+               ExcMessage("Invalid starting index: All starting indices need "
+                          "to be between zero and the number of rows in the "
+                          "sparsity pattern."));
+      }
 
     // store the indices of the dofs renumbered in the last round. Default to
     // starting points
@@ -629,12 +632,9 @@ namespace SparsityTools
         std::vector<DynamicSparsityPattern::size_type> next_round_dofs;
 
         // find all neighbors of the dofs numbered in the last round
-        for (DynamicSparsityPattern::size_type i = 0;
-             i < last_round_dofs.size();
-             ++i)
-          for (DynamicSparsityPattern::iterator j =
-                 sparsity.begin(last_round_dofs[i]);
-               j < sparsity.end(last_round_dofs[i]);
+        for (const auto dof : last_round_dofs)
+          for (DynamicSparsityPattern::iterator j = sparsity.begin(dof);
+               j < sparsity.end(dof);
                ++j)
             next_round_dofs.push_back(j->column());
 
@@ -689,17 +689,14 @@ namespace SparsityTools
           dofs_by_coordination;
 
         // find coordination number for each of these dofs
-        for (std::vector<DynamicSparsityPattern::size_type>::iterator s =
-               next_round_dofs.begin();
-             s != next_round_dofs.end();
-             ++s)
+        for (const types::global_dof_index next_round_dof : next_round_dofs)
           {
             const DynamicSparsityPattern::size_type coordination =
-              sparsity.row_length(*s);
+              sparsity.row_length(next_round_dof);
 
             // insert this dof at its coordination number
             const std::pair<const DynamicSparsityPattern::size_type, int>
-              new_entry(coordination, *s);
+              new_entry(coordination, next_round_dof);
             dofs_by_coordination.insert(new_entry);
           }
 
@@ -793,16 +790,16 @@ namespace SparsityTools
               // next set of possible neighbors
               min_neighbors = std::make_pair(numbers::invalid_dof_index,
                                              numbers::invalid_dof_index);
-              for (std::set<types::global_dof_index>::iterator it =
-                     current_neighbors.begin();
-                   it != current_neighbors.end();
-                   ++it)
+              for (const auto current_neighbor : current_neighbors)
                 {
-                  Assert(touched_nodes[*it] == numbers::invalid_dof_index,
+                  Assert(touched_nodes[current_neighbor] ==
+                           numbers::invalid_dof_index,
                          ExcInternalError());
-                  if (n_remaining_neighbors[*it] < min_neighbors.second)
+                  if (n_remaining_neighbors[current_neighbor] <
+                      min_neighbors.second)
                     min_neighbors =
-                      std::make_pair(*it, n_remaining_neighbors[*it]);
+                      std::make_pair(current_neighbor,
+                                     n_remaining_neighbors[current_neighbor]);
                 }
 
               // Among the set of nodes with the minimal number of neighbors,
@@ -810,13 +807,12 @@ namespace SparsityTools
               // i.e., the one with the largest row length
               const types::global_dof_index best_row_length =
                 min_neighbors.second;
-              for (std::set<types::global_dof_index>::iterator it =
-                     current_neighbors.begin();
-                   it != current_neighbors.end();
-                   ++it)
-                if (n_remaining_neighbors[*it] == best_row_length)
-                  if (row_lengths[*it] > min_neighbors.second)
-                    min_neighbors = std::make_pair(*it, row_lengths[*it]);
+              for (const auto current_neighbor : current_neighbors)
+                if (n_remaining_neighbors[current_neighbor] == best_row_length)
+                  if (row_lengths[current_neighbor] > min_neighbors.second)
+                    min_neighbors =
+                      std::make_pair(current_neighbor,
+                                     row_lengths[current_neighbor]);
 
               // Add the pivot and all direct neighbors of the pivot node not
               // yet touched to the list of new entries.
@@ -840,11 +836,11 @@ namespace SparsityTools
               // valid neighbor (here we assume symmetry of the
               // connectivity). Delete the entries of the current list from
               // the set of possible next pivots.
-              for (unsigned int i = 0; i < next_group.size(); ++i)
+              for (const auto index : next_group)
                 {
                   for (DynamicSparsityPattern::iterator it =
-                         connectivity.begin(next_group[i]);
-                       it != connectivity.end(next_group[i]);
+                         connectivity.begin(index);
+                       it != connectivity.end(index);
                        ++it)
                     {
                       if (touched_nodes[it->column()] ==
@@ -852,7 +848,7 @@ namespace SparsityTools
                         current_neighbors.insert(it->column());
                       n_remaining_neighbors[it->column()]--;
                     }
-                  current_neighbors.erase(next_group[i]);
+                  current_neighbors.erase(index);
                 }
             }
         }
@@ -915,6 +911,114 @@ namespace SparsityTools
 
 
 #ifdef DEAL_II_WITH_MPI
+
+  void
+  gather_sparsity_pattern(DynamicSparsityPattern &     dsp,
+                          const std::vector<IndexSet> &owned_rows_per_processor,
+                          const MPI_Comm &             mpi_comm,
+                          const IndexSet &             ghost_range)
+  {
+    const unsigned int myid = Utilities::MPI::this_mpi_process(mpi_comm);
+    gather_sparsity_pattern(dsp,
+                            owned_rows_per_processor[myid],
+                            mpi_comm,
+                            ghost_range);
+  }
+
+
+
+  void
+  gather_sparsity_pattern(DynamicSparsityPattern &dsp,
+                          const IndexSet &        locally_owned_rows,
+                          const MPI_Comm &        mpi_comm,
+                          const IndexSet &        locally_relevant_rows)
+  {
+    using map_vec_t =
+      std::map<unsigned int, std::vector<DynamicSparsityPattern::size_type>>;
+
+    // 1. limit rows to non owned:
+    IndexSet requested_rows(locally_relevant_rows);
+    requested_rows.subtract_set(locally_owned_rows);
+
+    std::vector<unsigned int> index_owner =
+      Utilities::MPI::compute_index_owner(locally_owned_rows,
+                                          requested_rows,
+                                          mpi_comm);
+
+    // 2. go through requested_rows, figure out the owner and add the row to
+    // request
+    map_vec_t rows_data;
+    for (DynamicSparsityPattern::size_type i = 0;
+         i < requested_rows.n_elements();
+         ++i)
+      {
+        const DynamicSparsityPattern::size_type row =
+          requested_rows.nth_index_in_set(i);
+
+        rows_data[index_owner[i]].push_back(row);
+      }
+
+    // 3. get what others ask us to send
+    const auto rows_data_received =
+      Utilities::MPI::some_to_some(mpi_comm, rows_data);
+
+    // 4. now prepare data to be sent in the same format as in
+    // distribute_sparsity_pattern() below, i.e.
+    // rX,num_rX,cols_rX
+    map_vec_t send_data;
+    for (const auto &data : rows_data_received)
+      {
+        for (const auto &row : data.second)
+          {
+            const auto rlen = dsp.row_length(row);
+
+            // skip empty lines
+            if (rlen == 0)
+              continue;
+
+            // save entries
+            send_data[data.first].push_back(row);  // row index
+            send_data[data.first].push_back(rlen); // number of entries
+            for (DynamicSparsityPattern::size_type c = 0; c < rlen; ++c)
+              send_data[data.first].push_back(
+                dsp.column_number(row, c)); // columns
+          }                                 // loop over rows
+      }                                     // loop over received data
+
+    // 5. communicate rows
+    const auto received_data =
+      Utilities::MPI::some_to_some(mpi_comm, send_data);
+
+    // 6. add result to our sparsity
+    for (const auto &data : received_data)
+      {
+        const auto &recv_buf = data.second;
+        auto        ptr      = recv_buf.begin();
+        const auto  end      = recv_buf.end();
+        while (ptr != end)
+          {
+            const auto row = *(ptr++);
+            Assert(ptr != end, ExcInternalError());
+
+            const auto n_entries = *(ptr++);
+            Assert(n_entries > 0, ExcInternalError());
+            Assert(ptr != end, ExcInternalError());
+
+            // make sure we clear whatever was previously stored
+            // in these rows. Otherwise we can't guarantee that the
+            // data is consistent across MPI communicator.
+            dsp.clear_row(row);
+
+            Assert(ptr + (n_entries - 1) != end, ExcInternalError());
+            dsp.add_entries(row, ptr, ptr + n_entries, true);
+            ptr += n_entries;
+          }
+        Assert(ptr == end, ExcInternalError());
+      }
+  }
+
+
+
   void
   distribute_sparsity_pattern(
     DynamicSparsityPattern &                              dsp,
@@ -929,139 +1033,80 @@ namespace SparsityTools
     for (DynamicSparsityPattern::size_type i = 0; i < rows_per_cpu.size(); ++i)
       start_index[i + 1] = start_index[i] + rows_per_cpu[i];
 
-    using map_vec_t = std::map<DynamicSparsityPattern::size_type,
-                               std::vector<DynamicSparsityPattern::size_type>>;
+    IndexSet owned(start_index.back());
+    owned.add_range(start_index[myid], start_index[myid] + rows_per_cpu[myid]);
+
+    distribute_sparsity_pattern(dsp, owned, mpi_comm, myrange);
+  }
+
+
+
+  void
+  distribute_sparsity_pattern(DynamicSparsityPattern &dsp,
+                              const IndexSet &        locally_owned_rows,
+                              const MPI_Comm &        mpi_comm,
+                              const IndexSet &        locally_relevant_rows)
+  {
+    IndexSet requested_rows(locally_relevant_rows);
+    requested_rows.subtract_set(locally_owned_rows);
+
+    std::vector<unsigned int> index_owner =
+      Utilities::MPI::compute_index_owner(locally_owned_rows,
+                                          requested_rows,
+                                          mpi_comm);
+
+    using map_vec_t =
+      std::map<unsigned int, std::vector<DynamicSparsityPattern::size_type>>;
 
     map_vec_t send_data;
 
-    {
-      unsigned int dest_cpu = 0;
-
-      DynamicSparsityPattern::size_type n_local_rel_rows = myrange.n_elements();
-      for (DynamicSparsityPattern::size_type row_idx = 0;
-           row_idx < n_local_rel_rows;
-           ++row_idx)
-        {
-          DynamicSparsityPattern::size_type row =
-            myrange.nth_index_in_set(row_idx);
-
-          // calculate destination CPU
-          while (row >= start_index[dest_cpu + 1])
-            ++dest_cpu;
-
-          // skip myself
-          if (dest_cpu == myid)
-            {
-              row_idx += rows_per_cpu[myid] - 1;
-              continue;
-            }
-
-          DynamicSparsityPattern::size_type rlen = dsp.row_length(row);
-
-          // skip empty lines
-          if (!rlen)
-            continue;
-
-          // save entries
-          std::vector<DynamicSparsityPattern::size_type> &dst =
-            send_data[dest_cpu];
-
-          dst.push_back(rlen); // number of entries
-          dst.push_back(row);  // row index
-          for (DynamicSparsityPattern::size_type c = 0; c < rlen; ++c)
-            {
-              // columns
-              DynamicSparsityPattern::size_type column =
-                dsp.column_number(row, c);
-              dst.push_back(column);
-            }
-        }
-    }
-
-    unsigned int num_receive = 0;
-    {
-      std::vector<unsigned int> send_to;
-      send_to.reserve(send_data.size());
-      for (map_vec_t::iterator it = send_data.begin(); it != send_data.end();
-           ++it)
-        send_to.push_back(it->first);
-
-      num_receive =
-        Utilities::MPI::compute_n_point_to_point_communications(mpi_comm,
-                                                                send_to);
-    }
-
-    std::vector<MPI_Request> requests(send_data.size());
-
-
-    // send data
-    {
-      unsigned int idx = 0;
-      for (map_vec_t::iterator it = send_data.begin(); it != send_data.end();
-           ++it, ++idx)
-        {
-          const int ierr = MPI_Isend(&(it->second[0]),
-                                     it->second.size(),
-                                     DEAL_II_DOF_INDEX_MPI_TYPE,
-                                     it->first,
-                                     124,
-                                     mpi_comm,
-                                     &requests[idx]);
-          AssertThrowMPI(ierr);
-        }
-    }
-
-    {
-      // receive
-      std::vector<DynamicSparsityPattern::size_type> recv_buf;
-      for (unsigned int index = 0; index < num_receive; ++index)
-        {
-          MPI_Status status;
-          int        len;
-          int ierr = MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, mpi_comm, &status);
-          AssertThrowMPI(ierr);
-          Assert(status.MPI_TAG == 124, ExcInternalError());
-
-          ierr = MPI_Get_count(&status, DEAL_II_DOF_INDEX_MPI_TYPE, &len);
-          AssertThrowMPI(ierr);
-          recv_buf.resize(len);
-          ierr = MPI_Recv(recv_buf.data(),
-                          len,
-                          DEAL_II_DOF_INDEX_MPI_TYPE,
-                          status.MPI_SOURCE,
-                          status.MPI_TAG,
-                          mpi_comm,
-                          &status);
-          AssertThrowMPI(ierr);
-
-          std::vector<DynamicSparsityPattern::size_type>::const_iterator ptr =
-            recv_buf.begin();
-          std::vector<DynamicSparsityPattern::size_type>::const_iterator end =
-            recv_buf.end();
-          while (ptr != end)
-            {
-              DynamicSparsityPattern::size_type num = *(ptr++);
-              Assert(ptr != end, ExcInternalError());
-              DynamicSparsityPattern::size_type row = *(ptr++);
-              for (unsigned int c = 0; c < num; ++c)
-                {
-                  Assert(ptr != end, ExcInternalError());
-                  dsp.add(row, *ptr);
-                  ++ptr;
-                }
-            }
-          Assert(ptr == end, ExcInternalError());
-        }
-    }
-
-    // complete all sends, so that we can safely destroy the buffers.
-    if (requests.size())
+    for (DynamicSparsityPattern::size_type i = 0;
+         i < requested_rows.n_elements();
+         ++i)
       {
-        const int ierr =
-          MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
-        AssertThrowMPI(ierr);
+        const DynamicSparsityPattern::size_type row =
+          requested_rows.nth_index_in_set(i);
+
+        const auto rlen = dsp.row_length(row);
+
+        // skip empty lines
+        if (!rlen)
+          continue;
+
+        // save entries
+        send_data[index_owner[i]].push_back(row);  // row index
+        send_data[index_owner[i]].push_back(rlen); // number of entries
+        for (DynamicSparsityPattern::size_type c = 0; c < rlen; ++c)
+          {
+            // columns
+            const auto column = dsp.column_number(row, c);
+            send_data[index_owner[i]].push_back(column);
+          }
+      }
+
+    const auto receive_data = Utilities::MPI::some_to_some(mpi_comm, send_data);
+
+    // add what we received
+    for (const auto &data : receive_data)
+      {
+        const auto &recv_buf = data.second;
+        auto        ptr      = recv_buf.begin();
+        const auto  end      = recv_buf.end();
+        while (ptr != end)
+          {
+            const auto row = *(ptr++);
+            Assert(ptr != end, ExcInternalError());
+            const auto n_entries = *(ptr++);
+
+            Assert(ptr + (n_entries - 1) != end, ExcInternalError());
+            dsp.add_entries(row, ptr, ptr + n_entries, true);
+            ptr += n_entries;
+          }
+        Assert(ptr == end, ExcInternalError());
       }
   }
+
+
 
   void
   distribute_sparsity_pattern(BlockDynamicSparsityPattern &dsp,
@@ -1070,67 +1115,67 @@ namespace SparsityTools
                               const IndexSet &             myrange)
   {
     const unsigned int myid = Utilities::MPI::this_mpi_process(mpi_comm);
+    distribute_sparsity_pattern(dsp,
+                                owned_set_per_cpu[myid],
+                                mpi_comm,
+                                myrange);
+  }
 
+
+
+  void
+  distribute_sparsity_pattern(BlockDynamicSparsityPattern &dsp,
+                              const IndexSet &             locally_owned_rows,
+                              const MPI_Comm &             mpi_comm,
+                              const IndexSet &locally_relevant_rows)
+  {
     using map_vec_t =
       std::map<BlockDynamicSparsityPattern::size_type,
                std::vector<BlockDynamicSparsityPattern::size_type>>;
     map_vec_t send_data;
 
-    {
-      unsigned int dest_cpu = 0;
+    IndexSet requested_rows(locally_relevant_rows);
+    requested_rows.subtract_set(locally_owned_rows);
 
-      BlockDynamicSparsityPattern::size_type n_local_rel_rows =
-        myrange.n_elements();
-      for (BlockDynamicSparsityPattern::size_type row_idx = 0;
-           row_idx < n_local_rel_rows;
-           ++row_idx)
-        {
-          BlockDynamicSparsityPattern::size_type row =
-            myrange.nth_index_in_set(row_idx);
+    std::vector<unsigned int> index_owner =
+      Utilities::MPI::compute_index_owner(locally_owned_rows,
+                                          requested_rows,
+                                          mpi_comm);
 
-          // calculate destination CPU, note that we start the search
-          // at last destination cpu, because even if the owned ranges
-          // are not contiguous, they hopefully consist of large blocks
-          while (!owned_set_per_cpu[dest_cpu].is_element(row))
-            {
-              ++dest_cpu;
-              if (dest_cpu == owned_set_per_cpu.size()) // wrap around
-                dest_cpu = 0;
-            }
+    for (DynamicSparsityPattern::size_type i = 0;
+         i < requested_rows.n_elements();
+         ++i)
+      {
+        const DynamicSparsityPattern::size_type row =
+          requested_rows.nth_index_in_set(i);
 
-          // skip myself
-          if (dest_cpu == myid)
-            continue;
+        BlockDynamicSparsityPattern::size_type rlen = dsp.row_length(row);
 
-          BlockDynamicSparsityPattern::size_type rlen = dsp.row_length(row);
+        // skip empty lines
+        if (!rlen)
+          continue;
 
-          // skip empty lines
-          if (!rlen)
-            continue;
+        // save entries
+        std::vector<BlockDynamicSparsityPattern::size_type> &dst =
+          send_data[index_owner[i]];
 
-          // save entries
-          std::vector<BlockDynamicSparsityPattern::size_type> &dst =
-            send_data[dest_cpu];
-
-          dst.push_back(rlen); // number of entries
-          dst.push_back(row);  // row index
-          for (BlockDynamicSparsityPattern::size_type c = 0; c < rlen; ++c)
-            {
-              // columns
-              BlockDynamicSparsityPattern::size_type column =
-                dsp.column_number(row, c);
-              dst.push_back(column);
-            }
-        }
-    }
+        dst.push_back(rlen); // number of entries
+        dst.push_back(row);  // row index
+        for (BlockDynamicSparsityPattern::size_type c = 0; c < rlen; ++c)
+          {
+            // columns
+            BlockDynamicSparsityPattern::size_type column =
+              dsp.column_number(row, c);
+            dst.push_back(column);
+          }
+      }
 
     unsigned int num_receive = 0;
     {
       std::vector<unsigned int> send_to;
       send_to.reserve(send_data.size());
-      for (map_vec_t::iterator it = send_data.begin(); it != send_data.end();
-           ++it)
-        send_to.push_back(it->first);
+      for (const auto &sparsity_line : send_data)
+        send_to.push_back(sparsity_line.first);
 
       num_receive =
         Utilities::MPI::compute_n_point_to_point_communications(mpi_comm,
@@ -1141,18 +1186,25 @@ namespace SparsityTools
 
 
     // send data
+
+    static Utilities::MPI::CollectiveMutex      mutex;
+    Utilities::MPI::CollectiveMutex::ScopedLock lock(mutex, mpi_comm);
+
+    const int mpi_tag = Utilities::MPI::internal::Tags::
+      sparsity_tools_distribute_sparsity_pattern;
+
     {
       unsigned int idx = 0;
-      for (map_vec_t::iterator it = send_data.begin(); it != send_data.end();
-           ++it, ++idx)
+      for (const auto &sparsity_line : send_data)
         {
-          const int ierr = MPI_Isend(&(it->second[0]),
-                                     it->second.size(),
-                                     DEAL_II_DOF_INDEX_MPI_TYPE,
-                                     it->first,
-                                     124,
-                                     mpi_comm,
-                                     &requests[idx]);
+          const int ierr =
+            MPI_Isend(DEAL_II_MPI_CONST_CAST(sparsity_line.second.data()),
+                      sparsity_line.second.size(),
+                      DEAL_II_DOF_INDEX_MPI_TYPE,
+                      sparsity_line.first,
+                      mpi_tag,
+                      mpi_comm,
+                      &requests[idx++]);
           AssertThrowMPI(ierr);
         }
     }
@@ -1163,13 +1215,13 @@ namespace SparsityTools
       for (unsigned int index = 0; index < num_receive; ++index)
         {
           MPI_Status status;
-          int        len;
-          int ierr = MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, mpi_comm, &status);
+          int ierr = MPI_Probe(MPI_ANY_SOURCE, mpi_tag, mpi_comm, &status);
           AssertThrowMPI(ierr);
-          Assert(status.MPI_TAG == 124, ExcInternalError());
 
+          int len;
           ierr = MPI_Get_count(&status, DEAL_II_DOF_INDEX_MPI_TYPE, &len);
           AssertThrowMPI(ierr);
+
           recv_buf.resize(len);
           ierr = MPI_Recv(recv_buf.data(),
                           len,

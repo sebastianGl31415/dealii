@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2013 - 2018 by the deal.II authors
+## Copyright (C) 2013 - 2020 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -26,7 +26,7 @@ $cmake_source_dir=$ARGV[1];
 
 print
 "/**
-  * \@page $step_underscore The $step tutorial program
+\@page $step_underscore The $step tutorial program
 ";
 
 open BF, "$cmake_source_dir/examples/$step/doc/builds-on"
@@ -58,7 +58,19 @@ system $^X, "$cmake_source_dir/doc/doxygen/scripts/intro2toc", "$cmake_source_di
 
 print "  <li> <a href=\"#CommProg\" class=bold>The commented program</a>\n";
 
-system $^X, "$cmake_source_dir/doc/doxygen/scripts/program2toc", "$cmake_source_dir/examples/$step/$step.cc";
+my $file_extension;
+
+if (-f "$cmake_source_dir/examples/$step/$step.cc")
+{
+  $file_extension = cc;
+}
+
+if (-f "$cmake_source_dir/examples/$step/$step.cu")
+{
+  $file_extension = cu;
+}
+
+system $^X, "$cmake_source_dir/doc/doxygen/scripts/program2toc", "$cmake_source_dir/examples/$step/$step.$file_extension";
 
 print
 "</ol></td><td width=\"50%\" valign=\"top\"><ol>
@@ -75,15 +87,33 @@ print
 
 system $^X, "$cmake_source_dir/doc/doxygen/scripts/create_anchors", "$cmake_source_dir/examples/$step/doc/intro.dox";
 
+
+# Start the commented program by writing two empty lines. We have had
+# cases where the end of the intro.dox was missing a newline, and in
+# that case doxygen might get confused about what is being added here
+# to the end of an existing line. So add a newline.
+#
+# But then we also had a situation where doxygen was confused about a
+# line starting with an anchor (see #9357). It's not clear what the
+# cause is, but making sure that there is an empty line in between
+# solves the problem -- so a second newline character.
+print " *\n";
+print " *\n";
 print " * <a name=\"CommProg\"></a>\n";
 print " * <h1> The commented program</h1>\n";
-system $^X, "$cmake_source_dir/doc/doxygen/scripts/program2doxygen", "$cmake_source_dir/examples/$step/$step.cc";
+
+system $^X, "$cmake_source_dir/doc/doxygen/scripts/program2doxygen", "$cmake_source_dir/examples/$step/$step.$file_extension";
 
 system $^X, "$cmake_source_dir/doc/doxygen/scripts/create_anchors", "$cmake_source_dir/examples/$step/doc/results.dox";
 
+
+# Move to the stripped, plain program. The same principle as above
+# applies for newlines.
+print " *\n";
+print " *\n";
 print
 "<a name=\"PlainProg\"></a>
 <h1> The plain program</h1>
-\@include \"$step.cc\"
- */
+\@include \"$step.$file_extension\"
+*/
 ";

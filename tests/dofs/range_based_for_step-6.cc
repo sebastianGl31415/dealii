@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2014 - 2018 by the deal.II authors
+// Copyright (C) 2014 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -52,8 +52,6 @@
 #include <iostream>
 
 #include "../tests.h"
-
-using namespace dealii;
 
 
 
@@ -223,7 +221,7 @@ Step6<dim>::assemble_system()
   const Coefficient<dim> coefficient;
   std::vector<double>    coefficient_values(n_q_points);
 
-  for (auto cell : dof_handler.active_cell_iterators())
+  for (auto &cell : dof_handler.active_cell_iterators())
     {
       cell_matrix = 0;
       cell_rhs    = 0;
@@ -351,10 +349,8 @@ Step6<dim>::run()
 int
 main()
 {
-  std::ofstream logfile("output");
+  initlog();
   deallog << std::setprecision(3);
-
-  deallog.attach(logfile);
 
   Step6<2> laplace_problem_2d;
   laplace_problem_2d.run();

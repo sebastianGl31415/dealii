@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2000 - 2017 by the deal.II authors
+// Copyright (C) 2000 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -15,7 +15,6 @@
 
 
 #include <deal.II/base/memory_consumption.h>
-#include <deal.II/base/vector_slice.h>
 
 #include <deal.II/lac/block_sparsity_pattern.h>
 
@@ -88,7 +87,7 @@ BlockSparsityPatternBase<SparsityPatternBase>::reinit(
         SparsityPatternBase *sp = sub_objects[i][j];
         sub_objects[i][j]       = nullptr;
         delete sp;
-      };
+      }
   sub_objects.reinit(0, 0);
 
   // then set new sizes
@@ -201,7 +200,7 @@ BlockSparsityPatternBase<SparsityPatternBase>::max_entries_per_row() const
 
       if (this_row > max_entries)
         max_entries = this_row;
-    };
+    }
   return max_entries;
 }
 
@@ -274,6 +273,7 @@ BlockSparsityPatternBase<SparsityPatternBase>::print(std::ostream &out) const
 }
 
 
+#ifndef DOXYGEN
 template <>
 void
 BlockSparsityPatternBase<DynamicSparsityPattern>::print(std::ostream &out) const
@@ -300,6 +300,8 @@ BlockSparsityPatternBase<DynamicSparsityPattern>::print(std::ostream &out) const
       k += block(ib, 0).n_rows();
     }
 }
+#endif
+
 
 
 template <class SparsityPatternBase>
@@ -325,6 +327,47 @@ BlockSparsityPatternBase<SparsityPatternBase>::print_gnuplot(
         }
       k += block(ib, 0).n_rows();
     }
+}
+
+
+
+template <class SparsityPatternBase>
+void
+BlockSparsityPatternBase<SparsityPatternBase>::print_svg(
+  std::ostream &out) const
+{
+  const unsigned int m = this->n_rows();
+  const unsigned int n = this->n_cols();
+  out
+    << "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 "
+    << n + 2 << " " << m + 2
+    << " \">\n"
+       "<style type=\"text/css\" >\n"
+       "     <![CDATA[\n"
+       "      rect.pixel {\n"
+       "          fill:   #ff0000;\n"
+       "      }\n"
+       "    ]]>\n"
+       "  </style>\n\n"
+       "   <rect width=\""
+    << n + 2 << "\" height=\"" << m + 2
+    << "\" fill=\"rgb(128, 128, 128)\"/>\n"
+       "   <rect x=\"1\" y=\"1\" width=\""
+    << n + 0.1 << "\" height=\"" << m + 0.1
+    << "\" fill=\"rgb(255, 255, 255)\"/>\n\n";
+
+  for (unsigned int block_i = 0; block_i < n_block_rows(); ++block_i)
+    for (unsigned int block_j = 0; block_j < n_block_rows(); ++block_j)
+      for (const auto &entry : block(block_i, block_j))
+        {
+          out << "  <rect class=\"pixel\" x=\""
+              << column_indices.local_to_global(block_j, entry.column()) + 1
+              << "\" y=\""
+              << row_indices.local_to_global(block_i, entry.row()) + 1
+              << "\" width=\".9\" height=\".9\"/>\n";
+        }
+
+  out << "</svg>" << std::endl;
 }
 
 
@@ -356,8 +399,12 @@ BlockSparsityPattern::reinit(
                              row_lengths[j][0]);
         else
           {
-            VectorSlice<const std::vector<unsigned int>> block_rows(
-              row_lengths[j], start, length);
+            Assert(row_lengths[j].begin() + start + length <=
+                     row_lengths[j].end(),
+                   ExcInternalError());
+            ArrayView<const unsigned int> block_rows(row_lengths[j].data() +
+                                                       start,
+                                                     length);
             block(i, j).reinit(rows.block_size(i),
                                cols.block_size(j),
                                block_rows);
@@ -438,6 +485,7 @@ BlockDynamicSparsityPattern::BlockDynamicSparsityPattern(
 }
 
 
+
 BlockDynamicSparsityPattern::BlockDynamicSparsityPattern(
   const std::vector<IndexSet> &partitioning)
   : BlockSparsityPatternBase<DynamicSparsityPattern>(partitioning.size(),
@@ -452,12 +500,14 @@ BlockDynamicSparsityPattern::BlockDynamicSparsityPattern(
 }
 
 
+
 BlockDynamicSparsityPattern::BlockDynamicSparsityPattern(
   const BlockIndices &row_indices,
   const BlockIndices &col_indices)
 {
   reinit(row_indices, col_indices);
 }
+
 
 
 void
@@ -473,6 +523,8 @@ BlockDynamicSparsityPattern::reinit(
   this->collect_sizes();
 }
 
+
+
 void
 BlockDynamicSparsityPattern::reinit(const std::vector<IndexSet> &partitioning)
 {
@@ -485,6 +537,8 @@ BlockDynamicSparsityPattern::reinit(const std::vector<IndexSet> &partitioning)
                                partitioning[i]);
   this->collect_sizes();
 }
+
+
 
 void
 BlockDynamicSparsityPattern::reinit(const BlockIndices &row_indices,
@@ -519,20 +573,6 @@ namespace TrilinosWrappers
     for (size_type i = 0; i < row_indices.size(); ++i)
       for (size_type j = 0; j < col_indices.size(); ++j)
         this->block(i, j).reinit(row_indices[i], col_indices[j]);
-    this->collect_sizes();
-  }
-
-
-
-  BlockSparsityPattern::BlockSparsityPattern(
-    const std::vector<Epetra_Map> &parallel_partitioning)
-    : BlockSparsityPatternBase<SparsityPattern>(parallel_partitioning.size(),
-                                                parallel_partitioning.size())
-  {
-    for (size_type i = 0; i < parallel_partitioning.size(); ++i)
-      for (size_type j = 0; j < parallel_partitioning.size(); ++j)
-        this->block(i, j).reinit(parallel_partitioning[i],
-                                 parallel_partitioning[j]);
     this->collect_sizes();
   }
 
@@ -583,21 +623,6 @@ namespace TrilinosWrappers
     for (size_type i = 0; i < row_block_sizes.size(); ++i)
       for (size_type j = 0; j < col_block_sizes.size(); ++j)
         this->block(i, j).reinit(row_block_sizes[i], col_block_sizes[j]);
-    this->collect_sizes();
-  }
-
-
-
-  void
-  BlockSparsityPattern::reinit(
-    const std::vector<Epetra_Map> &parallel_partitioning)
-  {
-    dealii::BlockSparsityPatternBase<SparsityPattern>::reinit(
-      parallel_partitioning.size(), parallel_partitioning.size());
-    for (size_type i = 0; i < parallel_partitioning.size(); ++i)
-      for (size_type j = 0; j < parallel_partitioning.size(); ++j)
-        this->block(i, j).reinit(parallel_partitioning[i],
-                                 parallel_partitioning[j]);
     this->collect_sizes();
   }
 

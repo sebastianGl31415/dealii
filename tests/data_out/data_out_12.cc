@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2018 by the deal.II authors
+// Copyright (C) 2018 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -107,7 +107,7 @@ check()
 
   const Quadrature<dim> support_quadrature(fe.get_unit_support_points());
   FEValues<dim> fe_values(fe, support_quadrature, update_quadrature_points);
-  for (const auto cell : dof_handler.active_cell_iterators())
+  for (const auto &cell : dof_handler.active_cell_iterators())
     {
       fe_values.reinit(cell);
       const auto &qp = fe_values.get_quadrature_points();
@@ -132,7 +132,7 @@ check()
             {
               // find matching location
               unsigned int p = 0;
-              for (const auto c : coords)
+              for (const auto &c : coords)
                 {
                   Point<dim> point;
                   for (unsigned int d = 0; d < dim; ++d)

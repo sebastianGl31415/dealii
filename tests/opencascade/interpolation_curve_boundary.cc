@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2014 - 2018 by the deal.II authors
+// Copyright (C) 2014 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -24,7 +24,7 @@
 #include <deal.II/grid/tria_accessor.h>
 #include <deal.II/grid/tria_iterator.h>
 
-#include <deal.II/opencascade/boundary_lib.h>
+#include <deal.II/opencascade/manifold_lib.h>
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -44,8 +44,7 @@ using namespace OpenCASCADE;
 int
 main()
 {
-  std::ofstream logfile("output");
-  deallog.attach(logfile);
+  initlog();
 
   // The curve passing through the vertices of the unit square.
   std::vector<Point<3>> vertices;
@@ -56,18 +55,19 @@ main()
   TopoDS_Shape shape = interpolation_curve(vertices, Point<3>(), true);
 
   // Create a boundary projector.
-  NormalProjectionBoundary<2, 3> boundary_line(shape);
+  NormalProjectionManifold<2, 3> boundary_line(shape);
 
   // The unit square.
   Triangulation<2, 3> tria;
   GridGenerator::hyper_cube(tria);
 
   // Set the exterior boundary
+  tria.set_all_manifold_ids(0);
   tria.set_manifold(0, boundary_line);
 
   // This is here to ignore the points created in the interior of the
   // face.
-  tria.begin()->set_material_id(1);
+  tria.begin()->set_manifold_id(1);
 
   // We refine twice, and expect the outer points to end up on a
   // smooth curve interpolating the square vertices.
@@ -76,7 +76,7 @@ main()
 
   // You can open the generated file with gmsh.
   GridOut gridout;
-  gridout.write_msh(tria, logfile);
+  gridout.write_msh(tria, deallog.get_file_stream());
 
   return 0;
 }

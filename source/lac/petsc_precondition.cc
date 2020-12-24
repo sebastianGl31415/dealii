@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2017 by the deal.II authors
+// Copyright (C) 2004 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -73,6 +73,16 @@ namespace PETScWrappers
 
 
   void
+  PreconditionerBase::Tvmult(VectorBase &dst, const VectorBase &src) const
+  {
+    AssertThrow(pc != nullptr, StandardExceptions::ExcInvalidState());
+
+    const PetscErrorCode ierr = PCApplyTranspose(pc, src, dst);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+  }
+
+
+  void
   PreconditionerBase::create_pc()
   {
     // only allow the creation of the
@@ -113,7 +123,7 @@ namespace PETScWrappers
 
 
   /* ----------------- PreconditionJacobi -------------------- */
-  PreconditionJacobi::PreconditionJacobi(const MPI_Comm        comm,
+  PreconditionJacobi::PreconditionJacobi(const MPI_Comm &      comm,
                                          const AdditionalData &additional_data_)
   {
     additional_data = additional_data_;
@@ -163,7 +173,7 @@ namespace PETScWrappers
 
   /* ----------------- PreconditionBlockJacobi -------------------- */
   PreconditionBlockJacobi::PreconditionBlockJacobi(
-    const MPI_Comm        comm,
+    const MPI_Comm &      comm,
     const AdditionalData &additional_data_)
   {
     additional_data = additional_data_;
@@ -440,7 +450,7 @@ namespace PETScWrappers
 
 
   PreconditionBoomerAMG::PreconditionBoomerAMG(
-    const MPI_Comm        comm,
+    const MPI_Comm &      comm,
     const AdditionalData &additional_data_)
   {
     additional_data = additional_data_;
@@ -482,7 +492,7 @@ namespace PETScWrappers
       }
 
     set_option_value("-pc_hypre_boomeramg_agg_nl",
-                     Utilities::to_string(
+                     std::to_string(
                        additional_data.aggressive_coarsening_num_levels));
 
     std::stringstream ssStream;
@@ -625,12 +635,12 @@ namespace PETScWrappers
             false,
             ExcMessage(
               "ParaSails parameter symmetric can only be equal to 0, 1, 2!"));
-      };
+      }
 
     set_option_value("-pc_hypre_parasails_sym", ssStream.str());
 
     set_option_value("-pc_hypre_parasails_nlevels",
-                     Utilities::to_string(additional_data.n_levels));
+                     std::to_string(additional_data.n_levels));
 
     ssStream.str(""); // empty the stringstream
     ssStream << additional_data.threshold;

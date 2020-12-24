@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2018 by the deal.II authors
+// Copyright (C) 2016 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -27,7 +27,6 @@
 
 #include "../tests.h"
 
-using namespace dealii;
 namespace AD = dealii::Differentiation::AD;
 
 template <int dim, typename number_t, enum AD::NumberTypes ad_type_code>
@@ -42,7 +41,7 @@ test_symmetric_tensor()
             << "Type code: " << static_cast<int>(ad_type_code) << std::endl;
 
   const ADNumberType                          a = 1.0;
-  const Tensor<1, dim, ADNumberType>          v;
+  const Tensor<1, dim, ADNumberType>          v{};
   const SymmetricTensor<2, dim, ADNumberType> A(
     unit_symmetric_tensor<dim, ADNumberType>());
   const SymmetricTensor<2, dim, ADNumberType> B(

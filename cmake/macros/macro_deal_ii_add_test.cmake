@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2013 - 2018 by the deal.II authors
+## Copyright (C) 2013 - 2019 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -65,9 +65,8 @@
 #
 # The following variables must be set:
 #
-#   NUMDIFF_EXECUTABLE, DIFF_EXECUTABLE
-#     - pointing to valid diff executables. If NUMDIFF_EXECUTABLE is not
-#       "numdiff" it will be ignored and DIFF_EXECUTABLE is used instead.
+#   NUMDIFF_EXECUTABLE
+#     - Complete path to the numdiff binary.
 #
 #   TEST_TIME_LIMIT
 #     - specifying the maximal wall clock time in seconds a test is allowed
@@ -97,17 +96,6 @@ MACRO(DEAL_II_ADD_TEST _category _test_name _comparison_file)
     SET(_configuration DEBUG)
   ELSEIF(_file MATCHES "\\.release\\.")
     SET(_configuration RELEASE)
-  ENDIF()
-
-  #
-  # A "binary" in the output file indicates binary output. In this case we
-  # have to switch to plain diff instead of (possibly) numdiff, which can
-  # only work on plain text files.
-  #
-  IF(_file MATCHES "\\.binary\\.")
-    SET(_test_diff ${DIFF_EXECUTABLE})
-  ELSE()
-    SET(_test_diff ${NUMDIFF_EXECUTABLE})
   ENDIF()
 
   #
@@ -218,7 +206,25 @@ MACRO(DEAL_II_ADD_TEST _category _test_name _comparison_file)
           "$<TARGET_FILE:${_target}>"
           "${_prm_file}"
           )
+      ELSEIF( EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_test_name}.json")
+        # the same as above but for json files
+        SET(_json_file "${CMAKE_CURRENT_SOURCE_DIR}/${_test_name}.json")
 
+        IF(NOT "${TEST_TARGET_${_build}}" STREQUAL "")
+          SET(_target ${TEST_TARGET_${_build}})
+        ELSEIF(NOT "${TEST_TARGET}" STREQUAL "")
+          SET(_target ${TEST_TARGET})
+        ELSE()
+          MESSAGE(FATAL_ERROR
+            "\nFor ${_comparison_file}: \"${_test_name}.json\" provided, "
+            "but neither \"\${TEST_TARGET}\", nor \"\${TEST_TARGET_${_build}}"
+            "\" is defined.\n\n"
+            )
+        ENDIF()
+        SET(_run_args
+          "$<TARGET_FILE:${_target}>"
+          "${_json_file}"
+          )
       ELSE()
         MESSAGE(FATAL_ERROR
           "\nFor ${_comparison_file}: Neither \"${_test_name}.cc\", "
@@ -234,13 +240,13 @@ MACRO(DEAL_II_ADD_TEST _category _test_name _comparison_file)
       # otherwise run the test with mpirun:
       IF("${_n_cpu}" STREQUAL "0")
 
-        SET(_diff_target ${_test_name}.${_build_lowercase}.diff) # diff target name
+        SET(_diff_target ${_category}.${_test_name}.${_build_lowercase}.diff) # diff target name
         SET(_test_full ${_category}/${_test_name}.${_build_lowercase}) # full test name
         SET(_test_directory ${CMAKE_CURRENT_BINARY_DIR}/${_test_name}.${_build_lowercase}) # directory to run the test in
 
       ELSE()
 
-        SET(_diff_target ${_test_name}.mpirun${_n_cpu}.${_build_lowercase}.diff) # diff target name
+        SET(_diff_target ${_category}.${_test_name}.mpirun${_n_cpu}.${_build_lowercase}.diff) # diff target name
         SET(_test_full ${_category}/${_test_name}.mpirun=${_n_cpu}.${_build_lowercase}) # full test name
         SET(_test_directory ${CMAKE_CURRENT_BINARY_DIR}/${_test_name}.${_build_lowercase}/mpirun=${_n_cpu}) # directory to run the test in
         SET(_run_args
@@ -314,8 +320,8 @@ MACRO(DEAL_II_ADD_TEST _category _test_name _comparison_file)
 
       ADD_CUSTOM_COMMAND(OUTPUT ${_test_directory}/diff
         COMMAND sh ${DEAL_II_PATH}/${DEAL_II_SHARE_RELDIR}/scripts/run_test.sh
-          diff "${_test_full}" "${_test_diff}"
-          "${DIFF_EXECUTABLE}" "${_comparison_file}" ${_run_args}
+          diff "${_test_full}" "${NUMDIFF_EXECUTABLE}"
+          "${_comparison_file}" ${_run_args}
         WORKING_DIRECTORY
           ${_test_directory}
         DEPENDS

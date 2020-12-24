@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2005 - 2018 by the deal.II authors
+// Copyright (C) 2005 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -22,8 +22,6 @@
 #include <deal.II/base/quadrature.h>
 #include <deal.II/base/subscriptor.h>
 
-#include <deal.II/fe/fe.h>
-
 #include <memory>
 #include <vector>
 
@@ -41,8 +39,6 @@ namespace hp
    * module described in the doxygen documentation.
    *
    * @ingroup hp hpcollection
-   *
-   * @author Oliver Kayser-Herold, 2005
    */
   template <int dim>
   class QCollection : public Subscriptor
@@ -55,12 +51,19 @@ namespace hp
     QCollection() = default;
 
     /**
+     * Copy constructor.
+     */
+    template <int dim_in>
+    QCollection(const QCollection<dim_in> &other);
+
+    /**
      * Conversion constructor. This constructor creates a QCollection from a
      * single quadrature rule. More quadrature formulas can be added with
      * push_back(), if desired, though it would probably be clearer to add all
      * mappings the same way.
      */
-    explicit QCollection(const Quadrature<dim> &quadrature);
+    template <int dim_in>
+    explicit QCollection(const Quadrature<dim_in> &quadrature);
 
     /**
      * Constructor. This constructor creates a QCollection from one or
@@ -95,8 +98,9 @@ namespace hp
      * is later destroyed by this object upon destruction of the entire
      * collection.
      */
+    template <int dim_in>
     void
-    push_back(const Quadrature<dim> &new_quadrature);
+    push_back(const Quadrature<dim_in> &new_quadrature);
 
     /**
      * Return a reference to the quadrature rule specified by the argument.
@@ -105,6 +109,13 @@ namespace hp
      * collection.
      */
     const Quadrature<dim> &operator[](const unsigned int index) const;
+
+    /**
+     * Equality comparison operator. All stored Quadrature objects are compared
+     * in order.
+     */
+    bool
+    operator==(const QCollection<dim> &q_collection) const;
 
     /**
      * Return the number of quadrature pointers stored in this object.
@@ -146,19 +157,40 @@ namespace hp
   /* --------------- inline functions ------------------- */
 
   template <int dim>
+  template <int dim_in>
+  QCollection<dim>::QCollection(const QCollection<dim_in> &other)
+  {
+    for (unsigned int i = 0; i < other.size(); ++i)
+      push_back(other[i]);
+  }
+
+
+
+  template <int dim>
   template <class... QTypes>
   QCollection<dim>::QCollection(const QTypes &... quadrature_objects)
   {
-    static_assert(is_base_of_all<Quadrature<dim>, QTypes...>::value,
-                  "Not all of the input arguments of this function "
-                  "are derived from Quadrature<dim>!");
-
     // loop over all of the given arguments and add the quadrature objects to
     // this collection. Inlining the definition of q_pointers causes internal
     // compiler errors on GCC 7.1.1 so we define it separately:
-    const auto q_pointers = {&quadrature_objects...};
-    for (auto p : q_pointers)
-      push_back(*p);
+    if (is_base_of_all<Quadrature<dim>, QTypes...>::value)
+      {
+        const auto q_pointers = {
+          (reinterpret_cast<const Quadrature<dim> *>(&quadrature_objects))...};
+        for (const auto p : q_pointers)
+          push_back(*p);
+      }
+    else if (is_base_of_all<Quadrature<1>, QTypes...>::value)
+      {
+        const auto q_pointers = {
+          (reinterpret_cast<const Quadrature<1> *>(&quadrature_objects))...};
+        for (const auto p : q_pointers)
+          push_back(*p);
+      }
+    else
+      {
+        Assert(false, ExcNotImplemented());
+      }
   }
 
 
@@ -193,15 +225,32 @@ namespace hp
   inline const Quadrature<dim> &QCollection<dim>::
                                 operator[](const unsigned int index) const
   {
-    Assert(index < quadratures.size(),
-           ExcIndexRange(index, 0, quadratures.size()));
+    AssertIndexRange(index, quadratures.size());
     return *quadratures[index];
   }
 
 
 
   template <int dim>
-  inline QCollection<dim>::QCollection(const Quadrature<dim> &quadrature)
+  inline bool
+  QCollection<dim>::operator==(const QCollection<dim> &q_collection) const
+  {
+    const unsigned int n_quadratures = size();
+    if (n_quadratures != q_collection.size())
+      return false;
+
+    for (unsigned int i = 0; i < n_quadratures; ++i)
+      if (!(*quadratures[i] == q_collection[i]))
+        return false;
+
+    return true;
+  }
+
+
+
+  template <int dim>
+  template <int dim_in>
+  inline QCollection<dim>::QCollection(const Quadrature<dim_in> &quadrature)
   {
     quadratures.push_back(std::make_shared<const Quadrature<dim>>(quadrature));
   }
@@ -217,8 +266,9 @@ namespace hp
 
 
   template <int dim>
+  template <int dim_in>
   inline void
-  QCollection<dim>::push_back(const Quadrature<dim> &new_quadrature)
+  QCollection<dim>::push_back(const Quadrature<dim_in> &new_quadrature)
   {
     quadratures.push_back(
       std::make_shared<const Quadrature<dim>>(new_quadrature));

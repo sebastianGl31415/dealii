@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2003 - 2017 by the deal.II authors
+// Copyright (C) 2003 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -123,7 +123,7 @@ plot_shape_functions(const unsigned int degree)
       typename DoFHandler<dim>::cell_iterator c = dof.begin();
       dof.distribute_dofs(element);
 
-      QTrapez<1>         q_trapez;
+      QTrapezoid<1>      q_trapez;
       const unsigned int div = 2;
       QIterated<dim>     q(q_trapez, div);
       FEValues<dim>      fe(element,

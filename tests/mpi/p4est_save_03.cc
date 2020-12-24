@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2009 - 2017 by the deal.II authors
+// Copyright (C) 2009 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -108,8 +108,8 @@ test()
     solution2 = x;
 
 
-    soltrans.prepare_serialization(solution);
-    soltrans2.prepare_serialization(solution2);
+    soltrans.prepare_for_serialization(solution);
+    soltrans2.prepare_for_serialization(solution2);
 
     tr.save(filename.c_str());
 
@@ -186,8 +186,7 @@ main(int argc, char *argv[])
 
   if (myid == 0)
     {
-      std::ofstream logfile("output");
-      deallog.attach(logfile);
+      initlog();
 
       deallog.push("2d");
       test<2>();

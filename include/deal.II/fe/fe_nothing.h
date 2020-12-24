@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2009 - 2018 by the deal.II authors
+// Copyright (C) 2009 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -27,20 +27,19 @@ DEAL_II_NAMESPACE_OPEN
 /*@{*/
 
 /**
- * Definition of a finite element with zero degrees of freedom.  This class is
- * useful (in the context of an hp method) to represent empty cells in the
- * triangulation on which no degrees of freedom should be allocated, or to
- * describe a field that is extended by zero to a part of the domain where we
- * don't need it.  Thus a triangulation may be divided into two regions: an
- * active region where normal elements are used, and an inactive region where
- * FE_Nothing elements are used.  The hp::DoFHandler will therefore assign no
- * degrees of freedom to the FE_Nothing cells, and this subregion is therefore
- * implicitly deleted from the computation. step-10 and step-46 show use cases
- * for this element. An interesting application for this element is also
- * presented in the paper A. Cangiani, J. Chapman, E. Georgoulis, M. Jensen:
- * <b>Implementation of the Continuous-Discontinuous Galerkin Finite Element
- * Method</b>, arXiv:1201.2878v1 [math.NA], 2012 (see
- * http://arxiv.org/abs/1201.2878).
+ * Definition of a finite element space with zero degrees of freedom and that,
+ * consequently, can only represent a single function: the zero function.
+ *
+ * This class is useful (in the context of an hp-method) to represent empty
+ * cells in the triangulation on which no degrees of freedom should be
+ * allocated, or to describe a field that is extended by zero to a part of the
+ * domain where we don't need it. Thus a triangulation may be divided into two
+ * regions: an active region where normal elements are used, and an inactive
+ * region where FE_Nothing elements are used. The DoFHandler will therefore
+ * assign no degrees of freedom to the FE_Nothing cells, and this subregion is
+ * therefore implicitly deleted from the computation. step-10 and step-46 show
+ * use cases for this element. An interesting application for this element is
+ * also presented in the paper @cite Cangiani2012.
  *
  * Note that some care must be taken that the resulting mesh topology
  * continues to make sense when FE_Nothing elements are introduced. This is
@@ -74,23 +73,32 @@ DEAL_II_NAMESPACE_OPEN
  * @endcode
  * The distinction lies in the mixed nature of the child faces, a case we have
  * not implemented as of yet.
- *
- * @author Joshua White, Wolfgang Bangerth
  */
 template <int dim, int spacedim = dim>
 class FE_Nothing : public FiniteElement<dim, spacedim>
 {
 public:
   /**
-   * Constructor. First argument denotes the number of components to give this
+   * Constructor.
+   *
+   * The first argument specifies the reference-cell type.
+   *
+   * The second argument denotes the number of components to give this
    * finite element (default = 1).
    *
-   * Second argument decides whether FE_Nothing will dominate any other FE in
+   * The third argument decides whether FE_Nothing will dominate any other FE in
    * compare_for_domination() (default = false). Therefore at interfaces where,
    * for example, a Q1 meets an FE_Nothing, we will force the traces of the two
    * functions to be the same. Because the FE_Nothing encodes a space that is
    * zero everywhere, this means that the Q1 field will be forced to become zero
    * at this interface.
+   */
+  FE_Nothing(const ReferenceCell::Type &type,
+             const unsigned int         n_components = 1,
+             const bool                 dominate     = false);
+
+  /**
+   * Same as above but for a hypercube reference-cell type.
    */
   FE_Nothing(const unsigned int n_components = 1, const bool dominate = false);
 
@@ -133,11 +141,13 @@ public:
                                                                        spacedim>
       &output_data) const override;
 
+  using FiniteElement<dim, spacedim>::fill_fe_face_values;
+
   virtual void
   fill_fe_face_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const unsigned int                                          face_no,
-    const Quadrature<dim - 1> &                                 quadrature,
+    const hp::QCollection<dim - 1> &                            quadrature,
     const Mapping<dim, spacedim> &                              mapping,
     const typename Mapping<dim, spacedim>::InternalDataBase &mapping_internal,
     const dealii::internal::FEValuesImplementation::MappingRelatedData<dim,
@@ -206,8 +216,8 @@ public:
     const FiniteElement<dim, spacedim> &fe_other) const override;
 
   virtual std::vector<std::pair<unsigned int, unsigned int>>
-  hp_quad_dof_identities(
-    const FiniteElement<dim, spacedim> &fe_other) const override;
+  hp_quad_dof_identities(const FiniteElement<dim, spacedim> &fe_other,
+                         const unsigned int face_no = 0) const override;
 
   virtual bool
   hp_constraints_are_implemented() const override;
@@ -232,9 +242,9 @@ public:
    */
 
   virtual void
-  get_face_interpolation_matrix(
-    const FiniteElement<dim, spacedim> &source_fe,
-    FullMatrix<double> &                interpolation_matrix) const override;
+  get_face_interpolation_matrix(const FiniteElement<dim, spacedim> &source_fe,
+                                FullMatrix<double> &interpolation_matrix,
+                                const unsigned int  face_no = 0) const override;
 
 
   /**
@@ -250,7 +260,8 @@ public:
   get_subface_interpolation_matrix(
     const FiniteElement<dim, spacedim> &source_fe,
     const unsigned int                  index,
-    FullMatrix<double> &                interpolation_matrix) const override;
+    FullMatrix<double> &                interpolation_matrix,
+    const unsigned int                  face_no = 0) const override;
 
   /**
    * @return true if the FE dominates any other.

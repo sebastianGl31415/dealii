@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2017 by the deal.II authors
+// Copyright (C) 1999 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -106,7 +106,7 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::prepare_for_pure_refinement()
 
   for (unsigned int i = 0; cell != endc; ++cell, ++i)
     {
-      indices_on_cell[i].resize(cell->get_fe().dofs_per_cell);
+      indices_on_cell[i].resize(cell->get_fe().n_dofs_per_cell());
       // on each cell store the indices of the
       // dofs. after refining we get the values
       // on the children by taking these
@@ -161,7 +161,7 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::refine_interpolate(
           const unsigned int this_fe_index =
             pointerstruct->second.active_fe_index;
           const unsigned int dofs_per_cell =
-            cell->get_dof_handler().get_fe(this_fe_index).dofs_per_cell;
+            cell->get_dof_handler().get_fe(this_fe_index).n_dofs_per_cell();
           local_values.reinit(dofs_per_cell, true);
 
           // make sure that the size of the stored indices is the same as
@@ -196,25 +196,22 @@ namespace internal
    * which no such interpolation is
    * implemented.
    */
-  template <typename DoFHandlerType>
-  void
-  extract_interpolation_matrices(const DoFHandlerType &,
-                                 dealii::Table<2, FullMatrix<double>> &)
-  {}
-
   template <int dim, int spacedim>
   void
-  extract_interpolation_matrices(
-    const dealii::hp::DoFHandler<dim, spacedim> &dof,
-    dealii::Table<2, FullMatrix<double>> &       matrices)
+  extract_interpolation_matrices(const dealii::DoFHandler<dim, spacedim> &dof,
+                                 dealii::Table<2, FullMatrix<double>> &matrices)
   {
+    if (dof.has_hp_capabilities() == false)
+      return;
+
     const dealii::hp::FECollection<dim, spacedim> &fe = dof.get_fe_collection();
     matrices.reinit(fe.size(), fe.size());
     for (unsigned int i = 0; i < fe.size(); ++i)
       for (unsigned int j = 0; j < fe.size(); ++j)
         if (i != j)
           {
-            matrices(i, j).reinit(fe[i].dofs_per_cell, fe[j].dofs_per_cell);
+            matrices(i, j).reinit(fe[i].n_dofs_per_cell(),
+                                  fe[j].n_dofs_per_cell());
 
             // see if we can get the interpolation matrices for this
             // combination of elements. if not, reset the matrix sizes to zero
@@ -250,8 +247,8 @@ namespace internal
     restriction_is_additive.resize(fe.size());
     for (unsigned int f = 0; f < fe.size(); ++f)
       {
-        restriction_is_additive[f].resize(fe[f].dofs_per_cell);
-        for (unsigned int i = 0; i < fe[f].dofs_per_cell; ++i)
+        restriction_is_additive[f].resize(fe[f].n_dofs_per_cell());
+        for (unsigned int i = 0; i < fe[f].n_dofs_per_cell(); ++i)
           restriction_is_additive[f][i] = fe[f].restriction_is_additive(i);
       }
   }
@@ -291,10 +288,7 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::
   // and that'll stay or be refined
   unsigned int n_cells_to_coarsen        = 0;
   unsigned int n_cells_to_stay_or_refine = 0;
-  for (typename DoFHandlerType::active_cell_iterator act_cell =
-         dof_handler->begin_active();
-       act_cell != dof_handler->end();
-       ++act_cell)
+  for (const auto &act_cell : dof_handler->active_cell_iterators())
     {
       if (act_cell->coarsen_flag_set())
         ++n_cells_to_coarsen;
@@ -308,7 +302,7 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::
   for (typename DoFHandlerType::cell_iterator cell = dof_handler->begin();
        cell != dof_handler->end();
        ++cell)
-    if (!cell->active() && cell->child(0)->coarsen_flag_set())
+    if (!cell->is_active() && cell->child(0)->coarsen_flag_set())
       ++n_coarsen_fathers;
   Assert(n_cells_to_coarsen >= 2 * n_coarsen_fathers, ExcInternalError());
 
@@ -339,9 +333,9 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::
        ++cell)
     {
       // CASE 1: active cell that remains as it is
-      if (cell->active() && !cell->coarsen_flag_set())
+      if (cell->is_active() && !cell->coarsen_flag_set())
         {
-          const unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+          const unsigned int dofs_per_cell = cell->get_fe().n_dofs_per_cell();
           indices_on_cell[n_sr].resize(dofs_per_cell);
           // cell will not be coarsened,
           // so we get away by storing the
@@ -356,44 +350,35 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::
       // CASE 2: cell is inactive but will become active
       else if (cell->has_children() && cell->child(0)->coarsen_flag_set())
         {
-          // note that if one child has the
-          // coarsen flag, then all should
-          // have if Tria::prepare_* has
-          // worked correctly
-          for (unsigned int i = 1; i < cell->n_children(); ++i)
-            Assert(cell->child(i)->coarsen_flag_set(),
-                   ExcMessage(
-                     "It looks like you didn't call "
-                     "Triangulation::prepare_coarsening_and_refinement before "
-                     "calling the current function. This can't work."));
-
           // we will need to interpolate from the children of this cell
-          // to the current one. in the hp context, this also means
+          // to the current one. in the hp-context, this also means
           // we need to figure out which finite element space to interpolate
-          // to since that is not implied by the global FE as in the non-hp
-          // case.
-          bool different_fe_on_children = false;
-          for (unsigned int child = 1; child < cell->n_children(); ++child)
-            if (cell->child(child)->active_fe_index() !=
-                cell->child(0)->active_fe_index())
-              {
-                different_fe_on_children = true;
-                break;
-              }
+          // to since that is not implied by the global FE as in the non-hp-
+          // case. we choose the 'least dominant fe' on all children from
+          // the associated FECollection.
+          std::set<unsigned int> fe_indices_children;
+          for (const auto &child : cell->child_iterators())
+            {
+              Assert(child->is_active() && child->coarsen_flag_set(),
+                     typename dealii::Triangulation<
+                       dim>::ExcInconsistentCoarseningFlags());
 
-          // take FE index from the child with most
-          // degrees of freedom locally
-          unsigned int most_general_child = 0;
-          if (different_fe_on_children == true)
-            for (unsigned int child = 1; child < cell->n_children(); ++child)
-              if (cell->child(child)->get_fe().dofs_per_cell >
-                  cell->child(most_general_child)->get_fe().dofs_per_cell)
-                most_general_child = child;
+              fe_indices_children.insert(child->active_fe_index());
+            }
+          Assert(!fe_indices_children.empty(), ExcInternalError());
+
           const unsigned int target_fe_index =
-            cell->child(most_general_child)->active_fe_index();
+            dof_handler->get_fe_collection().find_dominated_fe_extended(
+              fe_indices_children, /*codim=*/0);
+
+          Assert(target_fe_index != numbers::invalid_unsigned_int,
+                 (typename dealii::DoFCellAccessor<
+                   dim,
+                   DoFHandlerType::space_dimension,
+                   false>::ExcNoDominatedFiniteElementOnChildren()));
 
           const unsigned int dofs_per_cell =
-            cell->get_dof_handler().get_fe(target_fe_index).dofs_per_cell;
+            dof_handler->get_fe(target_fe_index).n_dofs_per_cell();
 
           std::vector<Vector<typename VectorType::value_type>>(
             in_size, Vector<typename VectorType::value_type>(dofs_per_cell))
@@ -465,9 +450,7 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::interpolate(
   internal::extract_interpolation_matrices(*dof_handler, interpolation_hp);
   Vector<typename VectorType::value_type> tmp, tmp2;
 
-  typename DoFHandlerType::cell_iterator cell = dof_handler->begin(),
-                                         endc = dof_handler->end();
-  for (; cell != endc; ++cell)
+  for (const auto &cell : dof_handler->cell_iterators())
     {
       pointerstruct =
         cell_map.find(std::make_pair(cell->level(), cell->index()));
@@ -488,11 +471,8 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::interpolate(
               const unsigned int old_fe_index =
                 pointerstruct->second.active_fe_index;
 
-              // get the values of
-              // each of the input
-              // data vectors on this
-              // cell and prolong it
-              // to its children
+              // get the values of each of the input data vectors on this cell
+              // and prolong it to its children
               unsigned int in_size = indexptr->size();
               for (unsigned int j = 0; j < size; ++j)
                 {
@@ -508,48 +488,45 @@ SolutionTransfer<dim, VectorType, DoFHandlerType>::interpolate(
                 }
             }
           else if (valuesptr)
-            // the children of this cell were
-            // deleted
+            // the children of this cell were deleted
             {
               Assert(!cell->has_children(), ExcInternalError());
               Assert(indexptr == nullptr, ExcInternalError());
 
-              const unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+              const unsigned int dofs_per_cell =
+                cell->get_fe().n_dofs_per_cell();
               dofs.resize(dofs_per_cell);
               // get the local
               // indices
               cell->get_dof_indices(dofs);
 
-              // distribute the
-              // stored data to the
-              // new vectors
+              // distribute the stored data to the new vectors
               for (unsigned int j = 0; j < size; ++j)
                 {
-                  // make sure that the size of
-                  // the stored indices is the
-                  // same as
-                  // dofs_per_cell. this is
-                  // kind of a test if we use
-                  // the same fe in the hp
-                  // case. to really do that
-                  // test we would have to
-                  // store the fe_index of all
-                  // cells
+                  // make sure that the size of the stored indices is the same
+                  // as dofs_per_cell. this is kind of a test if we use the same
+                  // FE in the hp-case. to really do that test we would have to
+                  // store the fe_index of all cells
                   const Vector<typename VectorType::value_type> *data = nullptr;
                   const unsigned int active_fe_index = cell->active_fe_index();
                   if (active_fe_index != pointerstruct->second.active_fe_index)
                     {
                       const unsigned int old_index =
                         pointerstruct->second.active_fe_index;
-                      tmp.reinit(dofs_per_cell, true);
-                      AssertDimension(
-                        (*valuesptr)[j].size(),
-                        interpolation_hp(active_fe_index, old_index).n());
-                      AssertDimension(
-                        tmp.size(),
-                        interpolation_hp(active_fe_index, old_index).m());
-                      interpolation_hp(active_fe_index, old_index)
-                        .vmult(tmp, (*valuesptr)[j]);
+                      const FullMatrix<double> &interpolation_matrix =
+                        interpolation_hp(active_fe_index, old_index);
+                      // The interpolation matrix might be empty when using
+                      // FE_Nothing.
+                      if (interpolation_matrix.empty())
+                        tmp.reinit(dofs_per_cell, false);
+                      else
+                        {
+                          tmp.reinit(dofs_per_cell, true);
+                          AssertDimension((*valuesptr)[j].size(),
+                                          interpolation_matrix.n());
+                          AssertDimension(tmp.size(), interpolation_matrix.m());
+                          interpolation_matrix.vmult(tmp, (*valuesptr)[j]);
+                        }
                       data = &tmp;
                     }
                   else

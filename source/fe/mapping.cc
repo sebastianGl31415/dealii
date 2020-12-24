@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2001 - 2017 by the deal.II authors
+// Copyright (C) 2001 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -14,6 +14,8 @@
 // ---------------------------------------------------------------------
 
 
+#include <deal.II/boost_adaptors/bounding_box.h>
+
 #include <deal.II/fe/mapping.h>
 
 #include <deal.II/grid/tria.h>
@@ -22,16 +24,80 @@ DEAL_II_NAMESPACE_OPEN
 
 
 template <int dim, int spacedim>
-std::array<Point<spacedim>, GeometryInfo<dim>::vertices_per_cell>
+boost::container::small_vector<Point<spacedim>,
+                               GeometryInfo<dim>::vertices_per_cell>
 Mapping<dim, spacedim>::get_vertices(
   const typename Triangulation<dim, spacedim>::cell_iterator &cell) const
 {
-  std::array<Point<spacedim>, GeometryInfo<dim>::vertices_per_cell> vertices;
-  for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell; ++i)
-    {
-      vertices[i] = cell->vertex(i);
-    }
+  boost::container::small_vector<Point<spacedim>,
+                                 GeometryInfo<dim>::vertices_per_cell>
+    vertices;
+  for (const unsigned int i : cell->vertex_indices())
+    vertices.push_back(cell->vertex(i));
+
   return vertices;
+}
+
+
+
+template <int dim, int spacedim>
+Point<spacedim>
+Mapping<dim, spacedim>::get_center(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+  const bool map_center_of_reference_cell) const
+{
+  if (map_center_of_reference_cell)
+    {
+      Point<dim> reference_center;
+      for (unsigned int d = 0; d < dim; ++d)
+        reference_center[d] = .5;
+      return transform_unit_to_real_cell(cell, reference_center);
+    }
+  else
+    {
+      const auto      vertices = get_vertices(cell);
+      Point<spacedim> center;
+      for (const auto &v : vertices)
+        center += v;
+      return center / GeometryInfo<dim>::vertices_per_cell;
+    }
+}
+
+
+
+template <int dim, int spacedim>
+BoundingBox<spacedim>
+Mapping<dim, spacedim>::get_bounding_box(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell) const
+{
+  if (preserves_vertex_locations())
+    return cell->bounding_box();
+  else
+    return BoundingBox<spacedim>(get_vertices(cell));
+}
+
+
+
+template <int dim, int spacedim>
+void
+Mapping<dim, spacedim>::transform_points_real_to_unit_cell(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+  const ArrayView<const Point<spacedim>> &                    real_points,
+  const ArrayView<Point<dim>> &                               unit_points) const
+{
+  AssertDimension(real_points.size(), unit_points.size());
+  for (unsigned int i = 0; i < real_points.size(); ++i)
+    {
+      try
+        {
+          unit_points[i] = transform_real_to_unit_cell(cell, real_points[i]);
+        }
+      catch (typename Mapping<dim>::ExcTransformationFailed &)
+        {
+          unit_points[i]    = Point<dim>();
+          unit_points[i][0] = std::numeric_limits<double>::infinity();
+        }
+    }
 }
 
 
@@ -74,6 +140,76 @@ Mapping<dim, spacedim>::project_real_point_to_unit_point_on_face(
   Assert(false, ExcInternalError());
   return {};
 }
+
+
+
+#ifndef DOXYGEN
+template <int dim, int spacedim>
+void
+Mapping<dim, spacedim>::fill_fe_face_values(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+  const unsigned int                                          face_no,
+  const hp::QCollection<dim - 1> &                            quadrature,
+  const typename Mapping<dim, spacedim>::InternalDataBase &   internal_data,
+  dealii::internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
+    &output_data) const
+{
+  // base class version, implement overriden function in derived classes
+  AssertDimension(quadrature.size(), 1);
+  fill_fe_face_values(cell, face_no, quadrature[0], internal_data, output_data);
+}
+
+
+
+template <int dim, int spacedim>
+void
+Mapping<dim, spacedim>::fill_fe_face_values(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+  const unsigned int                                          face_no,
+  const Quadrature<dim - 1> &                                 quadrature,
+  const typename Mapping<dim, spacedim>::InternalDataBase &   internal_data,
+  dealii::internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
+    &output_data) const
+{
+  Assert(false,
+         ExcMessage("Use of a deprecated interface, please implement "
+                    "fill_fe_face_values taking a hp::QCollection argument"));
+  (void)cell;
+  (void)face_no;
+  (void)quadrature;
+  (void)internal_data;
+  (void)output_data;
+}
+
+
+
+template <int dim, int spacedim>
+std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>
+Mapping<dim, spacedim>::get_face_data(
+  const UpdateFlags               update_flags,
+  const hp::QCollection<dim - 1> &quadrature) const
+{
+  // base class version, implement overriden function in derived classes
+  return get_face_data(update_flags, quadrature[0]);
+}
+
+
+
+template <int dim, int spacedim>
+std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>
+Mapping<dim, spacedim>::get_face_data(
+  const UpdateFlags          update_flags,
+  const Quadrature<dim - 1> &quadrature) const
+{
+  Assert(false,
+         ExcMessage("Use of a deprecated interface, please implement "
+                    "fill_fe_face_values taking a hp::QCollection argument"));
+  (void)update_flags;
+  (void)quadrature;
+
+  return std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>();
+}
+#endif
 
 /* ---------------------------- InternalDataBase --------------------------- */
 

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2018 by the deal.II authors
+// Copyright (C) 2018 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -45,7 +45,6 @@
 
 #include "../tests.h"
 
-using namespace dealii;
 
 // Test that a coupling matrix can be constructed for each pair of dimension
 // and immersed dimension, and check that quadratic functions are correctly
@@ -117,7 +116,7 @@ test()
     FullMatrix<double>        cell_matrix(fe.dofs_per_cell, fe.dofs_per_cell);
     AffineConstraints<double> constraints;
 
-    for (auto cell : dh.active_cell_iterators())
+    for (auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
           cell_matrix = 0;

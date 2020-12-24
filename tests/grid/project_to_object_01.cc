@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -32,7 +32,6 @@
 int
 main()
 {
-  using namespace dealii;
   initlog();
 
   // test the internal cross derivative function: the stencil should be order 2.
@@ -46,9 +45,7 @@ main()
                std::cos(weights[2]);
       };
     Tensor<1, GeometryInfo<structdim>::vertices_per_cell> c0;
-    for (unsigned int row_n = 0;
-         row_n < GeometryInfo<structdim>::vertices_per_cell;
-         ++row_n)
+    for (const unsigned int row_n : GeometryInfo<structdim>::vertex_indices())
       c0[row_n] = 1.0;
 
     const std::array<double, 3> exact{
@@ -225,7 +222,7 @@ main()
             << std::endl;
 
     MappingQGeneric<2, 3> mapping(6);
-    for (auto cell : triangulation.active_cell_iterators())
+    for (auto &cell : triangulation.active_cell_iterators())
       {
         const Point<3> projected_point =
           GridTools::project_to_object(cell, trial_point);

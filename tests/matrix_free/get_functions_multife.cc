@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2013 - 2017 by the deal.II authors
+// Copyright (C) 2013 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -44,8 +44,6 @@
 #include "../tests.h"
 
 
-std::ofstream logfile("output");
-
 
 template <int dim,
           int fe_degree,
@@ -85,11 +83,13 @@ public:
       {
         fe_eval0.reinit(cell);
         fe_eval0.read_dof_values(src[0]);
-        fe_eval0.evaluate(true, true, true);
+        fe_eval0.evaluate(EvaluationFlags::values | EvaluationFlags::gradients |
+                          EvaluationFlags::hessians);
 
         fe_eval1.reinit(cell);
         fe_eval1.read_dof_values(src[1]);
-        fe_eval1.evaluate(true, true, true);
+        fe_eval1.evaluate(EvaluationFlags::values | EvaluationFlags::gradients |
+                          EvaluationFlags::hessians);
 
         // compare values with the ones the FEValues
         // gives us. Those are seen as reference
@@ -291,11 +291,8 @@ test()
 int
 main()
 {
-  deallog.attach(logfile);
-  // need to set quite a loose tolerance because
-  // FEValues approximates Hessians with finite
-  // differences, which are not so accurate
-  deallog << std::setprecision(3);
+  initlog();
+  deallog << std::setprecision(7);
 
   {
     deallog.push("2d");

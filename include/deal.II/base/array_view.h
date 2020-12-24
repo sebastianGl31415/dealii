@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2018 by the deal.II authors
+// Copyright (C) 2004 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -71,7 +71,6 @@ DEAL_II_NAMESPACE_OPEN
  *  available in C++20.
  *
  * @ingroup data
- * @author Wolfgang Bangerth, 2015, David Wells, 2017
  */
 template <typename ElementType, typename MemorySpaceType = MemorySpace::Host>
 class ArrayView
@@ -92,6 +91,11 @@ public:
    * An alias for const iterators pointing into the array.
    */
   using const_iterator = const ElementType *;
+
+  /**
+   * Default constructor.
+   */
+  ArrayView();
 
   /**
    * Constructor.
@@ -127,6 +131,11 @@ public:
                             MemorySpaceType> &view);
 
   /**
+   * A constructor that automatically creates a view from a value_type object.
+   */
+  explicit ArrayView(value_type &element);
+
+  /**
    * A constructor that automatically creates a view from a std::vector object.
    * The view encompasses all elements of the given vector.
    *
@@ -158,6 +167,51 @@ public:
    *   such as <code>ArrayView@<double@></code>.
    */
   ArrayView(std::vector<typename std::remove_cv<value_type>::type> &vector);
+
+  /**
+   * A constructor that automatically creates a view from a std::array object.
+   * The view encompasses all elements of the given vector.
+   *
+   * This implicit conversion constructor is particularly useful when calling
+   * a function that takes an ArrayView object as argument, and passing in
+   * a std::array.
+   */
+  template <std::size_t N>
+  ArrayView(
+    const std::array<typename std::remove_cv<value_type>::type, N> &vector);
+
+  /**
+   * A constructor that automatically creates a view from a std::array object.
+   * The view encompasses all elements of the given vector.
+   *
+   * This implicit conversion constructor is particularly useful when calling
+   * a function that takes an ArrayView object as argument, and passing in
+   * a std::array.
+   */
+  template <std::size_t N>
+  ArrayView(std::array<typename std::remove_cv<value_type>::type, N> &vector);
+
+  /**
+   * Reinitialize a view.
+   *
+   * @param[in] starting_element A pointer to the first element of the array
+   * this object should represent.
+   * @param[in] n_elements The length (in elements) of the chunk of memory
+   * this object should represent.
+   *
+   * @note The object that is constructed from these arguments has no
+   * knowledge how large the object into which it points really is. As a
+   * consequence, whenever you call ArrayView::operator[], the array view can
+   * check that the given index is within the range of the view, but it can't
+   * check that the view is indeed a subset of the valid range of elements of
+   * the underlying object that allocated that range. In other words, you need
+   * to ensure that the range of the view specified by the two arguments to
+   * this constructor is in fact a subset of the elements of the array into
+   * which it points. The appropriate way to do this is to use the
+   * make_array_view() functions.
+   */
+  void
+  reinit(value_type *starting_element, const std::size_t n_elements);
 
   /**
    * Compare two ArrayView objects of the same type. Two objects are considered
@@ -252,12 +306,12 @@ private:
    * A pointer to the first element of the range of locations in memory that
    * this object represents.
    */
-  value_type *const starting_element;
+  value_type *starting_element;
 
   /**
    * The length of the array this object represents.
    */
-  const std::size_t n_elements;
+  std::size_t n_elements;
 
   friend class ArrayView<const ElementType, MemorySpaceType>;
 };
@@ -288,9 +342,10 @@ namespace internal
         {
           AssertCuda(cuda_error);
           if (std::is_same<MemorySpaceType, MemorySpace::Host>::value)
-            return attributes.memoryType == cudaMemoryTypeHost;
+            return (attributes.type == cudaMemoryTypeHost) ||
+                   (attributes.type == cudaMemoryTypeUnregistered);
           else
-            return attributes.memoryType == cudaMemoryTypeDevice;
+            return attributes.type == cudaMemoryTypeDevice;
         }
       else
         {
@@ -302,6 +357,14 @@ namespace internal
     }
   } // namespace ArrayViewHelper
 } // namespace internal
+
+
+
+template <typename ElementType, typename MemorySpaceType>
+inline ArrayView<ElementType, MemorySpaceType>::ArrayView()
+  : starting_element(nullptr)
+  , n_elements(0)
+{}
 
 
 
@@ -319,6 +382,24 @@ inline ArrayView<ElementType, MemorySpaceType>::ArrayView(
     ExcMessage("The memory space indicated by the template parameter "
                "and the one derived from the pointer value do not match!"));
 }
+
+
+
+template <typename ElementType, typename MemorySpaceType>
+inline void
+ArrayView<ElementType, MemorySpaceType>::reinit(value_type *starting_element,
+                                                const std::size_t n_elements)
+{
+  *this = ArrayView(starting_element, n_elements);
+}
+
+
+
+template <typename ElementType, typename MemorySpaceType>
+inline ArrayView<ElementType, MemorySpaceType>::ArrayView(ElementType &element)
+  : starting_element(&element)
+  , n_elements(1)
+{}
 
 
 
@@ -359,6 +440,41 @@ inline ArrayView<ElementType, MemorySpaceType>::ArrayView(
 template <typename ElementType, typename MemorySpaceType>
 inline ArrayView<ElementType, MemorySpaceType>::ArrayView(
   std::vector<typename std::remove_cv<value_type>::type> &vector)
+  : // use delegating constructor
+  ArrayView(vector.data(), vector.size())
+{}
+
+
+
+template <typename ElementType, typename MemorySpaceType>
+template <std::size_t N>
+inline ArrayView<ElementType, MemorySpaceType>::ArrayView(
+  const std::array<typename std::remove_cv<value_type>::type, N> &vector)
+  : // use delegating constructor
+  ArrayView(vector.data(), vector.size())
+{
+  // the following static_assert is not strictly necessary because,
+  // if we got a const std::array reference argument but ElementType
+  // is not itself const, then the call to the forwarding constructor
+  // above will already have failed: vector.data() will have returned
+  // a const pointer, but we need a non-const pointer.
+  //
+  // nevertheless, leave the static_assert in since it provides a
+  // more descriptive error message that will simply come after the first
+  // error produced above
+  static_assert(std::is_const<value_type>::value == true,
+                "This constructor may only be called if the ArrayView "
+                "object has a const value_type. In other words, you can "
+                "only create an ArrayView to const values from a const "
+                "std::array.");
+}
+
+
+
+template <typename ElementType, typename MemorySpaceType>
+template <std::size_t N>
+inline ArrayView<ElementType, MemorySpaceType>::ArrayView(
+  std::array<typename std::remove_cv<value_type>::type, N> &vector)
   : // use delegating constructor
   ArrayView(vector.data(), vector.size())
 {}
@@ -470,7 +586,7 @@ template <typename ElementType, typename MemorySpaceType>
 inline typename ArrayView<ElementType, MemorySpaceType>::value_type &
   ArrayView<ElementType, MemorySpaceType>::operator[](const std::size_t i) const
 {
-  Assert(i < n_elements, ExcIndexRange(i, 0, n_elements));
+  AssertIndexRange(i, n_elements);
   Assert(
     (std::is_same<MemorySpaceType, MemorySpace::Host>::value),
     ExcMessage(
@@ -1132,6 +1248,25 @@ make_array_view(const Table<2, ElementType> &                   table,
                                       size_of_view);
 }
 
+
+
+/*
+ * Create a view that doesn't allow the container it points to to be modified.
+ * This is useful if the object passed in is not `const` already and a function
+ * requires a view to constant memory in its signature.
+ *
+ * This function returns an object of type `ArrayView<const T>` where `T` is the
+ * element type of the container.
+ *
+ * @relatesalso ArrayView
+ */
+template <typename Container>
+inline auto
+make_const_array_view(const Container &container)
+  -> decltype(make_array_view(container))
+{
+  return make_array_view(container);
+}
 
 
 DEAL_II_NAMESPACE_CLOSE

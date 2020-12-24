@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2017 by the deal.II authors
+// Copyright (C) 1998 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -30,7 +30,7 @@ void
 fill_vector(std::vector<Quadrature<dim> *> &quadratures)
 {
   quadratures.push_back(new QSorted<dim>(QMidpoint<dim>()));
-  quadratures.push_back(new QSorted<dim>(QTrapez<dim>()));
+  quadratures.push_back(new QSorted<dim>(QTrapezoid<dim>()));
   quadratures.push_back(new QSorted<dim>(QSimpson<dim>()));
   quadratures.push_back(new QSorted<dim>(QMilne<dim>()));
   quadratures.push_back(new QSorted<dim>(QWeddle<dim>()));

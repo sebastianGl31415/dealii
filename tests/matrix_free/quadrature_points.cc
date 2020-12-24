@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2013 - 2017 by the deal.II authors
+// Copyright (C) 2013 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -42,7 +42,6 @@
 
 #include "../tests.h"
 
-std::ofstream logfile("output");
 
 
 template <int dim, int fe_degree>
@@ -56,7 +55,7 @@ test()
   typename Triangulation<dim>::active_cell_iterator cell = tria.begin_active(),
                                                     endc = tria.end();
   for (; cell != endc; ++cell)
-    for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+    for (const unsigned int f : GeometryInfo<dim>::face_indices())
       if (cell->at_boundary(f))
         cell->face(f)->set_all_manifold_ids(0);
   tria.set_manifold(0, manifold);
@@ -84,7 +83,7 @@ test()
   }
 
   double                       error_points = 0, abs_points = 0;
-  const unsigned int           n_cells = mf_data.n_macro_cells();
+  const unsigned int           n_cells = mf_data.n_cell_batches();
   FEEvaluation<dim, fe_degree> fe_eval(mf_data);
   FEValues<dim>                fe_values(mapping,
                           fe,
@@ -116,7 +115,7 @@ test()
 int
 main()
 {
-  deallog.attach(logfile);
+  initlog();
   deallog << std::setprecision(3);
 
   {

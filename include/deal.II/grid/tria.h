@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -25,7 +25,10 @@
 #include <deal.II/base/smartpointer.h>
 #include <deal.II/base/subscriptor.h>
 
+#include <deal.II/grid/cell_id.h>
+#include <deal.II/grid/tria_description.h>
 #include <deal.II/grid/tria_iterator_selector.h>
+#include <deal.II/grid/tria_levels.h>
 
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/split_member.hpp>
@@ -44,8 +47,28 @@
 
 DEAL_II_NAMESPACE_OPEN
 
+#ifdef signals
+#  error \
+    "The name 'signals' is already defined. You are most likely using the QT library \
+and using the 'signals' keyword. You can either #include the Qt headers (or any conflicting headers) \
+*after* the deal.II headers or you can define the 'QT_NO_KEYWORDS' macro and use the 'Q_SIGNALS' macro."
+#endif
+
+// Forward declarations
+#ifndef DOXYGEN
 template <int dim, int spacedim>
 class Manifold;
+
+template <int dim>
+struct CellData;
+
+struct SubCellData;
+
+namespace TriangulationDescription
+{
+  template <int, int>
+  struct Description;
+}
 
 namespace GridTools
 {
@@ -64,13 +87,12 @@ namespace internal
 {
   namespace TriangulationImplementation
   {
-    template <int dim>
-    class TriaLevel;
-    template <int dim>
     class TriaFaces;
 
-    template <typename>
     class TriaObjects;
+
+    template <int, int>
+    class Policy;
 
     /**
      * Forward declaration of a class into which we put much of the
@@ -78,6 +100,7 @@ namespace internal
      * information.
      */
     struct Implementation;
+    struct ImplementationMixedMesh;
   } // namespace TriangulationImplementation
 
   namespace TriaAccessorImplementation
@@ -91,191 +114,7 @@ namespace hp
   template <int dim, int spacedim>
   class DoFHandler;
 }
-
-
-/*------------------------------------------------------------------------*/
-
-/**
- * The CellData class (and the related SubCellData class) is used to
- * provide a comprehensive, but minimal, description of the cells when
- * creating a triangulation via Triangulation::create_triangulation().
- * Specifically, each CellData object -- describing one cell in a
- * triangulation -- has member variables for indices of the $2^d$ vertices
- * (the actual coordinates of the vertices are described in a separate
- * vector passed to Triangulation::create_triangulation(), so the CellData
- * object only needs to store indices into that vector), the material
- * id of the cell that can be used in applications to describe which
- * part of the domain a cell belongs to (see
- * @ref GlossMaterialId "the glossary entry on material ids"),
- * and a manifold id that is used to describe the geometry object
- * that is responsible for this cell (see
- * @ref GlossManifoldIndicator "the glossary entry on manifold ids")
- * to describe the manifold this object belongs to.
- *
- * This structure is also used to represent data for faces and edges when used
- * as a member of the SubCellData class. In this case, the template argument
- * @p structdim of an object will be less than the dimension @p dim of the
- * triangulation. If this is so, then #vertices array represents the indices of
- * the vertices of one face or edge of one of the cells passed to
- * Triangulation::create_triangulation(). Furthermore, for faces the
- * material id has no meaning, and the @p material_id field is reused
- * to store a @p boundary_id instead to designate which part of the boundary
- * the face or edge belongs to (see
- * @ref GlossBoundaryIndicator "the glossary entry on boundary ids").
- *
- * An example showing how this class can be used is in the
- * <code>create_coarse_grid()</code> function of step-14. There are also
- * many more use cases in the implementation of the functions of the
- * GridGenerator namespace.
- *
- * @ingroup grid
- */
-template <int structdim>
-struct CellData
-{
-  /**
-   * Indices of the vertices of this cell. These indices correspond
-   * to entries in the vector of vertex locations passed to
-   * Triangulation::create_triangulation().
-   */
-  unsigned int vertices[GeometryInfo<structdim>::vertices_per_cell];
-
-  /**
-   * Material or boundary indicator of this cell.
-   * This field is a union that stores <i>either</i> a boundary or
-   * a material id, depending on whether the current object is used
-   * to describe a cell (in a vector of CellData objects) or a
-   * face or edge (as part of a SubCellData object).
-   */
-  union
-  {
-    /**
-     * The material id of the cell being described. See the documentation
-     * of the CellData class for examples of how to use this field.
-     *
-     * This variable can only be used if the current object is used to
-     * describe a cell, i.e., if @p structdim equals the dimension
-     * @p dim of a triangulation.
-     */
-    types::material_id material_id;
-
-    /**
-     * The boundary id of a face or edge being described. See the documentation
-     * of the CellData class for examples of how to use this field.
-     *
-     * This variable can only be used if the current object is used to
-     * describe a face or edge, i.e., if @p structdim is less than the dimension
-     * @p dim of a triangulation. In this case, the CellData object this
-     * variable belongs to will be part of a SubCellData object.
-     */
-    types::boundary_id boundary_id;
-  };
-
-  /**
-   * Manifold identifier of this object. This identifier should be used to
-   * identify the manifold to which this object belongs, and from which this
-   * object will collect information on how to add points upon refinement.
-   *
-   * See the documentation of the CellData class for examples of how to use
-   * this field.
-   */
-  types::manifold_id manifold_id;
-
-  /**
-   * Default constructor. Sets the member variables to the following values:
-   *
-   * - vertex indices to invalid values
-   * - boundary or material id zero (the default for boundary or material ids)
-   * - manifold id to numbers::flat_manifold_id
-   */
-  CellData();
-};
-
-
-
-/**
- * The SubCellData class is used to describe information about faces and
- * edges at the boundary of a mesh when creating a triangulation via
- * Triangulation::create_triangulation(). It contains member variables
- * that describe boundary edges and boundary quads.
- *
- * The class has no template argument and is used both in the description
- * of boundary edges in 2d (in which case the contents of the
- * @p boundary_quads member variable are ignored), as well as in the
- * description of boundary edges and faces in 3d (in which case both the
- * @p boundary_lines and @p boundary_quads members may be used). It is also
- * used as the argument to Triangulation::create_triangulation() in 1d,
- * where the contents of objects of the current type are simply ignored.
- *
- * By default, Triangulation::create_triangulation() simply assigns
- * default boundary indicators and manifold indicators to edges and
- * quads at the boundary of the mesh. (See the glossary entries on
- * @ref GlossBoundaryIndicator "boundary ids"
- * and
- * @ref GlossManifoldIndicator "manifold ids"
- * for more information on what they represent.) As a consequence,
- * it is not <i>necessary</i> to explicitly describe the properties
- * of boundary objects. In all cases, these properties can also be
- * set at a later time, once the triangulation has already been
- * created. On the other hand, it is sometimes convenient to describe
- * boundary indicators or manifold ids at the time of creation. In
- * these cases, the current class can be used by filling the
- * @p boundary_lines and @p boundary_quads vectors with
- * CellData<1> and CellData<2> objects that correspond to boundary
- * edges and quads for which properties other than the default
- * values should be used.
- *
- * Each entry in the @p boundary_lines and @p boundary_quads vectors
- * then needs to correspond to an edge or quad of the cells that
- * are described by the vector of CellData objects passed to
- * Triangulation::create_triangulation(). I.e., the vertex indices
- * stored in each entry need to correspond to an edge or face
- * of the triangulation that has the same set of vertex indices,
- * and in the same order. For these boundary edges or quads, one can
- * then set either or both the CellData::boundary_id and
- * CellData::manifold_id.
- *
- * There are also use cases where one may want to set the manifold id
- * of an <i>interior</i> edge or face. Such faces, identified by
- * their vertex indices, may also appear in the
- * @p boundary_lines and @p boundary_quads vectors (despite the names of
- * these member variables). However, it is then obviously not allowed
- * to set a boundary id (because the object is not actually part of
- * the boundary). As a consequence, to be valid, the CellData::boundary_id
- * of interior edges or faces needs to equal
- * numbers::internal_face_boundary_id.
- *
- * @ingroup grid
- */
-struct SubCellData
-{
-  /**
-   * A vector of CellData<1> objects that describe boundary and manifold
-   * information for edges of 2d or 3d triangulations.
-   *
-   * This vector may not be used in the creation of 1d triangulations.
-   */
-  std::vector<CellData<1>> boundary_lines;
-
-  /**
-   * A vector of CellData<2> objects that describe boundary and manifold
-   * information for quads of 3d triangulations.
-   *
-   * This vector may not be used in the creation of 1d or 2d triangulations.
-   */
-  std::vector<CellData<2>> boundary_quads;
-
-  /**
-   * Determine whether the member variables above which may not be used in a
-   * given dimension are really empty. In other words, this function returns
-   * whether
-   * both @p boundary_lines and @p boundary_quads are empty vectors
-   * when @p dim equals one, and whether the @p boundary_quads
-   * vector is empty when @p dim equals two.
-   */
-  bool
-  check_consistency(const unsigned int dim) const;
-};
+#endif
 
 
 /*------------------------------------------------------------------------*/
@@ -299,8 +138,6 @@ namespace internal
      * until we hit the end iterator. This is time consuming and since access
      * to the number of lines etc is a rather frequent operation, this was not
      * an optimal solution.
-     *
-     * @author Wolfgang Bangerth, 1999
      */
     template <int dim>
     struct NumberCache
@@ -316,8 +153,6 @@ namespace internal
      * until we hit the end iterator. This is time consuming and since access
      * to the number of lines etc is a rather frequent operation, this was not
      * an optimal solution.
-     *
-     * @author Wolfgang Bangerth, 1999
      */
     template <>
     struct NumberCache<1>
@@ -380,8 +215,6 @@ namespace internal
      * until we hit the end iterator. This is time consuming and since access
      * to the number of lines etc is a rather frequent operation, this was not
      * an optimal solution.
-     *
-     * @author Wolfgang Bangerth, 1999
      */
     template <>
     struct NumberCache<2> : public NumberCache<1>
@@ -440,8 +273,6 @@ namespace internal
      * until we hit the end . This is time consuming and since access to the
      * number of lines etc is a rather frequent operation, this was not an
      * optimal solution.
-     *
-     * @author Wolfgang Bangerth, 1999
      */
     template <>
     struct NumberCache<3> : public NumberCache<2>
@@ -494,9 +325,12 @@ namespace internal
 
 
 /**
- * Triangulations denote a hierarchy of levels of elements which together form
- * a @p dim -dimensional manifold in @p spacedim spatial dimensions (if
- * spacedim is not specified it takes the default value @p spacedim=dim).
+ * A triangulation is a collection of cells that, jointly, cover the domain
+ * on which one typically wants to solve a partial differential equation.
+ * This domain, and the mesh that covers it, represents a @p dim -dimensional manifold
+ * and lives in @p spacedim spatial dimensions, where @p dim and @p spacedim
+ * are the template arguments of this class. (If @p spacedim is not specified,
+ * it takes the default value `spacedim=dim`.)
  *
  * Thus, for example, an object of type @p Triangulation<1,1> (or simply @p
  * Triangulation<1> since @p spacedim==dim by default) is used to represent
@@ -505,6 +339,16 @@ namespace internal
  * objects such as @p Triangulation<1,2> or @p Triangulation<2,3> (that are
  * associated with curves in 2D or surfaces in 3D) are the ones one wants to
  * use in the boundary element method.
+ *
+ * The name of the class is mostly hierarchical and is not meant to imply that
+ * a Triangulation can only consist of triangles. Instead, triangulations
+ * consist of line segments in 1d (i.e., if `dim==1`), and of three-dimensional
+ * cells (if `dim==3`). Moreover, historically, deal.II only supported
+ * quadrilaterals (cells with four vertices: deformed rectangles) in 2d
+ * and hexahedra (cells with six sides and eight vertices that are deformed
+ * boxes), neither of which are triangles. In other words, the term
+ * "triangulation" in the deal.II language is synonymous with "mesh" and is
+ * to be understood separate from its linguistic origin.
  *
  * This class is written to be as independent of the dimension as possible
  * (thus the complex construction of the
@@ -997,7 +841,7 @@ namespace internal
  *   triangulation.set_all_manifold_ids_on_boundary(42);
  *
  *   // set_manifold stores a copy of its second argument,
- *   // so a temporary is ookay
+ *   // so a temporary is okay
  *   triangulation.set_manifold(42, PolarManifold<2>());
  *   for (unsigned int i = 0; i < 4; ++i)
  *     {
@@ -1100,8 +944,10 @@ namespace internal
  *       // triangulation that we want to be informed about mesh refinement
  *       previous_cell = current_cell;
  *       previous_cell->get_triangulation().signals.post_refinement.connect(
- *         std::bind (&FEValues<dim>::invalidate_previous_cell,
- *                    std::ref (*this)));
+ *         [this]()
+ *         {
+ *           this->invalidate_previous_cell();
+ *         });
  *     }
  *   else
  *    previous_cell = current_cell;
@@ -1168,17 +1014,19 @@ namespace internal
  * following information is not stored:
  *   - signals
  *   - pointers to Manifold objects previously set using
- * Triangulation::set_manifold On the other hand, since these are objects that
+ *     Triangulation::set_manifold()
+ *
+ * On the other hand, since these are objects that
  * are usually set in user code, they can typically easily be set again in that
  * part of your code in which you re-load triangulations.
  *
  * In a sense, this approach to serialization means that re-loading a
  * triangulation is more akin to calling the
- * Triangulation::create_triangulation function and filling it with some
+ * Triangulation::create_triangulation() function and filling it with some
  * additional content, as that function also does not touch the signals and
- * boundary objects that belong to this triangulation. In keeping with this
- * analogy, the Triangulation::load function also triggers the same kinds of
- * signal as Triangulation::create_triangulation.
+ * Manifold objects that belong to this triangulation. In keeping with this
+ * analogy, the Triangulation::load() function also triggers the same kinds of
+ * signal as Triangulation::create_triangulation().
  *
  *
  * <h3>Technical details</h3>
@@ -1271,7 +1119,6 @@ namespace internal
  * data stored in the triangulation.
  *
  * @ingroup grid aniso
- * @author Wolfgang Bangerth, 1998; Ralf Hartmann, 2005
  */
 template <int dim, int spacedim = dim>
 class Triangulation : public Subscriptor
@@ -1327,7 +1174,7 @@ public:
      *
      * If the smoothing indicator given to the constructor contains the bit
      * for #limit_level_difference_at_vertices, situations as the above one
-     * are eliminated by also marking the lower left cell for refinement.
+     * are eliminated by also marking the upper right cell for refinement.
      *
      * In case of anisotropic refinement, the level of a cell is not linked to
      * the refinement of a cell as directly as in case of isotropic
@@ -1378,7 +1225,9 @@ public:
      */
     patch_level_1 = 0x4,
     /**
-     * Each @ref GlossCoarseMesh "coarse grid" cell is refined at least once,
+     * Each
+     * @ref GlossCoarseMesh "coarse grid"
+     * cell is refined at least once,
      * i.e., the triangulation
      * might have active cells on level 1 but not on level 0. This flag
      * ensures that a mesh which has coarsest_level_1 has still
@@ -1447,7 +1296,7 @@ public:
      *
      * Actually there are two versions of this flag,
      * #eliminate_refined_inner_islands and
-     * #eliminate_refined_boundary_islands. There first eliminates islands
+     * #eliminate_refined_boundary_islands. The first eliminates islands
      * defined by the definition above which are in the interior of the
      * domain, while the second eliminates only those islands if the cell is
      * at the boundary. The reason for this split of flags is that one often
@@ -1507,6 +1356,12 @@ public:
    * @ingroup Iterators
    */
   using cell_iterator = TriaIterator<CellAccessor<dim, spacedim>>;
+
+  /**
+   * The same as above to allow the usage of the "MeshType concept" also
+   * on the refinement levels.
+   */
+  using level_cell_iterator = cell_iterator;
 
   /**
    * An alias that is used to identify
@@ -1674,7 +1529,7 @@ public:
      * automatically generated destructor would have a different one due to
      * member objects.
      */
-    virtual ~DistortedCellList() noexcept override;
+    virtual ~DistortedCellList() noexcept override = default;
 
     /**
      * A list of those cells among the coarse mesh cells that are deformed or
@@ -1778,11 +1633,10 @@ public:
    * for non-linear (i.e.: non-Q1) transformations of cells to the unit cell
    * in shape function calculations.
    *
-   * The @p manifold_object is not copied and MUST persist until the
-   * triangulation is destroyed. This is also true for triangulations
-   * generated from this one by @p copy_triangulation.
+   * A copy of @p manifold_object is created using
+   * Manifold<dim, spacedim>::clone() and stored internally.
    *
-   * It is possible to remove or replace the boundary object during the
+   * It is possible to remove or replace a Manifold object during the
    * lifetime of a non-empty triangulation. Usually, this is done before the
    * first refinement and is dangerous afterwards. Removal of a manifold
    * object is done by reset_manifold(). This operation then replaces the
@@ -1796,25 +1650,6 @@ public:
   void
   set_manifold(const types::manifold_id       number,
                const Manifold<dim, spacedim> &manifold_object);
-
-
-  /**
-   * Reset those parts of the triangulation with the given manifold_id
-   * to use a FlatManifold object. This is the default state of a
-   * non-curved triangulation, and undoes assignment of a different
-   * Manifold object by the function of same name and two arguments.
-   *
-   * @ingroup manifold
-   *
-   * @deprecated This method has been deprecated. Use
-   * Triangulation::reset_manifold() instead.
-   *
-   * @see
-   * @ref GlossManifoldIndicator "Glossary entry on manifold indicators"
-   */
-  DEAL_II_DEPRECATED
-  void
-  set_manifold(const types::manifold_id number);
 
   /**
    * Reset those parts of the triangulation with the given
@@ -1882,7 +1717,9 @@ public:
 
   /**
    * Return a constant reference to a Manifold object used for this
-   * triangulation.  Number is the same as in @p set_manifold
+   * triangulation. @p number is the same as in set_manifold().
+   *
+   * @note If no manifold could be found, the default flat manifold is returned.
    *
    * @ingroup manifold
    *
@@ -1894,30 +1731,32 @@ public:
 
   /**
    * Return a vector containing all boundary indicators assigned to boundary
-   * faces of this Triangulation object. Note, that each boundary indicator is
-   * reported only once. The size of the return vector will represent the
-   * number of different indicators (which is greater or equal one).
+   * faces of active cells of this Triangulation object. Note, that each
+   * boundary indicator is reported only once. The size of the return vector
+   * will represent the number of different indicators (which is greater or
+   * equal one).
    *
    * @ingroup boundary
    *
    * @see
    * @ref GlossBoundaryIndicator "Glossary entry on boundary indicators"
    */
-  std::vector<types::boundary_id>
+  virtual std::vector<types::boundary_id>
   get_boundary_ids() const;
 
   /**
    * Return a vector containing all manifold indicators assigned to the
-   * objects of this Triangulation. Note, that each manifold indicator is
-   * reported only once. The size of the return vector will represent the
-   * number of different indicators (which is greater or equal one).
+   * objects of the active cells of this Triangulation. Note, that each
+   * manifold indicator is reported only once. The size of the return vector
+   * will represent the number of different indicators (which is greater or
+   * equal one).
    *
    * @ingroup manifold
    *
    * @see
    * @ref GlossManifoldIndicator "Glossary entry on manifold indicators"
    */
-  std::vector<types::manifold_id>
+  virtual std::vector<types::manifold_id>
   get_manifold_ids() const;
 
   /**
@@ -1954,7 +1793,8 @@ public:
    * of the latter being a list of <tt>1<<dim</tt> vertex indices. The
    * triangulation must be empty upon calling this function and the cell list
    * should be useful (connected domain, etc.). The result of calling this
-   * function is a @ref GlossCoarseMesh "coarse mesh".
+   * function is a
+   * @ref GlossCoarseMesh "coarse mesh".
    *
    * Material data for the cells is given within the @p cells array, while
    * boundary information is given in the @p subcelldata field.
@@ -1984,9 +1824,9 @@ public:
    * the geometry of the domain, and in this case ignoring the exception is
    * probably unwise.
    *
-   * @note This function is used in step-14 .
+   * @note This function is used in step-14 and step-19.
    *
-   * @note This function triggers the create signal after doing its work. See
+   * @note This function triggers the "create" signal after doing its work. See
    * the section on signals in the general documentation of this class.
    *
    * @note The check for distorted cells is only done if dim==spacedim, as
@@ -1997,6 +1837,23 @@ public:
   create_triangulation(const std::vector<Point<spacedim>> &vertices,
                        const std::vector<CellData<dim>> &  cells,
                        const SubCellData &                 subcelldata);
+
+  /**
+   * Create a triangulation from the provided
+   * TriangulationDescription::Description.
+   *
+   * @note Don't forget to attach the manifolds with set_manifold() before
+   *   calling this function if manifolds are needed.
+   *
+   * @note The namespace TriangulationDescription::Utilities contains functions
+   *   to create TriangulationDescription::Description.
+   *
+   * @param construction_data The data needed for this process.
+   */
+  virtual void
+  create_triangulation(
+    const TriangulationDescription::Description<dim, spacedim>
+      &construction_data);
 
   /**
    * For backward compatibility, only. This function takes the cell data in
@@ -2036,21 +1893,44 @@ public:
   set_all_refine_flags();
 
   /**
-   * Refine all cells @p times times, by alternatingly calling
-   * set_all_refine_flags and execute_coarsening_and_refinement.
+   * Refine all cells @p times times. In other words, in each one of
+   * the @p times iterations, loop over all cells and refine each cell
+   * uniformly into $2^\text{dim}$ children. In practice, this
+   * function repeats the following operations @p times times: call
+   * set_all_refine_flags() followed by
+   * execute_coarsening_and_refinement(). The end result is that the
+   * number of cells increases by a factor of
+   * $(2^\text{dim})^\text{times}=2^{\text{dim} \times \text{times}}$.
    *
-   * The latter function may throw an exception if it creates cells that are
-   * distorted (see its documentation for an explanation). This exception will
-   * be propagated through this function if that happens, and you may not get
-   * the actual number of refinement steps in that case.
+   * The execute_coarsening_and_refinement() function called in this
+   * loop may throw an exception if it creates cells that are
+   * distorted (see its documentation for an explanation). This
+   * exception will be propagated through this function if that
+   * happens, and you may not get the actual number of refinement
+   * steps in that case.
    *
    * @note This function triggers the pre- and post-refinement signals before
    * and after doing each individual refinement cycle (i.e. more than once if
-   * times > 1) . See the section on signals in the general documentation of
+   * `times > 1`) . See the section on signals in the general documentation of
    * this class.
    */
   void
   refine_global(const unsigned int times = 1);
+
+  /**
+   * Coarsen all cells the given number of times.
+   *
+   * In each of one of the @p times iterations, all cells will be marked for
+   * coarsening. If an active cell is already on the coarsest level, it will
+   * be ignored.
+   *
+   * @note This function triggers the pre- and post-refinement signals before
+   * and after doing each individual coarsening cycle (i.e. more than once if
+   * `times > 1`) . See the section on signals in the general documentation of
+   * this class.
+   */
+  void
+  coarsen_global(const unsigned int times = 1);
 
   /**
    * Execute both refinement and coarsening of the triangulation.
@@ -2206,9 +2086,17 @@ public:
     /**
      * This signal is triggered at the end of execution of the
      * Triangulation::execute_coarsening_and_refinement() function when the
-     * triangulation has reached its final state
+     * triangulation has reached its final state.
      */
     boost::signals2::signal<void()> post_refinement;
+
+    /**
+     * This signal is triggered at the beginning of execution of the
+     * GridTools::partition_triangulation() and
+     * GridTools::partition_triangulation_zorder() functions. At the time this
+     * signal is triggered, the triangulation is still unchanged.
+     */
+    boost::signals2::signal<void()> pre_partition;
 
     /**
      * This signal is triggered when a function in deal.II moves the grid
@@ -2298,6 +2186,8 @@ public:
      * expensive for a process to handle this particular cell. If several
      * functions are connected to this signal, their return values will be
      * summed to calculate the final weight.
+     *
+     * This function is used in step-68.
      */
     boost::signals2::signal<unsigned int(const cell_iterator &,
                                          const CellStatus),
@@ -2329,11 +2219,45 @@ public:
 
     /**
      * This signal is triggered at the beginning of execution of the
+     * parallel::distributed::Triangulation::repartition() function. At the time
+     * this signal is triggered, the triangulation is still unchanged.
+     *
+     * @note The parallel::distributed::Triangulation::repartition() function is
+     * also called by parallel::distributed::Triangulation::load(). Thus, the
+     * pre_distributed_repartition signal will be triggered after the
+     * pre_distributed_load one.
+     */
+    boost::signals2::signal<void()> pre_distributed_repartition;
+
+    /**
+     * This signal is triggered at the end of execution of the
+     * parallel::distributed::Triangulation::repartition()
+     * function when the triangulation has reached its final state.
+     */
+    boost::signals2::signal<void()> post_distributed_repartition;
+
+    /**
+     * This signal is triggered at the beginning of execution of the
      * parallel::distributed::Triangulation::save()
      * function. At the time this signal is triggered, the triangulation
      * is still unchanged.
      */
     boost::signals2::signal<void()> pre_distributed_save;
+
+    /**
+     * This signal is triggered at the end of execution of the
+     * parallel::distributed::Triangulation::save()
+     * function when the triangulation has reached its final state.
+     */
+    boost::signals2::signal<void()> post_distributed_save;
+
+    /**
+     * This signal is triggered at the beginning of execution of the
+     * parallel::distributed::Triangulation::load()
+     * function. At the time this signal is triggered, the triangulation
+     * is still unchanged.
+     */
+    boost::signals2::signal<void()> pre_distributed_load;
 
     /**
      * This signal is triggered at the end of execution of the
@@ -2706,6 +2630,20 @@ public:
 
   /**
    * Iterator to the first used cell on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   cell_iterator
   begin(const unsigned int level = 0) const;
@@ -2725,6 +2663,20 @@ public:
    *  @endcode
    * have zero iterations, as may be expected if there are no active cells on
    * this level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   active_cell_iterator
   begin_active(const unsigned int level = 0) const;
@@ -2739,6 +2691,20 @@ public:
   /**
    * Return an iterator which is the first iterator not on level. If @p level
    * is the last level, then this returns <tt>end()</tt>.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   cell_iterator
   end(const unsigned int level) const;
@@ -2747,6 +2713,20 @@ public:
    * Return an active iterator which is the first active iterator not on the
    * given level. If @p level is the last level, then this returns
    * <tt>end()</tt>.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   active_cell_iterator
   end_active(const unsigned int level) const;
@@ -2763,6 +2743,21 @@ public:
    */
   active_cell_iterator
   last_active() const;
+
+  /**
+   * Return an iterator to a cell of this Triangulation object constructed from
+   * an independent CellId object.
+   *
+   * If the given argument corresponds to a valid cell in this triangulation,
+   * this operation will always succeed for sequential triangulations where the
+   * current processor stores all cells that are part of the triangulation. On
+   * the other hand, if this is a parallel triangulation, then the current
+   * processor may not actually know about this cell. In this case, this
+   * operation will succeed for locally relevant cells, but may not for
+   * artificial cells that are less refined on the current processor.
+   */
+  cell_iterator
+  create_cell_iterator(const CellId &cell_id) const;
 
   /**
    * @name Cell iterator functions returning ranges of iterators
@@ -3060,7 +3055,7 @@ public:
    * may return a value greater than the number of active cells reported by
    * the triangulation object on the current processor.
    */
-  virtual types::global_dof_index
+  virtual types::global_cell_index
   n_global_active_cells() const;
 
 
@@ -3381,8 +3376,33 @@ public:
     std::pair<std::pair<cell_iterator, unsigned int>, std::bitset<3>>> &
   get_periodic_face_map() const;
 
+  /**
+   * Return vector filled with the used reference-cell types of this
+   * triangulation.
+   */
+  const std::vector<ReferenceCell::Type> &
+  get_reference_cell_types() const;
 
+  /**
+   * Indicate if the triangulation only consists of hypercube-like cells, i.e.,
+   * lines, quadrilaterals, or hexahedra.
+   */
+  bool
+  all_reference_cell_types_are_hyper_cube() const;
+
+#ifdef DOXYGEN
+  /**
+   * Write and read the data of this object from a stream for the purpose
+   * of serialization.
+   */
+  template <class Archive>
+  void
+  serialize(Archive &archive, const unsigned int version);
+#else
+  // This macro defines the serialize() method that is compatible with
+  // the templated save() and load() method that have been implemented.
   BOOST_SERIALIZATION_SPLIT_MEMBER()
+#endif
 
   /**
    * @name Exceptions
@@ -3394,10 +3414,14 @@ public:
    *
    * @ingroup Exceptions
    */
-  DeclException1(ExcInvalidLevel,
+  DeclException2(ExcInvalidLevel,
                  int,
-                 << "The given level " << arg1
-                 << " is not in the valid range!");
+                 int,
+                 << "You are requesting information from refinement level "
+                 << arg1
+                 << " of a triangulation, but this triangulation only has "
+                 << arg2 << " refinement levels. The given level " << arg1
+                 << " must be *less* than " << arg2 << ".");
   /**
    * The function raising this exception can only operate on an empty
    * Triangulation, i.e., a Triangulation without grid cells.
@@ -3451,6 +3475,18 @@ public:
                  << "The given boundary_id " << arg1
                  << " is not defined in this Triangulation!");
 
+  /**
+   * Exception
+   *
+   * @ingroup Exceptions
+   */
+  DeclExceptionMsg(
+    ExcInconsistentCoarseningFlags,
+    "A cell is flagged for coarsening, but either not all of its siblings "
+    "are active or flagged for coarsening as well. Please clean up all "
+    "coarsen flags on your triangulation via "
+    "Triangulation::prepare_coarsening_and_refinement() beforehand!");
+
   /*
    * @}
    */
@@ -3461,6 +3497,12 @@ protected:
    * general doc of this class for more information about this.
    */
   MeshSmoothing smooth_grid;
+
+  /**
+   * Vector caching all reference-cell types of the given triangulation
+   * (also in the distributed case).
+   */
+  std::vector<ReferenceCell::Type> reference_cell_types;
 
   /**
    * Write a bool vector to the given stream, writing a pre- and a postfix
@@ -3498,8 +3540,22 @@ protected:
   void
   update_periodic_face_map();
 
+  /**
+   * Update the internal reference_cell_types vector.
+   */
+  virtual void
+  update_reference_cell_types();
+
 
 private:
+  /**
+   * Policy with the Triangulation-specific tasks related to creation,
+   * refinement, and coarsening.
+   */
+  std::unique_ptr<
+    dealii::internal::TriangulationImplementation::Policy<dim, spacedim>>
+    policy;
+
   /**
    * If add_periodicity() is called, this variable stores the given periodic
    * face pairs on level 0 for later access during the identification of ghost
@@ -3573,12 +3629,40 @@ private:
 
   /**
    * Iterator to the first used line on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   line_iterator
   begin_line(const unsigned int level = 0) const;
 
   /**
    * Iterator to the first active line on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   active_line_iterator
   begin_active_line(const unsigned int level = 0) const;
@@ -3603,18 +3687,60 @@ private:
    * Iterator to the first quad, used or not, on the given level. If a level
    * has no quads, a past-the-end iterator is returned.  If quads are no
    * cells, i.e. for $dim>2$ no level argument must be given.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   raw_quad_iterator
   begin_raw_quad(const unsigned int level = 0) const;
 
   /**
    * Iterator to the first used quad on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   quad_iterator
   begin_quad(const unsigned int level = 0) const;
 
   /**
    * Iterator to the first active quad on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   active_quad_iterator
   begin_active_quad(const unsigned int level = 0) const;
@@ -3637,19 +3763,61 @@ private:
 
   /**
    * Iterator to the first hex, used or not, on level @p level. If a level has
-   * no hexs, a past-the-end iterator is returned.
+   * no hexes, a past-the-end iterator is returned.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   raw_hex_iterator
   begin_raw_hex(const unsigned int level = 0) const;
 
   /**
    * Iterator to the first used hex on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   hex_iterator
   begin_hex(const unsigned int level = 0) const;
 
   /**
    * Iterator to the first active hex on level @p level.
+   *
+   * @note The given @p level argument needs to correspond to a level of the
+   *   triangulation, i.e., should be less than the value returned by
+   *   n_levels(). On the other hand, for parallel computations using
+   *   a parallel::distributed::Triangulation object, it is often convenient
+   *   to write loops over the cells of all levels of the global mesh, even
+   *   if the <i>local</i> portion of the triangulation does not actually
+   *   have cells at one of the higher levels. In those cases, the
+   *   @p level argument is accepted if it is less than what the
+   *   n_global_levels() function returns. If the given @p level is
+   *   between the values returned by n_levels() and n_global_levels(),
+   *   then no cells exist in the local portion of the triangulation
+   *   at this level, and the function simply returns what end() would
+   *   return.
    */
   active_hex_iterator
   begin_active_hex(const unsigned int level = 0) const;
@@ -3692,6 +3860,12 @@ private:
   reset_active_cell_indices();
 
   /**
+   * Reset global cell ids and globale level cell ids.
+   */
+  void
+  reset_global_cell_indices();
+
+  /**
    * Refine all cells on all levels which were previously flagged for
    * refinement.
    *
@@ -3724,11 +3898,45 @@ private:
   fix_coarsen_flags();
 
   /**
+   * Translate the unique id of a coarse cell to its index. See the glossary
+   * entry on
+   * @ref GlossCoarseCellId "coarse cell IDs"
+   * for more information.
+   *
+   * @note For serial and shared triangulation both id and index are the same.
+   *       For distributed triangulations setting both might differ, since the
+   *       id might correspond to a global id and the index to a local id.
+   *
+   * @param coarse_cell_id Unique id of the coarse cell.
+   * @return Index of the coarse cell within the current triangulation.
+   */
+  virtual unsigned int
+  coarse_cell_id_to_coarse_cell_index(
+    const types::coarse_cell_id coarse_cell_id) const;
+
+
+  /**
+   * Translate the index of coarse cell to its unique id. See the glossary
+   * entry on
+   * @ref GlossCoarseCellId "coarse cell IDs"
+   * for more information.
+   *
+   * @note See the note of the method
+   * coarse_cell_id_to_coarse_cell_index().
+   *
+   * @param coarse_cell_index Index of the coarse cell.
+   * @return Id of the coarse cell.
+   */
+  virtual types::coarse_cell_id
+  coarse_cell_index_to_coarse_cell_id(
+    const unsigned int coarse_cell_index) const;
+
+  /**
    * Array of pointers pointing to the objects storing the cell data on the
    * different levels.
    */
-  std::vector<std::unique_ptr<
-    dealii::internal::TriangulationImplementation::TriaLevel<dim>>>
+  std::vector<
+    std::unique_ptr<dealii::internal::TriangulationImplementation::TriaLevel>>
     levels;
 
   /**
@@ -3736,7 +3944,7 @@ private:
    * in 2D it contains data concerning lines and in 3D quads and lines.  All
    * of these have no level and are therefore treated separately.
    */
-  std::unique_ptr<dealii::internal::TriangulationImplementation::TriaFaces<dim>>
+  std::unique_ptr<dealii::internal::TriangulationImplementation::TriaFaces>
     faces;
 
 
@@ -3831,11 +4039,10 @@ private:
 
   friend struct dealii::internal::TriaAccessorImplementation::Implementation;
 
-  friend class hp::DoFHandler<dim, spacedim>;
-
   friend struct dealii::internal::TriangulationImplementation::Implementation;
+  friend struct dealii::internal::TriangulationImplementation::
+    ImplementationMixedMesh;
 
-  template <typename>
   friend class dealii::internal::TriangulationImplementation::TriaObjects;
 
   // explicitly check for sensible template arguments, but not on windows
@@ -3849,19 +4056,6 @@ private:
 
 
 #ifndef DOXYGEN
-
-
-template <int structdim>
-inline CellData<structdim>::CellData()
-{
-  for (unsigned int i = 0; i < GeometryInfo<structdim>::vertices_per_cell; ++i)
-    vertices[i] = numbers::invalid_unsigned_int;
-
-  material_id = 0;
-
-  // And the manifold to be invalid
-  manifold_id = numbers::flat_manifold_id;
-}
 
 
 
@@ -3908,8 +4102,7 @@ template <int dim, int spacedim>
 inline bool
 Triangulation<dim, spacedim>::vertex_used(const unsigned int index) const
 {
-  Assert(index < vertices_used.size(),
-         ExcIndexRange(index, 0, vertices_used.size()));
+  AssertIndexRange(index, vertices_used.size());
   return vertices_used[index];
 }
 
@@ -3958,8 +4151,8 @@ Triangulation<dim, spacedim>::save(Archive &ar, const unsigned int) const
 
   unsigned int n_levels = levels.size();
   ar &         n_levels;
-  for (unsigned int i = 0; i < levels.size(); ++i)
-    ar &levels[i];
+  for (const auto &level : levels)
+    ar &level;
 
   // boost dereferences a nullptr when serializing a nullptr
   // at least up to 1.65.1. This causes problems with clang-5.
@@ -4001,12 +4194,11 @@ Triangulation<dim, spacedim>::load(Archive &ar, const unsigned int)
   unsigned int size;
   ar &         size;
   levels.resize(size);
-  for (unsigned int i = 0; i < levels.size(); ++i)
+  for (auto &level_ : levels)
     {
-      std::unique_ptr<internal::TriangulationImplementation::TriaLevel<dim>>
-          level;
-      ar &level;
-      levels[i] = std::move(level);
+      std::unique_ptr<internal::TriangulationImplementation::TriaLevel> level;
+      ar &                                                              level;
+      level_ = std::move(level);
     }
 
   // Workaround for nullptr, see in save().
@@ -4025,8 +4217,8 @@ Triangulation<dim, spacedim>::load(Archive &ar, const unsigned int)
   // they are easy enough to rebuild upon re-loading data. do
   // this here. don't forget to first resize the fields appropriately
   {
-    for (unsigned int l = 0; l < levels.size(); ++l)
-      levels[l]->active_cell_indices.resize(levels[l]->refine_flags.size());
+    for (auto &level : levels)
+      level->active_cell_indices.resize(level->refine_flags.size());
     reset_active_cell_indices();
   }
 
@@ -4052,11 +4244,29 @@ Triangulation<dim, spacedim>::load(Archive &ar, const unsigned int)
 }
 
 
+
+template <int dim, int spacedim>
+inline unsigned int
+Triangulation<dim, spacedim>::coarse_cell_id_to_coarse_cell_index(
+  const types::coarse_cell_id coarse_cell_id) const
+{
+  return coarse_cell_id;
+}
+
+
+
+template <int dim, int spacedim>
+inline types::coarse_cell_id
+Triangulation<dim, spacedim>::coarse_cell_index_to_coarse_cell_id(
+  const unsigned int coarse_cell_index) const
+{
+  return coarse_cell_index;
+}
+
+
+
 /* -------------- declaration of explicit specializations ------------- */
 
-template <>
-unsigned int
-Triangulation<1, 1>::n_raw_lines(const unsigned int level) const;
 template <>
 unsigned int
 Triangulation<1, 1>::n_quads() const;
@@ -4089,9 +4299,6 @@ Triangulation<1, 1>::max_adjacent_cells() const;
 
 template <>
 unsigned int
-Triangulation<1, 2>::n_raw_lines(const unsigned int level) const;
-template <>
-unsigned int
 Triangulation<1, 2>::n_quads() const;
 template <>
 unsigned int
@@ -4119,9 +4326,6 @@ Triangulation<1, 2>::max_adjacent_cells() const;
 // -- Explicit specializations for codimension two grids
 
 
-template <>
-unsigned int
-Triangulation<1, 3>::n_raw_lines(const unsigned int level) const;
 template <>
 unsigned int
 Triangulation<1, 3>::n_quads() const;

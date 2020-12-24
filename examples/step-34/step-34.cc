@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2009 - 2018 by the deal.II authors
+ * Copyright (C) 2009 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -238,7 +238,7 @@ namespace Step34
 
     Triangulation<dim - 1, dim> tria;
     FE_Q<dim - 1, dim>          fe;
-    DoFHandler<dim - 1, dim>    dh;
+    DoFHandler<dim - 1, dim>    dof_handler;
     MappingQ<dim - 1, dim>      mapping;
 
     // In BEM methods, the matrix that is generated is dense. Depending on the
@@ -317,7 +317,7 @@ namespace Step34
   BEMProblem<dim>::BEMProblem(const unsigned int fe_degree,
                               const unsigned int mapping_degree)
     : fe(fe_degree)
-    , dh(tria)
+    , dof_handler(tria)
     , mapping(mapping_degree, true)
     , wind(dim)
     , singular_quadrature_order(5)
@@ -436,15 +436,13 @@ namespace Step34
     }
     prm.leave_subsection();
 
-    prm.enter_subsection(std::string("Wind function ") +
-                         Utilities::int_to_string(dim) + std::string("d"));
+    prm.enter_subsection("Wind function " + std::to_string(dim) + "d");
     {
       wind.parse_parameters(prm);
     }
     prm.leave_subsection();
 
-    prm.enter_subsection(std::string("Exact solution ") +
-                         Utilities::int_to_string(dim) + std::string("d"));
+    prm.enter_subsection("Exact solution " + std::to_string(dim) + "d");
     {
       exact_solution.parse_parameters(prm);
     }
@@ -460,7 +458,7 @@ namespace Step34
     // the two simulations, we could do this by setting the corresponding "Run
     // 2d simulation" or "Run 3d simulation" flag to false:
     run_in_this_dimension =
-      prm.get_bool("Run " + Utilities::int_to_string(dim) + "d simulation");
+      prm.get_bool("Run " + std::to_string(dim) + "d simulation");
   }
 
 
@@ -484,21 +482,19 @@ namespace Step34
   // in 3d.
   //
   // The other detail that is required for appropriate refinement of
-  // the boundary element mesh, is an accurate description of the
-  // manifold that the mesh is approximating. We already saw this
+  // the boundary element mesh is an accurate description of the
+  // manifold that the mesh approximates. We already saw this
   // several times for the boundary of standard finite element meshes
   // (for example in step-5 and step-6), and here the principle and
   // usage is the same, except that the SphericalManifold class takes
   // an additional template parameter that specifies the embedding
-  // space dimension. The function object still has to be static to
-  // live at least as long as the triangulation object to which it is
-  // attached.
+  // space dimension.
 
   template <int dim>
   void BEMProblem<dim>::read_domain()
   {
-    static const Point<dim>                      center = Point<dim>();
-    static const SphericalManifold<dim - 1, dim> manifold(center);
+    const Point<dim>                      center = Point<dim>();
+    const SphericalManifold<dim - 1, dim> manifold(center);
 
     std::ifstream in;
     switch (dim)
@@ -520,6 +516,9 @@ namespace Step34
     gi.read_ucd(in);
 
     tria.set_all_manifold_ids(1);
+    // The call to Triangulation::set_manifold copies the manifold (via
+    // Manifold::clone()), so we do not need to worry about invalid pointers
+    // to <code>manifold</code>:
     tria.set_manifold(1, manifold);
   }
 
@@ -534,9 +533,9 @@ namespace Step34
   {
     tria.refine_global(1);
 
-    dh.distribute_dofs(fe);
+    dof_handler.distribute_dofs(fe);
 
-    const unsigned int n_dofs = dh.n_dofs();
+    const unsigned int n_dofs = dof_handler.n_dofs();
 
     system_matrix.reinit(n_dofs, n_dofs);
 
@@ -560,12 +559,13 @@ namespace Step34
     FEValues<dim - 1, dim> fe_v(mapping,
                                 fe,
                                 *quadrature,
-                                update_values | update_cell_normal_vectors |
+                                update_values | update_normal_vectors |
                                   update_quadrature_points | update_JxW_values);
 
     const unsigned int n_q_points = fe_v.n_quadrature_points;
 
-    std::vector<types::global_dof_index> local_dof_indices(fe.dofs_per_cell);
+    std::vector<types::global_dof_index> local_dof_indices(
+      fe.n_dofs_per_cell());
 
     std::vector<Vector<double>> cell_wind(n_q_points, Vector<double>(dim));
     double                      normal_wind;
@@ -577,7 +577,7 @@ namespace Step34
     // cell. This is done using a vector of fe.dofs_per_cell elements, which
     // will then be distributed to the matrix in the global row $i$. The
     // following object will hold this information:
-    Vector<double> local_matrix_row_i(fe.dofs_per_cell);
+    Vector<double> local_matrix_row_i(fe.n_dofs_per_cell());
 
     // The index $i$ runs on the collocation points, which are the support
     // points of the $i$th basis function, while $j$ runs on inner integration
@@ -585,9 +585,9 @@ namespace Step34
 
     // We construct a vector of support points which will be used in the local
     // integrations:
-    std::vector<Point<dim>> support_points(dh.n_dofs());
+    std::vector<Point<dim>> support_points(dof_handler.n_dofs());
     DoFTools::map_dofs_to_support_points<dim - 1, dim>(mapping,
-                                                       dh,
+                                                       dof_handler,
                                                        support_points);
 
 
@@ -595,11 +595,7 @@ namespace Step34
     // we first initialize the FEValues object and get the values of
     // $\mathbf{\tilde v}$ at the quadrature points (this vector field should
     // be constant, but it doesn't hurt to be more general):
-    typename DoFHandler<dim - 1, dim>::active_cell_iterator cell =
-                                                              dh.begin_active(),
-                                                            endc = dh.end();
-
-    for (cell = dh.begin_active(); cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_v.reinit(cell);
         cell->get_dof_indices(local_dof_indices);
@@ -615,14 +611,14 @@ namespace Step34
         // of the local degrees of freedom is the same as the support point
         // $i$. A the beginning of the loop we therefore check whether this is
         // the case, and we store which one is the singular index:
-        for (unsigned int i = 0; i < dh.n_dofs(); ++i)
+        for (unsigned int i = 0; i < dof_handler.n_dofs(); ++i)
           {
             local_matrix_row_i = 0;
 
             bool         is_singular    = false;
             unsigned int singular_index = numbers::invalid_unsigned_int;
 
-            for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
+            for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
               if (local_dof_indices[j] == i)
                 {
                   singular_index = j;
@@ -647,7 +643,7 @@ namespace Step34
                     system_rhs(i) += (LaplaceKernel::single_layer(R) *
                                       normal_wind * fe_v.JxW(q));
 
-                    for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
+                    for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
 
                       local_matrix_row_i(j) -=
                         ((LaplaceKernel::double_layer(R) * normals[q]) *
@@ -680,8 +676,8 @@ namespace Step34
                   mapping,
                   fe,
                   singular_quadrature,
-                  update_jacobians | update_values |
-                    update_cell_normal_vectors | update_quadrature_points);
+                  update_jacobians | update_values | update_normal_vectors |
+                    update_quadrature_points);
 
                 fe_v_singular.reinit(cell);
 
@@ -707,7 +703,7 @@ namespace Step34
                     system_rhs(i) += (LaplaceKernel::single_layer(R) *
                                       normal_wind * fe_v_singular.JxW(q));
 
-                    for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
+                    for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
                       {
                         local_matrix_row_i(j) -=
                           ((LaplaceKernel::double_layer(R) *
@@ -720,7 +716,7 @@ namespace Step34
 
             // Finally, we need to add the contributions of the current cell
             // to the global matrix.
-            for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
+            for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
               system_matrix(i, local_dof_indices[j]) += local_matrix_row_i(j);
           }
       }
@@ -736,12 +732,12 @@ namespace Step34
     // of the alpha angles, or solid angles (see the formula in the
     // introduction for this). The result is then added back onto the system
     // matrix object to yield the final form of the matrix:
-    Vector<double> ones(dh.n_dofs());
+    Vector<double> ones(dof_handler.n_dofs());
     ones.add(-1.);
 
     system_matrix.vmult(alpha, ones);
     alpha.add(1);
-    for (unsigned int i = 0; i < dh.n_dofs(); ++i)
+    for (unsigned int i = 0; i < dof_handler.n_dofs(); ++i)
       system_matrix(i, i) += alpha(i);
   }
 
@@ -767,7 +763,7 @@ namespace Step34
   {
     Vector<float> difference_per_cell(tria.n_active_cells());
     VectorTools::integrate_difference(mapping,
-                                      dh,
+                                      dof_handler,
                                       phi,
                                       exact_solution,
                                       difference_per_cell,
@@ -787,7 +783,7 @@ namespace Step34
 
     const double       alpha_error    = difference_per_node.linfty_norm();
     const unsigned int n_active_cells = tria.n_active_cells();
-    const unsigned int n_dofs         = dh.n_dofs();
+    const unsigned int n_dofs         = dof_handler.n_dofs();
 
     deallog << "Cycle " << cycle << ':' << std::endl
             << "   Number of active cells:       " << n_active_cells
@@ -871,11 +867,12 @@ namespace Step34
     const DoFHandler<2, 3>::active_cell_iterator &,
     const unsigned int index) const
   {
-    Assert(index < fe.dofs_per_cell, ExcIndexRange(0, fe.dofs_per_cell, index));
+    Assert(index < fe.n_dofs_per_cell(),
+           ExcIndexRange(0, fe.n_dofs_per_cell(), index));
 
     static std::vector<QGaussOneOverR<2>> quadratures;
     if (quadratures.size() == 0)
-      for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+      for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
         quadratures.emplace_back(singular_quadrature_order,
                                  fe.get_unit_support_points()[i],
                                  true);
@@ -888,7 +885,8 @@ namespace Step34
     const DoFHandler<1, 2>::active_cell_iterator &cell,
     const unsigned int                            index) const
   {
-    Assert(index < fe.dofs_per_cell, ExcIndexRange(0, fe.dofs_per_cell, index));
+    Assert(index < fe.n_dofs_per_cell(),
+           ExcIndexRange(0, fe.n_dofs_per_cell(), index));
 
     static Quadrature<1> *q_pointer = nullptr;
     if (q_pointer)
@@ -933,20 +931,15 @@ namespace Step34
     external_dh.distribute_dofs(external_fe);
     external_phi.reinit(external_dh.n_dofs());
 
-    typename DoFHandler<dim - 1, dim>::active_cell_iterator cell =
-                                                              dh.begin_active(),
-                                                            endc = dh.end();
-
-
     FEValues<dim - 1, dim> fe_v(mapping,
                                 fe,
                                 *quadrature,
-                                update_values | update_cell_normal_vectors |
+                                update_values | update_normal_vectors |
                                   update_quadrature_points | update_JxW_values);
 
     const unsigned int n_q_points = fe_v.n_quadrature_points;
 
-    std::vector<types::global_dof_index> dofs(fe.dofs_per_cell);
+    std::vector<types::global_dof_index> dofs(fe.n_dofs_per_cell());
 
     std::vector<double>         local_phi(n_q_points);
     std::vector<double>         normal_wind(n_q_points);
@@ -957,7 +950,7 @@ namespace Step34
                                               external_dh,
                                               external_support_points);
 
-    for (cell = dh.begin_active(); cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_v.reinit(cell);
 
@@ -995,9 +988,8 @@ namespace Step34
     data_out.add_data_vector(external_phi, "external_phi");
     data_out.build_patches();
 
-    const std::string filename =
-      Utilities::int_to_string(dim) + "d_external.vtk";
-    std::ofstream file(filename);
+    const std::string filename = std::to_string(dim) + "d_external.vtk";
+    std::ofstream     file(filename);
 
     data_out.write_vtk(file);
   }
@@ -1012,7 +1004,7 @@ namespace Step34
   {
     DataOut<dim - 1, DoFHandler<dim - 1, dim>> dataout;
 
-    dataout.attach_dof_handler(dh);
+    dataout.attach_dof_handler(dof_handler);
     dataout.add_data_vector(
       phi, "phi", DataOut<dim - 1, DoFHandler<dim - 1, dim>>::type_dof_data);
     dataout.add_data_vector(
@@ -1024,9 +1016,8 @@ namespace Step34
       mapping.get_degree(),
       DataOut<dim - 1, DoFHandler<dim - 1, dim>>::curved_inner_cells);
 
-    std::string filename =
-      (Utilities::int_to_string(dim) + "d_boundary_solution_" +
-       Utilities::int_to_string(cycle) + ".vtk");
+    const std::string filename = std::to_string(dim) + "d_boundary_solution_" +
+                                 std::to_string(cycle) + ".vtk";
     std::ofstream file(filename);
 
     dataout.write_vtk(file);
@@ -1090,7 +1081,6 @@ int main()
 {
   try
     {
-      using namespace dealii;
       using namespace Step34;
 
       const unsigned int degree         = 1;

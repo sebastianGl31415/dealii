@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2011 - 2017 by the deal.II authors
+ * Copyright (C) 2011 - 2019 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -55,7 +55,6 @@
 
 #include <fstream>
 #include <iostream>
-#include <list>
 
 
 namespace Step41
@@ -122,23 +121,15 @@ namespace Step41
   class RightHandSide : public Function<dim>
   {
   public:
-    RightHandSide()
-      : Function<dim>()
-    {}
+    virtual double value(const Point<dim> & /*p*/,
+                         const unsigned int component = 0) const override
+    {
+      (void)component;
+      AssertIndexRange(component, 1);
 
-    virtual double value(const Point<dim> & p,
-                         const unsigned int component = 0) const override;
+      return -10;
+    }
   };
-
-  template <int dim>
-  double RightHandSide<dim>::value(const Point<dim> &,
-                                   const unsigned int component) const
-  {
-    (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
-
-    return -10;
-  }
 
 
 
@@ -146,23 +137,15 @@ namespace Step41
   class BoundaryValues : public Function<dim>
   {
   public:
-    BoundaryValues()
-      : Function<dim>()
-    {}
+    virtual double value(const Point<dim> & /*p*/,
+                         const unsigned int component = 0) const override
+    {
+      (void)component;
+      AssertIndexRange(component, 1);
 
-    virtual double value(const Point<dim> & p,
-                         const unsigned int component = 0) const override;
+      return 0;
+    }
   };
-
-  template <int dim>
-  double BoundaryValues<dim>::value(const Point<dim> &,
-                                    const unsigned int component) const
-  {
-    (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
-
-    return 0;
-  }
 
 
 
@@ -172,30 +155,22 @@ namespace Step41
   class Obstacle : public Function<dim>
   {
   public:
-    Obstacle()
-      : Function<dim>()
-    {}
-
     virtual double value(const Point<dim> & p,
-                         const unsigned int component = 0) const override;
+                         const unsigned int component = 0) const override
+    {
+      (void)component;
+      Assert(component == 0, ExcIndexRange(component, 0, 1));
+
+      if (p(0) < -0.5)
+        return -0.2;
+      else if (p(0) >= -0.5 && p(0) < 0.0)
+        return -0.4;
+      else if (p(0) >= 0.0 && p(0) < 0.5)
+        return -0.6;
+      else
+        return -0.8;
+    }
   };
-
-  template <int dim>
-  double Obstacle<dim>::value(const Point<dim> & p,
-                              const unsigned int component) const
-  {
-    (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
-
-    if (p(0) < -0.5)
-      return -0.2;
-    else if (p(0) >= -0.5 && p(0) < 0.0)
-      return -0.4;
-    else if (p(0) >= 0.0 && p(0) < 0.5)
-      return -0.6;
-    else
-      return -0.8;
-  }
 
 
 
@@ -293,15 +268,15 @@ namespace Step41
     system_matrix = 0;
     system_rhs    = 0;
 
-    const QGauss<dim>        quadrature_formula(fe.degree + 1);
-    const RightHandSide<dim> right_hand_side;
+    const QGauss<dim>  quadrature_formula(fe.degree + 1);
+    RightHandSide<dim> right_hand_side;
 
     FEValues<dim> fe_values(fe,
                             quadrature_formula,
                             update_values | update_gradients |
                               update_quadrature_points | update_JxW_values);
 
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
     FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
@@ -309,11 +284,7 @@ namespace Step41
 
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
-    typename DoFHandler<dim>::active_cell_iterator cell =
-                                                     dof_handler.begin_active(),
-                                                   endc = dof_handler.end();
-
-    for (; cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_values.reinit(cell);
         cell_matrix = 0;
@@ -374,22 +345,18 @@ namespace Step41
   {
     Assert(fe.degree == 1, ExcNotImplemented());
 
-    const QTrapez<dim> quadrature_formula;
-    FEValues<dim>      fe_values(fe,
+    const QTrapezoid<dim> quadrature_formula;
+    FEValues<dim>         fe_values(fe,
                             quadrature_formula,
                             update_values | update_JxW_values);
 
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
     FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
-    typename DoFHandler<dim>::active_cell_iterator cell =
-                                                     dof_handler.begin_active(),
-                                                   endc = dof_handler.end();
-
-    for (; cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_values.reinit(cell);
         cell_matrix = 0;
@@ -475,14 +442,10 @@ namespace Step41
     const Obstacle<dim> obstacle;
     std::vector<bool>   dof_touched(dof_handler.n_dofs(), false);
 
-    typename DoFHandler<dim>::active_cell_iterator cell =
-                                                     dof_handler.begin_active(),
-                                                   endc = dof_handler.end();
-    for (; cell != endc; ++cell)
-      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      for (const auto v : cell->vertex_indices())
         {
-          Assert(dof_handler.get_fe().dofs_per_cell ==
-                   GeometryInfo<dim>::vertices_per_cell,
+          Assert(dof_handler.get_fe().n_dofs_per_cell() == cell->n_vertices(),
                  ExcNotImplemented());
 
           const unsigned int dof_index = cell->vertex_dof_index(v, 0);
@@ -576,26 +539,27 @@ namespace Step41
   // @sect4{ObstacleProblem::output_results}
 
   // We use the vtk-format for the output.  The file contains the displacement
-  // and a numerical representation of the active set. The function looks
-  // standard but note that we can add an IndexSet object to the DataOut
-  // object in exactly the same way as a regular solution vector: it is simply
-  // interpreted as a function that is either zero (when a degree of freedom
-  // is not part of the IndexSet) or one (if it is).
+  // and a numerical representation of the active set.
   template <int dim>
   void ObstacleProblem<dim>::output_results(const unsigned int iteration) const
   {
     std::cout << "   Writing graphical output..." << std::endl;
 
+    TrilinosWrappers::MPI::Vector active_set_vector(
+      dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+    for (const auto index : active_set)
+      active_set_vector[index] = 1.;
+
     DataOut<dim> data_out;
 
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(solution, "displacement");
-    data_out.add_data_vector(active_set, "active_set");
+    data_out.add_data_vector(active_set_vector, "active_set");
     data_out.add_data_vector(contact_force, "lambda");
 
     data_out.build_patches();
 
-    std::ofstream output_vtk(std::string("output_") +
+    std::ofstream output_vtk("output_" +
                              Utilities::int_to_string(iteration, 3) + ".vtk");
     data_out.write_vtk(output_vtk);
   }

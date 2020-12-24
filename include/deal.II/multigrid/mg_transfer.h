@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2001 - 2018 by the deal.II authors
+// Copyright (C) 2001 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -19,6 +19,8 @@
 #include <deal.II/base/config.h>
 
 #include <deal.II/base/mg_level_object.h>
+
+#include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
 
@@ -51,13 +53,13 @@ namespace internal
 
     static const bool requires_distributed_sparsity_pattern = false;
 
-    template <typename SparsityPatternType, typename DoFHandlerType>
+    template <typename SparsityPatternType, int dim, int spacedim>
     static void
     reinit(Matrix &                   matrix,
            Sparsity &                 sparsity,
            int                        level,
            const SparsityPatternType &sp,
-           const DoFHandlerType &)
+           const DoFHandler<dim, spacedim> &)
     {
       sparsity.copy_from(sp);
       (void)level;
@@ -74,19 +76,17 @@ namespace internal
 
     static const bool requires_distributed_sparsity_pattern = false;
 
-    template <typename SparsityPatternType, typename DoFHandlerType>
+    template <typename SparsityPatternType, int dim, int spacedim>
     static void
     reinit(Matrix &matrix,
            Sparsity &,
-           int                        level,
-           const SparsityPatternType &sp,
-           DoFHandlerType &           dh)
+           int                              level,
+           const SparsityPatternType &      sp,
+           const DoFHandler<dim, spacedim> &dh)
     {
-      const parallel::Triangulation<DoFHandlerType::dimension,
-                                    DoFHandlerType::space_dimension>
-        *dist_tria = dynamic_cast<
-          const parallel::Triangulation<DoFHandlerType::dimension,
-                                        DoFHandlerType::space_dimension> *>(
+      const dealii::parallel::TriangulationBase<dim, spacedim> *dist_tria =
+        dynamic_cast<
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
           &(dh.get_triangulation()));
       MPI_Comm communicator =
         dist_tria != nullptr ? dist_tria->get_communicator() : MPI_COMM_SELF;
@@ -107,19 +107,17 @@ namespace internal
 
     static const bool requires_distributed_sparsity_pattern = false;
 
-    template <typename SparsityPatternType, typename DoFHandlerType>
+    template <typename SparsityPatternType, int dim, int spacedim>
     static void
     reinit(Matrix &matrix,
            Sparsity &,
-           int                        level,
-           const SparsityPatternType &sp,
-           DoFHandlerType &           dh)
+           int                              level,
+           const SparsityPatternType &      sp,
+           const DoFHandler<dim, spacedim> &dh)
     {
-      const parallel::Triangulation<DoFHandlerType::dimension,
-                                    DoFHandlerType::space_dimension>
-        *dist_tria = dynamic_cast<
-          const parallel::Triangulation<DoFHandlerType::dimension,
-                                        DoFHandlerType::space_dimension> *>(
+      const dealii::parallel::TriangulationBase<dim, spacedim> *dist_tria =
+        dynamic_cast<
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
           &(dh.get_triangulation()));
       MPI_Comm communicator =
         dist_tria != nullptr ? dist_tria->get_communicator() : MPI_COMM_SELF;
@@ -132,6 +130,38 @@ namespace internal
   };
 
 #  ifdef DEAL_II_WITH_MPI
+#    ifdef DEAL_II_TRILINOS_WITH_TPETRA
+  template <typename Number>
+  struct MatrixSelector<dealii::LinearAlgebra::TpetraWrappers::Vector<Number>>
+  {
+    using Sparsity = ::dealii::TrilinosWrappers::SparsityPattern;
+    using Matrix   = ::dealii::TrilinosWrappers::SparseMatrix;
+
+    static const bool requires_distributed_sparsity_pattern = false;
+
+    template <typename SparsityPatternType, int dim, int spacedim>
+    static void
+    reinit(Matrix &matrix,
+           Sparsity &,
+           int                              level,
+           const SparsityPatternType &      sp,
+           const DoFHandler<dim, spacedim> &dh)
+    {
+      const dealii::parallel::TriangulationBase<dim, spacedim> *dist_tria =
+        dynamic_cast<
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+          &(dh.get_triangulation()));
+      MPI_Comm communicator =
+        dist_tria != nullptr ? dist_tria->get_communicator() : MPI_COMM_SELF;
+      matrix.reinit(dh.locally_owned_mg_dofs(level + 1),
+                    dh.locally_owned_mg_dofs(level),
+                    sp,
+                    communicator,
+                    true);
+    }
+  };
+#    endif
+
   template <>
   struct MatrixSelector<dealii::LinearAlgebra::EpetraWrappers::Vector>
   {
@@ -140,19 +170,17 @@ namespace internal
 
     static const bool requires_distributed_sparsity_pattern = false;
 
-    template <typename SparsityPatternType, typename DoFHandlerType>
+    template <typename SparsityPatternType, int dim, int spacedim>
     static void
     reinit(Matrix &matrix,
            Sparsity &,
-           int                        level,
-           const SparsityPatternType &sp,
-           DoFHandlerType &           dh)
+           int                              level,
+           const SparsityPatternType &      sp,
+           const DoFHandler<dim, spacedim> &dh)
     {
-      const parallel::Triangulation<DoFHandlerType::dimension,
-                                    DoFHandlerType::space_dimension>
-        *dist_tria = dynamic_cast<
-          const parallel::Triangulation<DoFHandlerType::dimension,
-                                        DoFHandlerType::space_dimension> *>(
+      const dealii::parallel::TriangulationBase<dim, spacedim> *dist_tria =
+        dynamic_cast<
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
           &(dh.get_triangulation()));
       MPI_Comm communicator =
         dist_tria != nullptr ? dist_tria->get_communicator() : MPI_COMM_SELF;
@@ -175,13 +203,13 @@ namespace internal
 
     static const bool requires_distributed_sparsity_pattern = false;
 
-    template <typename SparsityPatternType, typename DoFHandlerType>
+    template <typename SparsityPatternType, int dim, int spacedim>
     static void
     reinit(Matrix &,
            Sparsity &,
            int,
            const SparsityPatternType &,
-           const DoFHandlerType &)
+           const DoFHandler<dim, spacedim> &)
     {
       AssertThrow(
         false,
@@ -202,19 +230,17 @@ namespace internal
 
     static const bool requires_distributed_sparsity_pattern = true;
 
-    template <typename SparsityPatternType, typename DoFHandlerType>
+    template <typename SparsityPatternType, int dim, int spacedim>
     static void
     reinit(Matrix &matrix,
            Sparsity &,
-           int                        level,
-           const SparsityPatternType &sp,
-           const DoFHandlerType &     dh)
+           int                              level,
+           const SparsityPatternType &      sp,
+           const DoFHandler<dim, spacedim> &dh)
     {
-      const parallel::Triangulation<DoFHandlerType::dimension,
-                                    DoFHandlerType::space_dimension>
-        *dist_tria = dynamic_cast<
-          const parallel::Triangulation<DoFHandlerType::dimension,
-                                        DoFHandlerType::space_dimension> *>(
+      const dealii::parallel::TriangulationBase<dim, spacedim> *dist_tria =
+        dynamic_cast<
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
           &(dh.get_triangulation()));
       MPI_Comm communicator =
         dist_tria != nullptr ? dist_tria->get_communicator() : MPI_COMM_SELF;
@@ -240,9 +266,6 @@ namespace internal
 /**
  * Implementation of transfer between the global vectors and the multigrid
  * levels for use in the derived class MGTransferPrebuilt and other classes.
- *
- * @author Wolfgang Bangerth, Guido Kanschat, Timo Heister, Martin Kronbichler
- * @date 1999, 2000, 2001, 2002, 2003, 2004, 2012, 2015
  */
 template <typename VectorType>
 class MGLevelGlobalTransfer : public MGTransferBase<VectorType>
@@ -262,7 +285,7 @@ public:
    */
   template <int dim, class InVector, int spacedim>
   void
-  copy_to_mg(const DoFHandler<dim, spacedim> &mg_dof,
+  copy_to_mg(const DoFHandler<dim, spacedim> &dof_handler,
              MGLevelObject<VectorType> &      dst,
              const InVector &                 src) const;
 
@@ -275,7 +298,7 @@ public:
    */
   template <int dim, class OutVector, int spacedim>
   void
-  copy_from_mg(const DoFHandler<dim, spacedim> &mg_dof,
+  copy_from_mg(const DoFHandler<dim, spacedim> &dof_handler,
                OutVector &                      dst,
                const MGLevelObject<VectorType> &src) const;
 
@@ -286,7 +309,7 @@ public:
    */
   template <int dim, class OutVector, int spacedim>
   void
-  copy_from_mg_add(const DoFHandler<dim, spacedim> &mg_dof,
+  copy_from_mg_add(const DoFHandler<dim, spacedim> &dof_handler,
                    OutVector &                      dst,
                    const MGLevelObject<VectorType> &src) const;
 
@@ -326,7 +349,8 @@ protected:
    */
   template <int dim, int spacedim>
   void
-  fill_and_communicate_copy_indices(const DoFHandler<dim, spacedim> &mg_dof);
+  fill_and_communicate_copy_indices(
+    const DoFHandler<dim, spacedim> &dof_handler);
 
   /**
    * Sizes of the multi-level vectors.
@@ -385,6 +409,14 @@ protected:
    */
   SmartPointer<const MGConstrainedDoFs, MGLevelGlobalTransfer<VectorType>>
     mg_constrained_dofs;
+
+private:
+  /**
+   * This function is called to make sure that build() has been invoked.
+   */
+  template <int dim, int spacedim>
+  void
+  assert_built(const DoFHandler<dim, spacedim> &dof_handler) const;
 };
 
 
@@ -396,9 +428,6 @@ protected:
  * LinearAlgebra::distributed::Vector that requires a few different calling
  * routines as compared to the %parallel vectors in the PETScWrappers and
  * TrilinosWrappers namespaces.
- *
- * @author Martin Kronbichler
- * @date 2016
  */
 template <typename Number>
 class MGLevelGlobalTransfer<LinearAlgebra::distributed::Vector<Number>>
@@ -419,7 +448,7 @@ public:
    */
   template <int dim, typename Number2, int spacedim>
   void
-  copy_to_mg(const DoFHandler<dim, spacedim> &                          mg_dof,
+  copy_to_mg(const DoFHandler<dim, spacedim> &dof_handler,
              MGLevelObject<LinearAlgebra::distributed::Vector<Number>> &dst,
              const LinearAlgebra::distributed::Vector<Number2> &src) const;
 
@@ -433,8 +462,8 @@ public:
   template <int dim, typename Number2, int spacedim>
   void
   copy_from_mg(
-    const DoFHandler<dim, spacedim> &                                mg_dof,
-    LinearAlgebra::distributed::Vector<Number2> &                    dst,
+    const DoFHandler<dim, spacedim> &            dof_handler,
+    LinearAlgebra::distributed::Vector<Number2> &dst,
     const MGLevelObject<LinearAlgebra::distributed::Vector<Number>> &src) const;
 
   /**
@@ -445,8 +474,8 @@ public:
   template <int dim, typename Number2, int spacedim>
   void
   copy_from_mg_add(
-    const DoFHandler<dim, spacedim> &                                mg_dof,
-    LinearAlgebra::distributed::Vector<Number2> &                    dst,
+    const DoFHandler<dim, spacedim> &            dof_handler,
+    LinearAlgebra::distributed::Vector<Number2> &dst,
     const MGLevelObject<LinearAlgebra::distributed::Vector<Number>> &src) const;
 
   /**
@@ -486,7 +515,7 @@ protected:
    */
   template <int dim, typename Number2, int spacedim>
   void
-  copy_to_mg(const DoFHandler<dim, spacedim> &                          mg_dof,
+  copy_to_mg(const DoFHandler<dim, spacedim> &dof_handler,
              MGLevelObject<LinearAlgebra::distributed::Vector<Number>> &dst,
              const LinearAlgebra::distributed::Vector<Number2> &        src,
              const bool solution_transfer) const;
@@ -496,7 +525,8 @@ protected:
    */
   template <int dim, int spacedim>
   void
-  fill_and_communicate_copy_indices(const DoFHandler<dim, spacedim> &mg_dof);
+  fill_and_communicate_copy_indices(
+    const DoFHandler<dim, spacedim> &dof_handler);
 
   /**
    * Sizes of the multi-level vectors.
@@ -507,49 +537,44 @@ protected:
    * Mapping for the copy_to_mg() and copy_from_mg() functions. Here only
    * index pairs locally owned is stored.
    *
-   * The data is organized as follows: one vector per level. Each element of
-   * these vectors contains first the global index, then the level index.
+   * The data is organized as follows: one table per level. This table has two
+   * rows. The first row contains the global index, the second one the level
+   * index.
    */
-  std::vector<std::vector<std::pair<unsigned int, unsigned int>>> copy_indices;
-
+  std::vector<Table<2, unsigned int>> copy_indices;
 
   /**
    * Same as above, but used to transfer solution vectors.
    */
-  std::vector<std::vector<std::pair<unsigned int, unsigned int>>>
-    solution_copy_indices;
+  std::vector<Table<2, unsigned int>> solution_copy_indices;
 
   /**
    * Additional degrees of freedom for the copy_to_mg() function. These are
    * the ones where the global degree of freedom is locally owned and the
    * level degree of freedom is not.
    *
-   * Organization of the data is like for @p copy_indices_mine.
+   * Organization of the data is like for @p copy_indices.
    */
-  std::vector<std::vector<std::pair<unsigned int, unsigned int>>>
-    copy_indices_global_mine;
+  std::vector<Table<2, unsigned int>> copy_indices_global_mine;
 
   /**
    * Same as above, but used to transfer solution vectors.
    */
-  std::vector<std::vector<std::pair<unsigned int, unsigned int>>>
-    solution_copy_indices_global_mine;
+  std::vector<Table<2, unsigned int>> solution_copy_indices_global_mine;
 
   /**
    * Additional degrees of freedom for the copy_from_mg() function. These are
    * the ones where the level degree of freedom is locally owned and the
    * global degree of freedom is not.
    *
-   * Organization of the data is like for @p copy_indices_mine.
+   * Organization of the data is like for @p copy_indices.
    */
-  std::vector<std::vector<std::pair<unsigned int, unsigned int>>>
-    copy_indices_level_mine;
+  std::vector<Table<2, unsigned int>> copy_indices_level_mine;
 
   /**
    * Same as above, but used to transfer solution vectors.
    */
-  std::vector<std::vector<std::pair<unsigned int, unsigned int>>>
-    solution_copy_indices_level_mine;
+  std::vector<Table<2, unsigned int>> solution_copy_indices_level_mine;
 
   /**
    * This variable stores whether the copy operation from the global to the
@@ -606,6 +631,14 @@ protected:
    */
   mutable MGLevelObject<LinearAlgebra::distributed::Vector<Number>>
     solution_ghosted_level_vector;
+
+private:
+  /**
+   * This function is called to make sure that build() has been invoked.
+   */
+  template <int dim, int spacedim>
+  void
+  assert_built(const DoFHandler<dim, spacedim> &dof_handler) const;
 };
 
 
@@ -619,9 +652,6 @@ protected:
  *
  * See MGTransferBase to find out which of the transfer classes is best for
  * your needs.
- *
- * @author Wolfgang Bangerth, Guido Kanschat, Timo Heister, Martin Kronbichler
- * @date 1999, 2000, 2001, 2002, 2003, 2004, 2012, 2015
  */
 template <typename VectorType>
 class MGTransferPrebuilt : public MGLevelGlobalTransfer<VectorType>
@@ -640,35 +670,15 @@ public:
   MGTransferPrebuilt(const MGConstrainedDoFs &mg_constrained_dofs);
 
   /**
-   * Constructor with constraints. Equivalent to the default constructor
-   * followed by initialize_constraints().
-   *
-   * @deprecated @p constraints is unused.
-   */
-  DEAL_II_DEPRECATED
-  MGTransferPrebuilt(const AffineConstraints<double> &constraints,
-                     const MGConstrainedDoFs &        mg_constrained_dofs);
-
-  /**
    * Destructor.
    */
   virtual ~MGTransferPrebuilt() override = default;
 
   /**
-   * Initialize the constraints to be used in build_matrices().
+   * Initialize the constraints to be used in build().
    */
   void
   initialize_constraints(const MGConstrainedDoFs &mg_constrained_dofs);
-
-  /**
-   * Initialize the constraints to be used in build_matrices().
-   *
-   * @deprecated @p constraints is unused.
-   */
-  DEAL_II_DEPRECATED
-  void
-  initialize_constraints(const AffineConstraints<double> &constraints,
-                         const MGConstrainedDoFs &        mg_constrained_dofs);
 
   /**
    * Reset the object to the state it had right after the default constructor.
@@ -677,11 +687,21 @@ public:
   clear();
 
   /**
-   * Actually build the prolongation matrices for each level.
+   * Actually build the information required for the transfer operations. Needs
+   * to be called before prolongate() or restrict_and_add() can be used.
    */
   template <int dim, int spacedim>
   void
-  build_matrices(const DoFHandler<dim, spacedim> &mg_dof);
+  build(const DoFHandler<dim, spacedim> &dof_handler);
+
+  /**
+   * Actually build the prolongation matrices for each level.
+   *
+   * @deprecated use build() instead.
+   */
+  template <int dim, int spacedim>
+  DEAL_II_DEPRECATED void
+  build_matrices(const DoFHandler<dim, spacedim> &dof_handler);
 
   /**
    * Prolongate a vector from level <tt>to_level-1</tt> to level
@@ -725,7 +745,7 @@ public:
   DeclException0(ExcNoProlongation);
 
   /**
-   * You have to call build_matrices() before using this object.
+   * You have to call build() before using this object.
    */
   DeclException0(ExcMatricesNotBuilt);
 

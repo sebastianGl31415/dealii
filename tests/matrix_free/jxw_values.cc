@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2017 by the deal.II authors
+// Copyright (C) 2016 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -31,9 +31,9 @@
 #include <deal.II/matrix_free/matrix_free.h>
 
 #include "../tests.h"
+
 #include "create_mesh.h"
 
-std::ofstream logfile("output");
 
 
 template <int dim>
@@ -76,14 +76,12 @@ test()
 
   double error = 0, error2 = 0, abs = 0;
 
-  QGauss<dim>                            quad(2);
-  FEValues<dim>                          fe_values(fe, quad, update_JxW_values);
-  FEEvaluation<dim, 1>                   fe_eval(mf_data);
-  AlignedVector<VectorizedArray<double>> jxw_values_manual(fe_eval.n_q_points);
-  for (unsigned int cell = 0; cell < mf_data.n_macro_cells(); ++cell)
+  QGauss<dim>          quad(2);
+  FEValues<dim>        fe_values(fe, quad, update_JxW_values);
+  FEEvaluation<dim, 1> fe_eval(mf_data);
+  for (unsigned int cell = 0; cell < mf_data.n_cell_batches(); ++cell)
     {
       fe_eval.reinit(cell);
-      fe_eval.fill_JxW_values(jxw_values_manual);
       for (unsigned int v = 0; v < mf_data.n_components_filled(cell); ++v)
         {
           fe_values.reinit(mf_data.get_cell_iterator(cell, v));
@@ -91,14 +89,11 @@ test()
             {
               abs += fe_values.JxW(q);
               error += std::abs(fe_values.JxW(q) - fe_eval.JxW(q)[v]);
-              error2 += std::abs(fe_values.JxW(q) - jxw_values_manual[q][v]);
             }
         }
     }
 
-  deallog << "Norm of difference: " << error / abs << " " << error2 / abs
-          << std::endl
-          << std::endl;
+  deallog << "Norm of difference: " << error / abs << std::endl << std::endl;
 }
 
 
@@ -106,7 +101,7 @@ test()
 int
 main()
 {
-  deallog.attach(logfile);
+  initlog();
   deallog << std::setprecision(3);
 
   test<2>();

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,6 +13,8 @@
 //
 // ---------------------------------------------------------------------
 
+#include <deal.II/base/signaling_nan.h>
+
 #include <deal.II/particles/particle.h>
 
 DEAL_II_NAMESPACE_OPEN
@@ -21,11 +23,11 @@ namespace Particles
 {
   template <int dim, int spacedim>
   Particle<dim, spacedim>::Particle()
-    : location()
-    , reference_location()
+    : location(numbers::signaling_nan<Point<spacedim>>())
+    , reference_location(numbers::signaling_nan<Point<dim>>())
     , id(0)
     , property_pool(nullptr)
-    , properties(PropertyPool::invalid_handle)
+    , property_pool_handle(PropertyPool<dim, spacedim>::invalid_handle)
   {}
 
 
@@ -38,7 +40,7 @@ namespace Particles
     , reference_location(reference_location)
     , id(id)
     , property_pool(nullptr)
-    , properties(PropertyPool::invalid_handle)
+    , property_pool_handle(PropertyPool<dim, spacedim>::invalid_handle)
   {}
 
 
@@ -49,14 +51,13 @@ namespace Particles
     , reference_location(particle.get_reference_location())
     , id(particle.get_id())
     , property_pool(particle.property_pool)
-    , properties((particle.has_properties()) ?
-                   property_pool->allocate_properties_array() :
-                   PropertyPool::invalid_handle)
+    , property_pool_handle(PropertyPool<dim, spacedim>::invalid_handle)
   {
     if (particle.has_properties())
       {
+        property_pool_handle = property_pool->register_particle();
         const ArrayView<double> my_properties =
-          property_pool->get_properties(properties);
+          property_pool->get_properties(property_pool_handle);
         const ArrayView<const double> their_properties =
           particle.get_properties();
 
@@ -69,31 +70,36 @@ namespace Particles
 
 
   template <int dim, int spacedim>
-  Particle<dim, spacedim>::Particle(const void *&       data,
-                                    PropertyPool *const new_property_pool)
+  Particle<dim, spacedim>::Particle(
+    const void *&                      data,
+    PropertyPool<dim, spacedim> *const new_property_pool)
   {
     const types::particle_index *id_data =
       static_cast<const types::particle_index *>(data);
     id                  = *id_data++;
     const double *pdata = reinterpret_cast<const double *>(id_data);
 
+    Point<spacedim> location;
     for (unsigned int i = 0; i < spacedim; ++i)
       location(i) = *pdata++;
+    set_location(location);
 
+    Point<dim> reference_location;
     for (unsigned int i = 0; i < dim; ++i)
       reference_location(i) = *pdata++;
+    set_reference_location(reference_location);
 
     property_pool = new_property_pool;
     if (property_pool != nullptr)
-      properties = property_pool->allocate_properties_array();
+      property_pool_handle = property_pool->register_particle();
     else
-      properties = PropertyPool::invalid_handle;
+      property_pool_handle = PropertyPool<dim, spacedim>::invalid_handle;
 
     // See if there are properties to load
     if (has_properties())
       {
         const ArrayView<double> particle_properties =
-          property_pool->get_properties(properties);
+          property_pool->get_properties(property_pool_handle);
         const unsigned int size = particle_properties.size();
         for (unsigned int i = 0; i < size; ++i)
           particle_properties[i] = *pdata++;
@@ -110,9 +116,9 @@ namespace Particles
     , reference_location(std::move(particle.reference_location))
     , id(std::move(particle.id))
     , property_pool(std::move(particle.property_pool))
-    , properties(std::move(particle.properties))
+    , property_pool_handle(std::move(particle.property_pool_handle))
   {
-    particle.properties = PropertyPool::invalid_handle;
+    particle.property_pool_handle = PropertyPool<dim, spacedim>::invalid_handle;
   }
 
 
@@ -130,18 +136,18 @@ namespace Particles
 
         if (particle.has_properties())
           {
-            properties = property_pool->allocate_properties_array();
+            property_pool_handle = property_pool->register_particle();
             const ArrayView<const double> their_properties =
               particle.get_properties();
             const ArrayView<double> my_properties =
-              property_pool->get_properties(properties);
+              property_pool->get_properties(property_pool_handle);
 
             std::copy(their_properties.begin(),
                       their_properties.end(),
                       my_properties.begin());
           }
         else
-          properties = PropertyPool::invalid_handle;
+          property_pool_handle = PropertyPool<dim, spacedim>::invalid_handle;
       }
     return *this;
   }
@@ -155,12 +161,17 @@ namespace Particles
   {
     if (this != &particle)
       {
-        location            = particle.location;
-        reference_location  = particle.reference_location;
-        id                  = particle.id;
-        property_pool       = particle.property_pool;
-        properties          = particle.properties;
-        particle.properties = PropertyPool::invalid_handle;
+        location             = particle.location;
+        reference_location   = particle.reference_location;
+        id                   = particle.id;
+        property_pool        = particle.property_pool;
+        property_pool_handle = particle.property_pool_handle;
+
+        // We stole the rhs's properties, so we need to invalidate
+        // the handle the rhs holds lest it releases the memory that
+        // we still reference here.
+        particle.property_pool_handle =
+          PropertyPool<dim, spacedim>::invalid_handle;
       }
     return *this;
   }
@@ -170,8 +181,20 @@ namespace Particles
   template <int dim, int spacedim>
   Particle<dim, spacedim>::~Particle()
   {
-    if (property_pool != nullptr && properties != PropertyPool::invalid_handle)
-      property_pool->deallocate_properties_array(properties);
+    if (property_pool != nullptr &&
+        property_pool_handle != PropertyPool<dim, spacedim>::invalid_handle)
+      property_pool->deregister_particle(property_pool_handle);
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  Particle<dim, spacedim>::free_properties()
+  {
+    if (property_pool != nullptr &&
+        property_pool_handle != PropertyPool<dim, spacedim>::invalid_handle)
+      property_pool->deregister_particle(property_pool_handle);
   }
 
 
@@ -187,22 +210,56 @@ namespace Particles
 
     // Write location data
     for (unsigned int i = 0; i < spacedim; ++i, ++pdata)
-      *pdata = location(i);
+      *pdata = get_location()[i];
 
     // Write reference location data
     for (unsigned int i = 0; i < dim; ++i, ++pdata)
-      *pdata = reference_location(i);
+      *pdata = get_reference_location()[i];
 
     // Write property data
     if (has_properties())
       {
         const ArrayView<double> particle_properties =
-          property_pool->get_properties(properties);
+          property_pool->get_properties(property_pool_handle);
         for (unsigned int i = 0; i < particle_properties.size(); ++i, ++pdata)
           *pdata = particle_properties[i];
       }
 
     data = static_cast<void *>(pdata);
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  Particle<dim, spacedim>::update_particle_data(const void *&data)
+  {
+    const types::particle_index *id_data =
+      static_cast<const types::particle_index *>(data);
+    id                  = *id_data++;
+    const double *pdata = reinterpret_cast<const double *>(id_data);
+
+    Point<spacedim> location;
+    for (unsigned int i = 0; i < spacedim; ++i)
+      location(i) = *pdata++;
+    set_location(location);
+
+    Point<dim> reference_location;
+    for (unsigned int i = 0; i < dim; ++i)
+      reference_location(i) = *pdata++;
+    set_reference_location(reference_location);
+
+    // See if there are properties to load
+    if (has_properties())
+      {
+        const ArrayView<double> particle_properties =
+          property_pool->get_properties(property_pool_handle);
+        const unsigned int size = particle_properties.size();
+        for (unsigned int i = 0; i < size; ++i)
+          particle_properties[i] = *pdata++;
+      }
+
+    data = static_cast<const void *>(pdata);
   }
 
 
@@ -217,7 +274,7 @@ namespace Particles
     if (has_properties())
       {
         const ArrayView<double> particle_properties =
-          property_pool->get_properties(properties);
+          property_pool->get_properties(property_pool_handle);
         size += sizeof(double) * particle_properties.size();
       }
     return size;
@@ -227,95 +284,31 @@ namespace Particles
 
   template <int dim, int spacedim>
   void
-  Particle<dim, spacedim>::set_location(const Point<spacedim> &new_loc)
-  {
-    location = new_loc;
-  }
-
-
-
-  template <int dim, int spacedim>
-  const Point<spacedim> &
-  Particle<dim, spacedim>::get_location() const
-  {
-    return location;
-  }
-
-
-
-  template <int dim, int spacedim>
-  void
-  Particle<dim, spacedim>::set_reference_location(const Point<dim> &new_loc)
-  {
-    reference_location = new_loc;
-  }
-
-
-
-  template <int dim, int spacedim>
-  const Point<dim> &
-  Particle<dim, spacedim>::get_reference_location() const
-  {
-    return reference_location;
-  }
-
-
-
-  template <int dim, int spacedim>
-  types::particle_index
-  Particle<dim, spacedim>::get_id() const
-  {
-    return id;
-  }
-
-
-
-  template <int dim, int spacedim>
-  void
-  Particle<dim, spacedim>::set_property_pool(PropertyPool &new_property_pool)
-  {
-    property_pool = &new_property_pool;
-  }
-
-
-
-  template <int dim, int spacedim>
-  void
   Particle<dim, spacedim>::set_properties(
     const ArrayView<const double> &new_properties)
   {
-    if (properties == PropertyPool::invalid_handle)
-      properties = property_pool->allocate_properties_array();
-
-    const ArrayView<double> old_properties =
-      property_pool->get_properties(properties);
-
-    Assert(
-      new_properties.size() == old_properties.size(),
-      ExcMessage(
-        std::string(
-          "You are trying to assign properties with an incompatible length. ") +
-        "The particle has space to store " +
-        Utilities::to_string(old_properties.size()) + " properties, " +
-        "and this function tries to assign" +
-        Utilities::to_string(new_properties.size()) + " properties. " +
-        "This is not allowed."));
-
-    if (old_properties.size() > 0)
-      std::copy(new_properties.begin(),
-                new_properties.end(),
-                old_properties.begin());
-  }
-
-
-
-  template <int dim, int spacedim>
-  const ArrayView<const double>
-  Particle<dim, spacedim>::get_properties() const
-  {
     Assert(property_pool != nullptr, ExcInternalError());
 
-    return property_pool->get_properties(properties);
+    // If we haven't allocated memory yet, do so now
+    if (property_pool_handle == PropertyPool<dim, spacedim>::invalid_handle)
+      property_pool_handle = property_pool->register_particle();
+
+    const ArrayView<double> property_values =
+      property_pool->get_properties(property_pool_handle);
+
+    Assert(new_properties.size() == property_values.size(),
+           ExcMessage(
+             "You are trying to assign properties with an incompatible length. "
+             "The particle has space to store " +
+             std::to_string(property_values.size()) +
+             " properties, but you are trying to assign " +
+             std::to_string(new_properties.size()) +
+             " properties. This is not allowed."));
+
+    if (property_values.size() > 0)
+      std::copy(new_properties.begin(),
+                new_properties.end(),
+                property_values.begin());
   }
 
 
@@ -326,17 +319,18 @@ namespace Particles
   {
     Assert(property_pool != nullptr, ExcInternalError());
 
-    return property_pool->get_properties(properties);
-  }
+    // If this particle has no properties yet, allocate and initialize them.
+    if (property_pool_handle == PropertyPool<dim, spacedim>::invalid_handle)
+      {
+        property_pool_handle = property_pool->register_particle();
 
+        ArrayView<double> my_properties =
+          property_pool->get_properties(property_pool_handle);
 
+        std::fill(my_properties.begin(), my_properties.end(), 0.0);
+      }
 
-  template <int dim, int spacedim>
-  bool
-  Particle<dim, spacedim>::has_properties() const
-  {
-    return (property_pool != nullptr) &&
-           (properties != PropertyPool::invalid_handle);
+    return property_pool->get_properties(property_pool_handle);
   }
 } // namespace Particles
 

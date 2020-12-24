@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2018 by the deal.II authors
+// Copyright (C) 2016 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -17,15 +17,18 @@
 #ifndef dealii_vector_operations_internal_h
 #define dealii_vector_operations_internal_h
 
+#include <deal.II/base/config.h>
+
 #include <deal.II/base/memory_space.h>
+#include <deal.II/base/memory_space_data.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/parallel.h>
-#include <deal.II/base/thread_management.h>
 #include <deal.II/base/types.h>
 #include <deal.II/base/vectorization.h>
 
 #include <deal.II/lac/cuda_kernels.h>
 #include <deal.II/lac/cuda_kernels.templates.h>
+#include <deal.II/lac/vector_operation.h>
 
 #include <cstdio>
 #include <cstring>
@@ -55,28 +58,6 @@ namespace internal
       return false;
     }
 
-
-    template <typename T>
-    void
-    print(const T &t, const char *format)
-    {
-      if (format != nullptr)
-        std::printf(format, t);
-      else
-        std::printf(" %5.2f", double(t));
-    }
-
-
-
-    template <typename T>
-    void
-    print(const std::complex<T> &t, const char *format)
-    {
-      if (format != nullptr)
-        std::printf(format, t.real(), t.imag());
-      else
-        std::printf(" %5.2f+%5.2fi", double(t.real()), double(t.imag()));
-    }
 
     // call std::copy, except for in
     // the case where we want to copy
@@ -109,7 +90,7 @@ namespace internal
 
 
 
-#ifdef DEAL_II_WITH_THREADS
+#ifdef DEAL_II_WITH_TBB
     /**
      * This struct takes the loop range from the tbb parallel for loop and
      * translates it to the actual ranges of the for loop within the vector. It
@@ -167,13 +148,14 @@ namespace internal
     template <typename Functor>
     void
     parallel_for(
-      Functor &                                                  functor,
-      size_type                                                  start,
-      size_type                                                  end,
-      const std::shared_ptr<parallel::internal::TBBPartitioner> &partitioner)
+      Functor &       functor,
+      const size_type start,
+      const size_type end,
+      const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner>
+        &partitioner)
     {
-#ifdef DEAL_II_WITH_THREADS
-      size_type vec_size = end - start;
+#ifdef DEAL_II_WITH_TBB
+      const size_type vec_size = end - start;
       // only go to the parallel function in case there are at least 4 parallel
       // items, otherwise the overhead is too large
       if (vec_size >=
@@ -188,10 +170,19 @@ namespace internal
             partitioner->acquire_one_partitioner();
 
           TBBForFunctor<Functor> generic_functor(functor, start, end);
-          tbb::parallel_for(
-            tbb::blocked_range<size_type>(0, generic_functor.n_chunks, 1),
+          // We use a minimum grain size of 1 here since the grains at this
+          // stage of dividing the work refer to the number of vector chunks
+          // that are processed by (possibly different) threads in the
+          // parallelized for loop (i.e., they do not refer to individual
+          // vector entries). The number of chunks here is calculated inside
+          // TBBForFunctor. See also GitHub issue #2496 for further discussion
+          // of this strategy.
+          ::dealii::parallel::internal::parallel_for(
+            static_cast<size_type>(0),
+            static_cast<size_type>(generic_functor.n_chunks),
             generic_functor,
-            *tbb_partitioner);
+            1,
+            tbb_partitioner);
           partitioner->release_one_partitioner(tbb_partitioner);
         }
       else if (vec_size > 0)
@@ -209,7 +200,7 @@ namespace internal
     template <typename Number>
     struct Vector_set
     {
-      Vector_set(Number value, Number *dst)
+      Vector_set(const Number value, Number *const dst)
         : value(value)
         , dst(dst)
       {
@@ -223,7 +214,7 @@ namespace internal
 
         if (value == Number())
           {
-#ifdef DEAL_II_WITH_CXX17
+#ifdef DEAL_II_HAVE_CXX17
             if constexpr (std::is_trivial<Number>::value)
 #else
             if (std::is_trivial<Number>::value)
@@ -243,7 +234,7 @@ namespace internal
     template <typename Number, typename OtherNumber>
     struct Vector_copy
     {
-      Vector_copy(const OtherNumber *src, Number *dst)
+      Vector_copy(const OtherNumber *const src, Number *const dst)
         : src(src)
         , dst(dst)
       {
@@ -260,7 +251,7 @@ namespace internal
         if (__has_trivial_copy(Number) &&
             std::is_same<Number, OtherNumber>::value)
 #else
-#  ifdef DEAL_II_WITH_CXX17
+#  ifdef DEAL_II_HAVE_CXX17
         if constexpr (std::is_trivially_copyable<Number>() &&
                       std::is_same<Number, OtherNumber>::value)
 #  else
@@ -284,7 +275,7 @@ namespace internal
     template <typename Number>
     struct Vectorization_multiply_factor
     {
-      Vectorization_multiply_factor(Number *val, Number factor)
+      Vectorization_multiply_factor(Number *const val, const Number factor)
         : val(val)
         , factor(factor)
       {}
@@ -292,7 +283,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -305,14 +296,16 @@ namespace internal
           }
       }
 
-      Number *val;
-      Number  factor;
+      Number *const val;
+      const Number  factor;
     };
 
     template <typename Number>
     struct Vectorization_add_av
     {
-      Vectorization_add_av(Number *val, const Number *v_val, Number factor)
+      Vectorization_add_av(Number *const       val,
+                           const Number *const v_val,
+                           const Number        factor)
         : val(val)
         , v_val(v_val)
         , factor(factor)
@@ -321,7 +314,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -334,18 +327,18 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
-      Number        factor;
+      Number *const       val;
+      const Number *const v_val;
+      const Number        factor;
     };
 
     template <typename Number>
     struct Vectorization_sadd_xav
     {
-      Vectorization_sadd_xav(Number *      val,
-                             const Number *v_val,
-                             Number        a,
-                             Number        x)
+      Vectorization_sadd_xav(Number *            val,
+                             const Number *const v_val,
+                             const Number        a,
+                             const Number        x)
         : val(val)
         , v_val(v_val)
         , a(a)
@@ -355,7 +348,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -368,16 +361,16 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
-      Number        a;
-      Number        x;
+      Number *const       val;
+      const Number *const v_val;
+      const Number        a;
+      const Number        x;
     };
 
     template <typename Number>
     struct Vectorization_subtract_v
     {
-      Vectorization_subtract_v(Number *val, const Number *v_val)
+      Vectorization_subtract_v(Number *val, const Number *const v_val)
         : val(val)
         , v_val(v_val)
       {}
@@ -385,7 +378,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -398,14 +391,14 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
+      Number *const       val;
+      const Number *const v_val;
     };
 
     template <typename Number>
     struct Vectorization_add_factor
     {
-      Vectorization_add_factor(Number *val, Number factor)
+      Vectorization_add_factor(Number *const val, const Number factor)
         : val(val)
         , factor(factor)
       {}
@@ -413,7 +406,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -426,14 +419,14 @@ namespace internal
           }
       }
 
-      Number *val;
-      Number  factor;
+      Number *const val;
+      const Number  factor;
     };
 
     template <typename Number>
     struct Vectorization_add_v
     {
-      Vectorization_add_v(Number *val, const Number *v_val)
+      Vectorization_add_v(Number *const val, const Number *const v_val)
         : val(val)
         , v_val(v_val)
       {}
@@ -441,7 +434,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -454,18 +447,18 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
+      Number *const       val;
+      const Number *const v_val;
     };
 
     template <typename Number>
     struct Vectorization_add_avpbw
     {
-      Vectorization_add_avpbw(Number *      val,
-                              const Number *v_val,
-                              const Number *w_val,
-                              Number        a,
-                              Number        b)
+      Vectorization_add_avpbw(Number *const       val,
+                              const Number *const v_val,
+                              const Number *const w_val,
+                              const Number        a,
+                              const Number        b)
         : val(val)
         , v_val(v_val)
         , w_val(w_val)
@@ -476,7 +469,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -489,17 +482,19 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
-      const Number *w_val;
-      Number        a;
-      Number        b;
+      Number *const       val;
+      const Number *const v_val;
+      const Number *const w_val;
+      const Number        a;
+      const Number        b;
     };
 
     template <typename Number>
     struct Vectorization_sadd_xv
     {
-      Vectorization_sadd_xv(Number *val, const Number *v_val, Number x)
+      Vectorization_sadd_xv(Number *const       val,
+                            const Number *const v_val,
+                            const Number        x)
         : val(val)
         , v_val(v_val)
         , x(x)
@@ -508,7 +503,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -521,9 +516,9 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
-      Number        x;
+      Number *const       val;
+      const Number *const v_val;
+      const Number        x;
     };
 
     template <typename Number>
@@ -546,7 +541,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -559,18 +554,18 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
-      const Number *w_val;
-      Number        x;
-      Number        a;
-      Number        b;
+      Number *const       val;
+      const Number *const v_val;
+      const Number *const w_val;
+      const Number        x;
+      const Number        a;
+      const Number        b;
     };
 
     template <typename Number>
     struct Vectorization_scale
     {
-      Vectorization_scale(Number *val, const Number *v_val)
+      Vectorization_scale(Number *const val, const Number *const v_val)
         : val(val)
         , v_val(v_val)
       {}
@@ -578,7 +573,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -591,14 +586,16 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *v_val;
+      Number *const       val;
+      const Number *const v_val;
     };
 
     template <typename Number>
     struct Vectorization_equ_au
     {
-      Vectorization_equ_au(Number *val, const Number *u_val, Number a)
+      Vectorization_equ_au(Number *const       val,
+                           const Number *const u_val,
+                           const Number        a)
         : val(val)
         , u_val(u_val)
         , a(a)
@@ -607,7 +604,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -620,19 +617,19 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *u_val;
-      Number        a;
+      Number *const       val;
+      const Number *const u_val;
+      const Number        a;
     };
 
     template <typename Number>
     struct Vectorization_equ_aubv
     {
-      Vectorization_equ_aubv(Number *      val,
-                             const Number *u_val,
-                             const Number *v_val,
-                             Number        a,
-                             Number        b)
+      Vectorization_equ_aubv(Number *const       val,
+                             const Number *const u_val,
+                             const Number *const v_val,
+                             const Number        a,
+                             const Number        b)
         : val(val)
         , u_val(u_val)
         , v_val(v_val)
@@ -643,7 +640,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -656,23 +653,23 @@ namespace internal
           }
       }
 
-      Number *      val;
-      const Number *u_val;
-      const Number *v_val;
-      Number        a;
-      Number        b;
+      Number *const       val;
+      const Number *const u_val;
+      const Number *const v_val;
+      const Number        a;
+      const Number        b;
     };
 
     template <typename Number>
     struct Vectorization_equ_aubvcw
     {
-      Vectorization_equ_aubvcw(Number *val,
-                               Number *u_val,
-                               Number *v_val,
-                               Number *w_val,
-                               Number  a,
-                               Number  b,
-                               Number  c)
+      Vectorization_equ_aubvcw(Number *      val,
+                               const Number *u_val,
+                               const Number *v_val,
+                               const Number *w_val,
+                               const Number  a,
+                               const Number  b,
+                               const Number  c)
         : val(val)
         , u_val(u_val)
         , v_val(v_val)
@@ -685,7 +682,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -698,19 +695,19 @@ namespace internal
           }
       }
 
-      Number *val;
-      Number *u_val;
-      Number *v_val;
-      Number *w_val;
-      Number  a;
-      Number  b;
-      Number  c;
+      Number *const       val;
+      const Number *const u_val;
+      const Number *const v_val;
+      const Number *const w_val;
+      const Number        a;
+      const Number        b;
+      const Number        c;
     };
 
     template <typename Number>
     struct Vectorization_ratio
     {
-      Vectorization_ratio(Number *val, Number *a_val, Number *b_val)
+      Vectorization_ratio(Number *val, const Number *a_val, const Number *b_val)
         : val(val)
         , a_val(a_val)
         , b_val(b_val)
@@ -719,7 +716,7 @@ namespace internal
       void
       operator()(const size_type begin, const size_type end) const
       {
-        if (parallel::internal::EnableOpenMPSimdFor<Number>::value)
+        if (::dealii::parallel::internal::EnableOpenMPSimdFor<Number>::value)
           {
             DEAL_II_OPENMP_SIMD_PRAGMA
             for (size_type i = begin; i < end; ++i)
@@ -732,9 +729,9 @@ namespace internal
           }
       }
 
-      Number *val;
-      Number *a_val;
-      Number *b_val;
+      Number *const       val;
+      const Number *const a_val;
+      const Number *const b_val;
     };
 
 
@@ -747,11 +744,10 @@ namespace internal
     template <typename Number, typename Number2>
     struct Dot
     {
-      static const bool vectorizes =
-        std::is_same<Number, Number2>::value &&
-        (VectorizedArray<Number>::n_array_elements > 1);
+      static constexpr bool vectorizes = std::is_same<Number, Number2>::value &&
+                                         (VectorizedArray<Number>::size() > 1);
 
-      Dot(const Number *X, const Number2 *Y)
+      Dot(const Number *const X, const Number2 *const Y)
         : X(X)
         , Y(Y)
       {}
@@ -782,17 +778,16 @@ namespace internal
         return x * y;
       }
 
-      const Number * X;
-      const Number2 *Y;
+      const Number *const  X;
+      const Number2 *const Y;
     };
 
     template <typename Number, typename RealType>
     struct Norm2
     {
-      static const bool vectorizes =
-        VectorizedArray<Number>::n_array_elements > 1;
+      static const bool vectorizes = VectorizedArray<Number>::size() > 1;
 
-      Norm2(const Number *X)
+      Norm2(const Number *const X)
         : X(X)
       {}
 
@@ -810,14 +805,13 @@ namespace internal
         return x * x;
       }
 
-      const Number *X;
+      const Number *const X;
     };
 
     template <typename Number, typename RealType>
     struct Norm1
     {
-      static const bool vectorizes =
-        VectorizedArray<Number>::n_array_elements > 1;
+      static const bool vectorizes = VectorizedArray<Number>::size() > 1;
 
       Norm1(const Number *X)
         : X(X)
@@ -843,8 +837,7 @@ namespace internal
     template <typename Number, typename RealType>
     struct NormP
     {
-      static const bool vectorizes =
-        VectorizedArray<Number>::n_array_elements > 1;
+      static const bool vectorizes = VectorizedArray<Number>::size() > 1;
 
       NormP(const Number *X, RealType p)
         : X(X)
@@ -865,15 +858,14 @@ namespace internal
         return std::pow(std::abs(x), p);
       }
 
-      const Number *X;
-      RealType      p;
+      const Number * X;
+      const RealType p;
     };
 
     template <typename Number>
     struct MeanValue
     {
-      static const bool vectorizes =
-        VectorizedArray<Number>::n_array_elements > 1;
+      static const bool vectorizes = VectorizedArray<Number>::size() > 1;
 
       MeanValue(const Number *X)
         : X(X)
@@ -899,10 +891,12 @@ namespace internal
     template <typename Number>
     struct AddAndDot
     {
-      static const bool vectorizes =
-        VectorizedArray<Number>::n_array_elements > 1;
+      static const bool vectorizes = VectorizedArray<Number>::size() > 1;
 
-      AddAndDot(Number *X, const Number *V, const Number *W, Number a)
+      AddAndDot(Number *const       X,
+                const Number *const V,
+                const Number *const W,
+                const Number        a)
         : X(X)
         , V(V)
         , W(W)
@@ -941,9 +935,10 @@ namespace internal
         return x * w;
       }
 
-      Number *      X;
-      const Number *V, *W;
-      Number        a;
+      Number *const       X;
+      const Number *const V;
+      const Number *const W;
+      const Number        a;
     };
 
 
@@ -1132,7 +1127,7 @@ namespace internal
     void
     accumulate_regular(
       const Operation &op,
-      size_type &      n_chunks,
+      const size_type &n_chunks,
       size_type &      index,
       ResultType (&outer_results)[vector_accumulation_recursion_threshold],
       std::integral_constant<bool, false>)
@@ -1181,8 +1176,8 @@ namespace internal
       // First we work on (n_chunks/nvecs) chunks, where each chunk processes
       // nvecs*(4*8) elements.
 
-      const unsigned int nvecs = VectorizedArray<Number>::n_array_elements;
-      const size_type    regular_chunks = n_chunks / nvecs;
+      constexpr unsigned int nvecs          = VectorizedArray<Number>::size();
+      const size_type        regular_chunks = n_chunks / nvecs;
       for (size_type i = 0; i < regular_chunks; ++i)
         {
           VectorizedArray<Number> r0 = op.do_vectorized(index);
@@ -1200,8 +1195,7 @@ namespace internal
           r0 += r1;
           r2 += r3;
           r0 += r2;
-          r0.store(
-            &outer_results[i * VectorizedArray<Number>::n_array_elements]);
+          r0.store(&outer_results[i * nvecs]);
         }
 
       // If we are treating a case where the vector length is not divisible by
@@ -1210,9 +1204,12 @@ namespace internal
       // regular_chunks * nvecs; We do as much as possible with 2 SIMD
       // operations within each chunk. Here we assume that nvecs < 32/2 = 16 as
       // well as 16%nvecs==0.
-      AssertIndexRange(VectorizedArray<Number>::n_array_elements, 17);
+      static_assert(
+        VectorizedArray<Number>::size() <= 16 &&
+          16 % VectorizedArray<Number>::size() == 0,
+        "VectorizedArray::size() must be a power of 2 and not more than 16");
       Assert(16 % nvecs == 0, ExcInternalError());
-      if (n_chunks % VectorizedArray<Number>::n_array_elements != 0)
+      if (n_chunks % nvecs != 0)
         {
           VectorizedArray<Number> r0  = VectorizedArray<Number>(),
                                   r1  = VectorizedArray<Number>();
@@ -1227,13 +1224,13 @@ namespace internal
           r0.store(&outer_results[start_irreg]);
           // update n_chunks to denote unused element in outer_results[] from
           // which we can keep writing.
-          n_chunks = start_irreg + VectorizedArray<Number>::n_array_elements;
+          n_chunks = start_irreg + VectorizedArray<Number>::size();
         }
     }
 
 
 
-#ifdef DEAL_II_WITH_THREADS
+#ifdef DEAL_II_WITH_TBB
     /**
      * This struct takes the loop range from the tbb parallel for loop and
      * translates it to the actual ranges of the reduction loop inside the
@@ -1355,14 +1352,15 @@ namespace internal
     template <typename Operation, typename ResultType>
     void
     parallel_reduce(
-      const Operation &                                          op,
-      const size_type                                            start,
-      const size_type                                            end,
-      ResultType &                                               result,
-      const std::shared_ptr<parallel::internal::TBBPartitioner> &partitioner)
+      const Operation &op,
+      const size_type  start,
+      const size_type  end,
+      ResultType &     result,
+      const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner>
+        &partitioner)
     {
-#ifdef DEAL_II_WITH_THREADS
-      size_type vec_size = end - start;
+#ifdef DEAL_II_WITH_TBB
+      const size_type vec_size = end - start;
       // only go to the parallel function in case there are at least 4 parallel
       // items, otherwise the overhead is too large
       if (vec_size >=
@@ -1379,10 +1377,19 @@ namespace internal
           TBBReduceFunctor<Operation, ResultType> generic_functor(op,
                                                                   start,
                                                                   end);
-          tbb::parallel_for(
-            tbb::blocked_range<size_type>(0, generic_functor.n_chunks, 1),
+          // We use a minimum grain size of 1 here since the grains at this
+          // stage of dividing the work refer to the number of vector chunks
+          // that are processed by (possibly different) threads in the
+          // parallelized for loop (i.e., they do not refer to individual
+          // vector entries). The number of chunks here is calculated inside
+          // TBBForFunctor. See also GitHub issue #2496 for further discussion
+          // of this strategy.
+          ::dealii::parallel::internal::parallel_for(
+            static_cast<size_type>(0),
+            static_cast<size_type>(generic_functor.n_chunks),
             generic_functor,
-            *tbb_partitioner);
+            1,
+            tbb_partitioner);
           partitioner->release_one_partitioner(tbb_partitioner);
           result = generic_functor.do_sum();
         }
@@ -1629,6 +1636,18 @@ namespace internal
       {
         return Number();
       }
+
+      template <typename MemorySpace2>
+      static void
+      import_elements(
+        const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner> &
+        /*thread_loop_partitioner*/,
+        const size_type /*size*/,
+        VectorOperation::values /*operation*/,
+        const ::dealii::MemorySpace::MemorySpaceData<Number, MemorySpace2>
+          & /*v_data*/,
+        ::dealii::MemorySpace::MemorySpaceData<Number, MemorySpace> & /*data*/)
+      {}
     };
 
 
@@ -1942,7 +1961,7 @@ namespace internal
                &             thread_loop_partitioner,
              const size_type size,
              real_type &     sum,
-             real_type       p,
+             const real_type p,
              ::dealii::MemorySpace::MemorySpaceData<Number,
                                                     ::dealii::MemorySpace::Host>
                &data)
@@ -1974,6 +1993,68 @@ namespace internal
 
         return sum;
       }
+
+      template <typename MemorySpace2>
+      static void
+      import_elements(
+        const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner>
+          &                     thread_loop_partitioner,
+        const size_type         size,
+        VectorOperation::values operation,
+        const ::dealii::MemorySpace::MemorySpaceData<Number, MemorySpace2>
+          &v_data,
+        ::dealii::MemorySpace::MemorySpaceData<Number,
+                                               ::dealii::MemorySpace::Host>
+          &data,
+        typename std::enable_if<
+          std::is_same<MemorySpace2, dealii::MemorySpace::Host>::value,
+          int>::type = 0)
+      {
+        if (operation == VectorOperation::insert)
+          {
+            copy(thread_loop_partitioner, size, v_data, data);
+          }
+        else if (operation == VectorOperation::add)
+          {
+            add_vector(thread_loop_partitioner, size, v_data, data);
+          }
+        else
+          {
+            AssertThrow(false, ExcNotImplemented());
+          }
+      }
+
+#ifdef DEAL_II_COMPILER_CUDA_AWARE
+      template <typename MemorySpace2>
+      static void
+      import_elements(
+        const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner>
+          & /*thread_loop_partitioner*/,
+        const size_type         size,
+        VectorOperation::values operation,
+        const ::dealii::MemorySpace::MemorySpaceData<Number, MemorySpace2>
+          &v_data,
+        ::dealii::MemorySpace::MemorySpaceData<Number,
+                                               ::dealii::MemorySpace::Host>
+          &data,
+        typename std::enable_if<
+          std::is_same<MemorySpace2, ::dealii::MemorySpace::CUDA>::value,
+          int>::type = 0)
+      {
+        if (operation == VectorOperation::insert)
+          {
+            cudaError_t cuda_error_code = cudaMemcpy(data.values.get(),
+                                                     v_data.values_dev.get(),
+                                                     size * sizeof(Number),
+                                                     cudaMemcpyDeviceToHost);
+            AssertCuda(cuda_error_code);
+          }
+        else
+          {
+            AssertThrow(false, ExcNotImplemented());
+          }
+      }
+#endif
     };
 
 
@@ -2012,14 +2093,10 @@ namespace internal
                                                  ::dealii::MemorySpace::CUDA>
             &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::set<Number>
           <<<n_blocks, block_size>>>(data.values_dev.get(), s, size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2032,17 +2109,13 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::add_aV<Number>
           <<<n_blocks, block_size>>>(data.values_dev.get(),
                                      1.,
                                      v_data.values_dev.get(),
                                      size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2055,17 +2128,13 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::add_aV<Number>
           <<<n_blocks, block_size>>>(data.values_dev.get(),
                                      -1.,
                                      v_data.values_dev.get(),
                                      size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2077,14 +2146,10 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::vec_add<Number>
           <<<n_blocks, block_size>>>(data.values_dev.get(), a, size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2098,17 +2163,13 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::add_aV<Number>
           <<<n_blocks, block_size>>>(data.values_dev.get(),
                                      a,
                                      v_data.values_dev.get(),
                                      size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2125,7 +2186,7 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::add_aVbW<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(data.values_dev.get(),
                                                     a,
@@ -2133,11 +2194,7 @@ namespace internal
                                                     b,
                                                     w_data.values_dev.get(),
                                                     size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2151,15 +2208,11 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::sadd<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(
             x, data.values_dev.get(), 1., v_data.values_dev.get(), size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2174,15 +2227,11 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::sadd<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(
             x, data.values_dev.get(), a, v_data.values_dev.get(), size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2200,7 +2249,7 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::sadd<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(x,
                                                     data.values_dev.get(),
@@ -2209,11 +2258,7 @@ namespace internal
                                                     b,
                                                     w_data.values_dev.get(),
                                                     size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2225,14 +2270,10 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::vec_scale<Number>
           <<<n_blocks, block_size>>>(data.values_dev.get(), factor, size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2245,16 +2286,12 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::scale<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(data.values_dev.get(),
                                                     v_data.values_dev.get(),
                                                     size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2268,17 +2305,13 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::equ<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(data.values_dev.get(),
                                                     a,
                                                     v_data.values_dev.get(),
                                                     size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static void
@@ -2295,7 +2328,7 @@ namespace internal
                                                ::dealii::MemorySpace::CUDA>
           &data)
       {
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::equ<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(data.values_dev.get(),
                                                     a,
@@ -2303,11 +2336,7 @@ namespace internal
                                                     b,
                                                     w_data.values_dev.get(),
                                                     size);
-
-        // Check that the kernel was launched correctly
-        AssertCuda(cudaGetLastError());
-        // Check that there was no problem during the execution of the kernel
-        AssertCuda(cudaDeviceSynchronize());
+        AssertCudaKernel();
       }
 
       static Number
@@ -2320,12 +2349,12 @@ namespace internal
             &data)
       {
         Number *    result_device;
-        cudaError_t error_code =
-          cudaMalloc(&result_device, size * sizeof(Number));
+        cudaError_t error_code = cudaMalloc(&result_device, sizeof(Number));
         AssertCuda(error_code);
-        error_code = cudaMemset(result_device, Number(), sizeof(Number));
+        error_code = cudaMemset(result_device, 0, sizeof(Number));
+        AssertCuda(error_code);
 
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::double_vector_reduction<
           Number,
           ::dealii::LinearAlgebra::CUDAWrappers::kernel::DotProduct<Number>>
@@ -2334,6 +2363,7 @@ namespace internal
                                                     v_data.values_dev.get(),
                                                     static_cast<unsigned int>(
                                                       size));
+        AssertCudaKernel();
 
         // Copy the result back to the host
         Number result;
@@ -2374,9 +2404,9 @@ namespace internal
         Number *    result_device;
         cudaError_t error_code = cudaMalloc(&result_device, sizeof(Number));
         AssertCuda(error_code);
-        error_code = cudaMemset(result_device, Number(), sizeof(Number));
+        error_code = cudaMemset(result_device, 0, sizeof(Number));
 
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::reduction<
           Number,
           ::dealii::LinearAlgebra::CUDAWrappers::kernel::ElemSum<Number>>
@@ -2411,9 +2441,9 @@ namespace internal
         Number *    result_device;
         cudaError_t error_code = cudaMalloc(&result_device, sizeof(Number));
         AssertCuda(error_code);
-        error_code = cudaMemset(result_device, Number(), sizeof(Number));
+        error_code = cudaMemset(result_device, 0, sizeof(Number));
 
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::reduction<
           Number,
           ::dealii::LinearAlgebra::CUDAWrappers::kernel::L1Norm<Number>>
@@ -2461,10 +2491,10 @@ namespace internal
         Number *    res_d;
         cudaError_t error_code = cudaMalloc(&res_d, sizeof(Number));
         AssertCuda(error_code);
-        error_code = cudaMemset(res_d, 0., sizeof(Number));
+        error_code = cudaMemset(res_d, 0, sizeof(Number));
         AssertCuda(error_code);
 
-        const int n_blocks = 1 + (size - 1) / (chunk_size * block_size);
+        const int n_blocks = 1 + size / (chunk_size * block_size);
         ::dealii::LinearAlgebra::CUDAWrappers::kernel::add_and_dot<Number>
           <<<dim3(n_blocks, 1), dim3(block_size)>>>(res_d,
                                                     data.values_dev.get(),
@@ -2480,6 +2510,66 @@ namespace internal
         error_code = cudaFree(res_d);
 
         return res;
+      }
+
+      template <typename MemorySpace2>
+      static void
+      import_elements(
+        const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner>
+          &                     thread_loop_partitioner,
+        const size_type         size,
+        VectorOperation::values operation,
+        const ::dealii::MemorySpace::MemorySpaceData<Number, MemorySpace2>
+          &v_data,
+        ::dealii::MemorySpace::MemorySpaceData<Number,
+                                               ::dealii::MemorySpace::CUDA>
+          &data,
+        typename std::enable_if<
+          std::is_same<MemorySpace2, ::dealii::MemorySpace::CUDA>::value,
+          int>::type = 0)
+      {
+        if (operation == VectorOperation::insert)
+          {
+            copy(thread_loop_partitioner, size, v_data, data);
+          }
+        else if (operation == VectorOperation::add)
+          {
+            add_vector(thread_loop_partitioner, size, v_data, data);
+          }
+        else
+          {
+            AssertThrow(false, ExcNotImplemented());
+          }
+      }
+
+      template <typename MemorySpace2>
+      static void
+      import_elements(
+        const std::shared_ptr<::dealii::parallel::internal::TBBPartitioner>
+          & /*thread_loop_partitioner*/,
+        const size_type         size,
+        VectorOperation::values operation,
+        const ::dealii::MemorySpace::MemorySpaceData<Number, MemorySpace2>
+          &v_data,
+        ::dealii::MemorySpace::MemorySpaceData<Number,
+                                               ::dealii::MemorySpace::CUDA>
+          &data,
+        typename std::enable_if<
+          std::is_same<MemorySpace2, ::dealii::MemorySpace::Host>::value,
+          int>::type = 0)
+      {
+        if (operation == VectorOperation::insert)
+          {
+            cudaError_t cuda_error_code = cudaMemcpy(data.values_dev.get(),
+                                                     v_data.values.get(),
+                                                     size * sizeof(Number),
+                                                     cudaMemcpyHostToDevice);
+            AssertCuda(cuda_error_code);
+          }
+        else
+          {
+            AssertThrow(false, ExcNotImplemented());
+          }
       }
     };
 #endif

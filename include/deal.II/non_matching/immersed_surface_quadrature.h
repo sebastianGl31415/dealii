@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2017 by the deal.II authors
+// Copyright (C) 1998 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -69,8 +69,6 @@ namespace NonMatching
    * @f]
    *
    * @image html immersed_surface_quadrature.svg
-   *
-   * @author Simon Sticko, 2017
    */
   template <int dim>
   class ImmersedSurfaceQuadrature : public Quadrature<dim>

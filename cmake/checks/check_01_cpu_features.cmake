@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2012 - 2018 by the deal.II authors
+## Copyright (C) 2012 - 2020 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -28,8 +28,8 @@
 #   DEAL_II_HAVE_AVX                     *)
 #   DEAL_II_HAVE_AVX512                  *)
 #   DEAL_II_HAVE_ALTIVEC                 *)
-#   DEAL_II_COMPILER_VECTORIZATION_LEVEL
 #   DEAL_II_HAVE_OPENMP_SIMD             *)
+#   DEAL_II_VECTORIZATION_WIDTH_IN_BITS
 #   DEAL_II_OPENMP_SIMD_PRAGMA
 #
 # *)
@@ -78,7 +78,7 @@ IF(DEAL_II_ALLOW_PLATFORM_INTROSPECTION)
 
   CHECK_CXX_SOURCE_RUNS(
     "
-    #include <emmintrin.h>
+    #include <x86intrin.h>
     int main()
     {
     __m128d a, b;
@@ -116,7 +116,7 @@ IF(DEAL_II_ALLOW_PLATFORM_INTROSPECTION)
     #ifndef __AVX__
     #error \"__AVX__ flag not set, no support for AVX\"
     #endif
-    #include <immintrin.h>
+    #include <x86intrin.h>
     class VectorizedArray
     {
     public:
@@ -175,7 +175,7 @@ IF(DEAL_II_ALLOW_PLATFORM_INTROSPECTION)
     #ifndef __AVX512F__
     #error \"__AVX512F__ flag not set, no support for AVX512\"
     #endif
-    #include <immintrin.h>
+    #include <x86intrin.h>
     int main()
     {
       __m512d a, b;
@@ -245,44 +245,65 @@ IF(DEAL_II_ALLOW_PLATFORM_INTROSPECTION)
     }
     "
     DEAL_II_HAVE_ALTIVEC)
-ENDIF()
+
+  #
+  # OpenMP 4.0 can be used for vectorization. Only the vectorization
+  # instructions are allowed, the threading must be done through TBB.
+  #
+
+  #
+  # Choosing the right compiler flag is a bit of a mess:
+  #
+  IF(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+    IF("${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER "15" )
+      SET(_keyword "qopenmp")
+    ELSEIF("${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER "14" )
+      SET(_keyword "openmp")
+    ENDIF()
+  ELSEIF(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    SET(_keyword "openmp")
+  ELSE()
+    SET(_keyword "fopenmp")
+  ENDIF()
+
+  CHECK_CXX_COMPILER_FLAG("-${_keyword}-simd" DEAL_II_HAVE_OPENMP_SIMD)
+
+ENDIF() # IF DEAL_II_ALLOW_PLATFORM_INTROSPECTION
+
+
+#
+# Choose DEAL_II_COMPILER_VECTORIZATION level depending on AVX support
+# (that was autodetected or manually specified).
+#
 
 IF(DEAL_II_HAVE_AVX512)
-  SET(DEAL_II_COMPILER_VECTORIZATION_LEVEL 3)
+  SET(DEAL_II_VECTORIZATION_WIDTH_IN_BITS 512)
 ELSEIF(DEAL_II_HAVE_AVX)
-  SET(DEAL_II_COMPILER_VECTORIZATION_LEVEL 2)
+  SET(DEAL_II_VECTORIZATION_WIDTH_IN_BITS 256)
 ELSEIF(DEAL_II_HAVE_SSE2)
-  SET(DEAL_II_COMPILER_VECTORIZATION_LEVEL 1)
+  SET(DEAL_II_VECTORIZATION_WIDTH_IN_BITS 128)
 ELSE()
-  SET(DEAL_II_COMPILER_VECTORIZATION_LEVEL 0)
+  SET(DEAL_II_VECTORIZATION_WIDTH_IN_BITS 0)
 ENDIF()
 
 IF(DEAL_II_HAVE_ALTIVEC)
-  SET(DEAL_II_COMPILER_VECTORIZATION_LEVEL 1)
+  SET(DEAL_II_VECTORIZATION_WIDTH_IN_BITS 128)
 ENDIF()
 
+#
+# We need to disable SIMD vectorization for CUDA device code.
+# Otherwise, nvcc compilers from version 9 on will emit an error message like:
+# "[...] contains a vector, which is not supported in device code"
+#
 
-#
-# OpenMP 4.0 can be used for vectorization. Only the vectorization
-# instructions are allowed, the threading must be done through TBB.
-#
-
-#
-# Choosing the right compiler flag is a bit of a mess:
-#
-IF(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-  IF("${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER "15" )
-    SET(_keyword "qopenmp")
-  ELSEIF("${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER "14" )
-    SET(_keyword "openmp")
-  ENDIF()
-ELSEIF(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  SET(_keyword "openmp")
-ELSE()
-  SET(_keyword "fopenmp")
+IF(DEAL_II_WITH_CUDA)
+  SET(DEAL_II_VECTORIZATION_WIDTH_IN_BITS 0)
 ENDIF()
 
-CHECK_CXX_COMPILER_FLAG("-${_keyword}-simd" DEAL_II_HAVE_OPENMP_SIMD)
+#
+# If we have OpenMP SIMD support (i.e. DEAL_II_HAVE_OPENMP_SIMD is true)
+# populate DEAL_II_OPENMP_SIMD_PRAGMA.
+#
 
 SET(DEAL_II_OPENMP_SIMD_PRAGMA " ")
 IF(DEAL_II_HAVE_OPENMP_SIMD)

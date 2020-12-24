@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2016 - 2018 by the deal.II authors
+ * Copyright (C) 2016 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -81,14 +81,11 @@ namespace Step56
   // In order to make it easy to switch between the different solvers that are
   // being used, we declare an enum that can be passed as an argument to the
   // constructor of the main class.
-  struct SolverType
+  enum class SolverType
   {
-    enum type
-    {
-      FGMRES_ILU,
-      FGMRES_GMG,
-      UMFPACK
-    };
+    FGMRES_ILU,
+    FGMRES_GMG,
+    UMFPACK
   };
 
   // @sect3{Functions for Solution and Righthand side}
@@ -299,7 +296,7 @@ namespace Step56
   // of a single preconditioner application.
   // 3. do not use InverseMatrix but explicitly call SolverCG.
   // This approach is also used in the ASPECT code
-  // (see http://aspect.dealii.org) that solves the Stokes equations in
+  // (see https://aspect.geodynamics.org) that solves the Stokes equations in
   // the context of simulating convection in the earth mantle, and which
   // has been used to solve problems on many thousands of processors.
   //
@@ -364,7 +361,7 @@ namespace Step56
     // First solve with the approximation for S
     {
       SolverControl solver_control(1000, 1e-6 * src.block(1).l2_norm());
-      SolverCG<>    cg(solver_control);
+      SolverCG<Vector<double>> cg(solver_control);
 
       dst.block(1) = 0.0;
       cg.solve(schur_complement_matrix,
@@ -387,8 +384,8 @@ namespace Step56
     // or just apply one preconditioner sweep
     if (do_solve_A == true)
       {
-        SolverControl solver_control(10000, utmp.l2_norm() * 1e-4);
-        SolverCG<>    cg(solver_control);
+        SolverControl            solver_control(10000, utmp.l2_norm() * 1e-4);
+        SolverCG<Vector<double>> cg(solver_control);
 
         dst.block(0) = 0.0;
         cg.solve(system_matrix.block(0, 0),
@@ -413,7 +410,7 @@ namespace Step56
   {
   public:
     StokesProblem(const unsigned int pressure_degree,
-                  SolverType::type   solver_type);
+                  const SolverType   solver_type);
     void run();
 
   private:
@@ -425,7 +422,7 @@ namespace Step56
     void output_results(const unsigned int refinement_cycle) const;
 
     const unsigned int pressure_degree;
-    SolverType::type   solver_type;
+    const SolverType   solver_type;
 
     Triangulation<dim> triangulation;
     FESystem<dim>      velocity_fe;
@@ -454,7 +451,8 @@ namespace Step56
 
   template <int dim>
   StokesProblem<dim>::StokesProblem(const unsigned int pressure_degree,
-                                    SolverType::type   solver_type)
+                                    const SolverType   solver_type)
+
     : pressure_degree(pressure_degree)
     , solver_type(solver_type)
     , triangulation(Triangulation<dim>::maximum_smoothing)
@@ -555,11 +553,10 @@ namespace Step56
           }
       }
 
-    std::vector<types::global_dof_index> dofs_per_block(2);
-    DoFTools::count_dofs_per_block(dof_handler,
-                                   dofs_per_block,
-                                   block_component);
-    const unsigned int n_u = dofs_per_block[0], n_p = dofs_per_block[1];
+    const std::vector<types::global_dof_index> dofs_per_block =
+      DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
+    const unsigned int n_u = dofs_per_block[0];
+    const unsigned int n_p = dofs_per_block[1];
 
     {
       constraints.clear();
@@ -623,7 +620,7 @@ namespace Step56
                             update_values | update_quadrature_points |
                               update_JxW_values | update_gradients);
 
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
 
     const unsigned int n_q_points = quadrature_formula.size();
 
@@ -642,10 +639,7 @@ namespace Step56
     std::vector<double>                  div_phi_u(dofs_per_cell);
     std::vector<double>                  phi_p(dofs_per_cell);
 
-    typename DoFHandler<dim>::active_cell_iterator cell =
-                                                     dof_handler.begin_active(),
-                                                   endc = dof_handler.end();
-    for (; cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_values.reinit(cell);
         local_matrix = 0;
@@ -724,7 +718,7 @@ namespace Step56
                             update_values | update_quadrature_points |
                               update_JxW_values | update_gradients);
 
-    const unsigned int dofs_per_cell = velocity_fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = velocity_fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
     FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
@@ -755,10 +749,7 @@ namespace Step56
       }
 
     // This iterator goes over all cells (not just active)
-    typename DoFHandler<dim>::cell_iterator cell = velocity_dof_handler.begin(),
-                                            endc = velocity_dof_handler.end();
-
-    for (; cell != endc; ++cell)
+    for (const auto &cell : velocity_dof_handler.cell_iterators())
       {
         fe_values.reinit(cell);
         cell_matrix = 0;
@@ -888,12 +879,12 @@ namespace Step56
 
         // Transfer operators between levels
         MGTransferPrebuilt<Vector<double>> mg_transfer(mg_constrained_dofs);
-        mg_transfer.build_matrices(velocity_dof_handler);
+        mg_transfer.build(velocity_dof_handler);
 
         // Setup coarse grid solver
         FullMatrix<double> coarse_matrix;
         coarse_matrix.copy_from(mg_matrices[0]);
-        MGCoarseGridHouseholder<> coarse_grid_solver;
+        MGCoarseGridHouseholder<double, Vector<double>> coarse_grid_solver;
         coarse_grid_solver.initialize(coarse_matrix);
 
         using Smoother = PreconditionSOR<SparseMatrix<double>>;
@@ -1120,7 +1111,6 @@ int main()
 {
   try
     {
-      using namespace dealii;
       using namespace Step56;
 
       const int degree = 1;

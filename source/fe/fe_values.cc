@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2018 by the deal.II authors
+// Copyright (C) 1998 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -19,7 +19,6 @@
 #include <deal.II/base/numbers.h>
 #include <deal.II/base/quadrature.h>
 #include <deal.II/base/signaling_nan.h>
-#include <deal.II/base/std_cxx14/memory.h>
 
 #include <deal.II/differentiation/ad.h>
 
@@ -38,7 +37,9 @@
 #include <deal.II/lac/la_vector.h>
 #include <deal.II/lac/petsc_block_vector.h>
 #include <deal.II/lac/petsc_vector.h>
+#include <deal.II/lac/trilinos_epetra_vector.h>
 #include <deal.II/lac/trilinos_parallel_block_vector.h>
+#include <deal.II/lac/trilinos_tpetra_vector.h>
 #include <deal.II/lac/trilinos_vector.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/vector_element_access.h>
@@ -46,6 +47,7 @@
 #include <boost/container/small_vector.hpp>
 
 #include <iomanip>
+#include <memory>
 #include <type_traits>
 
 DEAL_II_NAMESPACE_OPEN
@@ -77,9 +79,9 @@ namespace internal
   make_shape_function_to_row_table(const FiniteElement<dim, spacedim> &fe)
   {
     std::vector<unsigned int> shape_function_to_row_table(
-      fe.dofs_per_cell * fe.n_components(), numbers::invalid_unsigned_int);
+      fe.n_dofs_per_cell() * fe.n_components(), numbers::invalid_unsigned_int);
     unsigned int row = 0;
-    for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
       {
         // loop over all components that are nonzero for this particular
         // shape function. if a component is zero then we leave the
@@ -142,11 +144,10 @@ namespace FEValuesViews
                                 const unsigned int                 component)
     : fe_values(&fe_values)
     , component(component)
-    , shape_function_data(this->fe_values->fe->dofs_per_cell)
+    , shape_function_data(this->fe_values->fe->n_dofs_per_cell())
   {
     const FiniteElement<dim, spacedim> &fe = *this->fe_values->fe;
-    Assert(component < fe.n_components(),
-           ExcIndexRange(component, 0, fe.n_components()));
+    AssertIndexRange(component, fe.n_components());
 
     // TODO: we'd like to use the fields with the same name as these
     // variables from FEValuesBase, but they aren't initialized yet
@@ -154,7 +155,7 @@ namespace FEValuesViews
     const std::vector<unsigned int> shape_function_to_row_table =
       dealii::internal::make_shape_function_to_row_table(fe);
 
-    for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
       {
         const bool is_primitive = fe.is_primitive() || fe.is_primitive(i);
 
@@ -184,28 +185,14 @@ namespace FEValuesViews
 
 
   template <int dim, int spacedim>
-  Scalar<dim, spacedim> &
-  Scalar<dim, spacedim>::operator=(const Scalar<dim, spacedim> &)
-  {
-    // we shouldn't be copying these objects
-    Assert(false, ExcInternalError());
-    return *this;
-  }
-
-
-
-  template <int dim, int spacedim>
   Vector<dim, spacedim>::Vector(const FEValuesBase<dim, spacedim> &fe_values,
                                 const unsigned int first_vector_component)
     : fe_values(&fe_values)
     , first_vector_component(first_vector_component)
-    , shape_function_data(this->fe_values->fe->dofs_per_cell)
+    , shape_function_data(this->fe_values->fe->n_dofs_per_cell())
   {
     const FiniteElement<dim, spacedim> &fe = *this->fe_values->fe;
-    Assert(first_vector_component + spacedim - 1 < fe.n_components(),
-           ExcIndexRange(first_vector_component + spacedim - 1,
-                         0,
-                         fe.n_components()));
+    AssertIndexRange(first_vector_component + spacedim - 1, fe.n_components());
 
     // TODO: we'd like to use the fields with the same name as these
     // variables from FEValuesBase, but they aren't initialized yet
@@ -217,7 +204,7 @@ namespace FEValuesViews
       {
         const unsigned int component = first_vector_component + d;
 
-        for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+        for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
           {
             const bool is_primitive = fe.is_primitive() || fe.is_primitive(i);
 
@@ -238,7 +225,7 @@ namespace FEValuesViews
           }
       }
 
-    for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
       {
         unsigned int n_nonzero_components = 0;
         for (unsigned int d = 0; d < spacedim; ++d)
@@ -276,23 +263,12 @@ namespace FEValuesViews
 
 
   template <int dim, int spacedim>
-  Vector<dim, spacedim> &
-  Vector<dim, spacedim>::operator=(const Vector<dim, spacedim> &)
-  {
-    // we shouldn't be copying these objects
-    Assert(false, ExcInternalError());
-    return *this;
-  }
-
-
-
-  template <int dim, int spacedim>
   SymmetricTensor<2, dim, spacedim>::SymmetricTensor(
     const FEValuesBase<dim, spacedim> &fe_values,
     const unsigned int                 first_tensor_component)
     : fe_values(&fe_values)
     , first_tensor_component(first_tensor_component)
-    , shape_function_data(this->fe_values->fe->dofs_per_cell)
+    , shape_function_data(this->fe_values->fe->n_dofs_per_cell())
   {
     const FiniteElement<dim, spacedim> &fe = *this->fe_values->fe;
     Assert(first_tensor_component + (dim * dim + dim) / 2 - 1 <
@@ -314,7 +290,7 @@ namespace FEValuesViews
       {
         const unsigned int component = first_tensor_component + d;
 
-        for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+        for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
           {
             const bool is_primitive = fe.is_primitive() || fe.is_primitive(i);
 
@@ -335,7 +311,7 @@ namespace FEValuesViews
           }
       }
 
-    for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
       {
         unsigned int n_nonzero_components = 0;
         for (unsigned int d = 0;
@@ -377,29 +353,14 @@ namespace FEValuesViews
 
 
   template <int dim, int spacedim>
-  SymmetricTensor<2, dim, spacedim> &
-  SymmetricTensor<2, dim, spacedim>::
-  operator=(const SymmetricTensor<2, dim, spacedim> &)
-  {
-    // we shouldn't be copying these objects
-    Assert(false, ExcInternalError());
-    return *this;
-  }
-
-
-
-  template <int dim, int spacedim>
   Tensor<2, dim, spacedim>::Tensor(const FEValuesBase<dim, spacedim> &fe_values,
                                    const unsigned int first_tensor_component)
     : fe_values(&fe_values)
     , first_tensor_component(first_tensor_component)
-    , shape_function_data(this->fe_values->fe->dofs_per_cell)
+    , shape_function_data(this->fe_values->fe->n_dofs_per_cell())
   {
     const FiniteElement<dim, spacedim> &fe = *this->fe_values->fe;
-    Assert(first_tensor_component + dim * dim - 1 < fe.n_components(),
-           ExcIndexRange(first_tensor_component + dim * dim - 1,
-                         0,
-                         fe.n_components()));
+    AssertIndexRange(first_tensor_component + dim * dim - 1, fe.n_components());
     // TODO: we'd like to use the fields with the same name as these
     // variables from FEValuesBase, but they aren't initialized yet
     // at the time we get here, so re-create it all
@@ -410,7 +371,7 @@ namespace FEValuesViews
       {
         const unsigned int component = first_tensor_component + d;
 
-        for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+        for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
           {
             const bool is_primitive = fe.is_primitive() || fe.is_primitive(i);
 
@@ -431,7 +392,7 @@ namespace FEValuesViews
           }
       }
 
-    for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
       {
         unsigned int n_nonzero_components = 0;
         for (unsigned int d = 0; d < dim * dim; ++d)
@@ -468,17 +429,6 @@ namespace FEValuesViews
 
 
 
-  template <int dim, int spacedim>
-  Tensor<2, dim, spacedim> &
-  Tensor<2, dim, spacedim>::operator=(const Tensor<2, dim, spacedim> &)
-  {
-    // we shouldn't be copying these objects
-    Assert(false, ExcInternalError());
-    return *this;
-  }
-
-
-
   namespace internal
   {
     // Given values of degrees of freedom, evaluate the
@@ -494,10 +444,8 @@ namespace FEValuesViews
         &shape_function_data,
       std::vector<typename ProductType<Number, double>::type> &values)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_values.n_cols() : values.size();
-      AssertDimension(values.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = values.size();
 
       std::fill(values.begin(),
                 values.end(),
@@ -538,10 +486,8 @@ namespace FEValuesViews
         typename ProductType<Number, dealii::Tensor<order, spacedim>>::type>
         &derivatives)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_derivatives[0].size() : derivatives.size();
-      AssertDimension(derivatives.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = derivatives.size();
 
       std::fill(
         derivatives.begin(),
@@ -581,10 +527,8 @@ namespace FEValuesViews
       std::vector<typename Scalar<dim, spacedim>::template OutputType<
         Number>::laplacian_type> &laplacians)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_hessians[0].size() : laplacians.size();
-      AssertDimension(laplacians.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = laplacians.size();
 
       std::fill(laplacians.begin(),
                 laplacians.end(),
@@ -626,10 +570,8 @@ namespace FEValuesViews
         typename ProductType<Number, dealii::Tensor<1, spacedim>>::type>
         &values)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_values.n_cols() : values.size();
-      AssertDimension(values.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = values.size();
 
       std::fill(
         values.begin(),
@@ -689,10 +631,8 @@ namespace FEValuesViews
         typename ProductType<Number, dealii::Tensor<order + 1, spacedim>>::type>
         &derivatives)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_derivatives[0].size() : derivatives.size();
-      AssertDimension(derivatives.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = derivatives.size();
 
       std::fill(
         derivatives.begin(),
@@ -758,10 +698,7 @@ namespace FEValuesViews
         &symmetric_gradients)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
-      const unsigned int n_quadrature_points = dofs_per_cell > 0 ?
-                                                 shape_gradients[0].size() :
-                                                 symmetric_gradients.size();
-      AssertDimension(symmetric_gradients.size(), n_quadrature_points);
+      const unsigned int n_quadrature_points = symmetric_gradients.size();
 
       std::fill(
         symmetric_gradients.begin(),
@@ -828,10 +765,8 @@ namespace FEValuesViews
       std::vector<typename Vector<dim, spacedim>::template OutputType<
         Number>::divergence_type> &divergences)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_gradients[0].size() : divergences.size();
-      AssertDimension(divergences.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = divergences.size();
 
       std::fill(divergences.begin(),
                 divergences.end(),
@@ -893,10 +828,8 @@ namespace FEValuesViews
         Number,
         typename dealii::internal::CurlType<spacedim>::type>::type> &curls)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_gradients[0].size() : curls.size();
-      AssertDimension(curls.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = curls.size();
 
       std::fill(curls.begin(),
                 curls.end(),
@@ -1156,10 +1089,8 @@ namespace FEValuesViews
       std::vector<typename Vector<dim, spacedim>::template OutputType<
         Number>::laplacian_type> &laplacians)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_hessians[0].size() : laplacians.size();
-      AssertDimension(laplacians.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = laplacians.size();
 
       std::fill(laplacians.begin(),
                 laplacians.end(),
@@ -1227,10 +1158,8 @@ namespace FEValuesViews
                              dealii::SymmetricTensor<2, spacedim>>::type>
         &values)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_values.n_cols() : values.size();
-      AssertDimension(values.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = values.size();
 
       std::fill(
         values.begin(),
@@ -1299,10 +1228,8 @@ namespace FEValuesViews
       std::vector<typename SymmetricTensor<2, dim, spacedim>::
                     template OutputType<Number>::divergence_type> &divergences)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_gradients[0].size() : divergences.size();
-      AssertDimension(divergences.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = divergences.size();
 
       std::fill(divergences.begin(),
                 divergences.end(),
@@ -1408,10 +1335,8 @@ namespace FEValuesViews
         typename ProductType<Number, dealii::Tensor<2, spacedim>>::type>
         &values)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_values.n_cols() : values.size();
-      AssertDimension(values.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = values.size();
 
       std::fill(
         values.begin(),
@@ -1479,10 +1404,8 @@ namespace FEValuesViews
       std::vector<typename Tensor<2, dim, spacedim>::template OutputType<
         Number>::divergence_type> &divergences)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_gradients[0].size() : divergences.size();
-      AssertDimension(divergences.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = divergences.size();
 
       std::fill(divergences.begin(),
                 divergences.end(),
@@ -1550,10 +1473,8 @@ namespace FEValuesViews
       std::vector<typename Tensor<2, dim, spacedim>::template OutputType<
         Number>::gradient_type> &gradients)
     {
-      const unsigned int dofs_per_cell = dof_values.size();
-      const unsigned int n_quadrature_points =
-        dofs_per_cell > 0 ? shape_gradients[0].size() : gradients.size();
-      AssertDimension(gradients.size(), n_quadrature_points);
+      const unsigned int dofs_per_cell       = dof_values.size();
+      const unsigned int n_quadrature_points = gradients.size();
 
       std::fill(gradients.begin(),
                 gradients.end(),
@@ -2642,75 +2563,40 @@ namespace internal
     {
       const FiniteElement<dim, spacedim> &fe = fe_values.get_fe();
 
-      // create the views objects: Allocate a bunch of default-constructed ones
-      // then destroy them again and do in-place construction of those we
-      // actually want to use.
       const unsigned int n_scalars = fe.n_components();
-      scalars.resize(n_scalars);
+      scalars.reserve(n_scalars);
       for (unsigned int component = 0; component < n_scalars; ++component)
-        {
-          // Use an alias here to work around an issue with gcc-4.1:
-          using ScalarView = dealii::FEValuesViews::Scalar<dim, spacedim>;
-          scalars[component].ScalarView::~ScalarView();
-
-          new (&scalars[component])
-            dealii::FEValuesViews::Scalar<dim, spacedim>(fe_values, component);
-        }
+        scalars.emplace_back(fe_values, component);
 
       // compute number of vectors that we can fit into this finite element.
       // note that this is based on the dimensionality 'dim' of the manifold,
       // not 'spacedim' of the output vector
       const unsigned int n_vectors =
         (fe.n_components() >= spacedim ? fe.n_components() - spacedim + 1 : 0);
-      vectors.resize(n_vectors);
+      vectors.reserve(n_vectors);
       for (unsigned int component = 0; component < n_vectors; ++component)
-        {
-          // Use an alias here to work around an issue with gcc-4.1:
-          using VectorView = dealii::FEValuesViews::Vector<dim, spacedim>;
-          vectors[component].VectorView::~VectorView();
-
-          new (&vectors[component])
-            dealii::FEValuesViews::Vector<dim, spacedim>(fe_values, component);
-        }
+        vectors.emplace_back(fe_values, component);
 
       // compute number of symmetric tensors in the same way as above
       const unsigned int n_symmetric_second_order_tensors =
         (fe.n_components() >= (dim * dim + dim) / 2 ?
            fe.n_components() - (dim * dim + dim) / 2 + 1 :
            0);
-      symmetric_second_order_tensors.resize(n_symmetric_second_order_tensors);
+      symmetric_second_order_tensors.reserve(n_symmetric_second_order_tensors);
       for (unsigned int component = 0;
            component < n_symmetric_second_order_tensors;
            ++component)
-        {
-          // Use an alias here to work around an issue with gcc-4.1:
-          using SymmetricTensorView =
-            dealii::FEValuesViews::SymmetricTensor<2, dim, spacedim>;
-          symmetric_second_order_tensors[component]
-            .SymmetricTensorView::~SymmetricTensorView();
-
-          new (&symmetric_second_order_tensors[component])
-            dealii::FEValuesViews::SymmetricTensor<2, dim, spacedim>(fe_values,
-                                                                     component);
-        }
+        symmetric_second_order_tensors.emplace_back(fe_values, component);
 
 
       // compute number of symmetric tensors in the same way as above
       const unsigned int n_second_order_tensors =
         (fe.n_components() >= dim * dim ? fe.n_components() - dim * dim + 1 :
                                           0);
-      second_order_tensors.resize(n_second_order_tensors);
+      second_order_tensors.reserve(n_second_order_tensors);
       for (unsigned int component = 0; component < n_second_order_tensors;
            ++component)
-        {
-          // Use an alias here to work around an issue with gcc-4.1:
-          using TensorView = dealii::FEValuesViews::Tensor<2, dim, spacedim>;
-          second_order_tensors[component].TensorView::~TensorView();
-
-          new (&second_order_tensors[component])
-            dealii::FEValuesViews::Tensor<2, dim, spacedim>(fe_values,
-                                                            component);
-        }
+        second_order_tensors.emplace_back(fe_values, component);
     }
   } // namespace FEValuesViews
 } // namespace internal
@@ -2761,8 +2647,6 @@ public:
 /**
  * Implementation of derived classes of the CellIteratorBase
  * interface. See there for a description of the use of these classes.
- *
- * @author Wolfgang Bangerth, 2003
  */
 template <int dim, int spacedim>
 template <typename CI>
@@ -2823,11 +2707,9 @@ private:
  * be possible to call FEValues::reinit() with a tria iterator only; this class
  * makes this possible, but whenever one of the functions of FEValues tries to
  * call any of the functions of this class, an exception will be raised
- * reminding the user that if she wants to use these features, then the FEValues
+ * reminding the user that if they want to use these features, then the FEValues
  * object has to be reinitialized with a cell iterator that allows to extract
  * degree of freedom information.
- *
- * @author Wolfgang Bangerth, 2003
  */
 template <int dim, int spacedim>
 class FEValuesBase<dim, spacedim>::TriaCellIterator
@@ -2925,13 +2807,13 @@ FEValuesBase<dim, spacedim>::CellIterator<CI>::get_interpolated_dof_values(
   const IndexSet &              in,
   Vector<IndexSet::value_type> &out) const
 {
-  Assert(cell->has_children() == false, ExcNotImplemented());
+  Assert(cell->is_active(), ExcNotImplemented());
 
   std::vector<types::global_dof_index> dof_indices(
-    cell->get_fe().dofs_per_cell);
+    cell->get_fe().n_dofs_per_cell());
   cell->get_dof_indices(dof_indices);
 
-  for (unsigned int i = 0; i < cell->get_fe().dofs_per_cell; ++i)
+  for (unsigned int i = 0; i < cell->get_fe().n_dofs_per_cell(); ++i)
     out[i] = (in.is_element(dof_indices[i]) ? 1 : 0);
 }
 
@@ -3097,9 +2979,9 @@ namespace internal
       // count the total number of non-zero components accumulated
       // over all shape functions
       unsigned int n_nonzero_shape_components = 0;
-      for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+      for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
         n_nonzero_shape_components += fe.n_nonzero_components(i);
-      Assert(n_nonzero_shape_components >= fe.dofs_per_cell,
+      Assert(n_nonzero_shape_components >= fe.n_dofs_per_cell(),
              ExcInternalError());
 
       // with the number of rows now known, initialize those fields
@@ -3165,6 +3047,7 @@ FEValuesBase<dim, spacedim>::FEValuesBase(
   const Mapping<dim, spacedim> &      mapping,
   const FiniteElement<dim, spacedim> &fe)
   : n_quadrature_points(n_q_points)
+  , max_n_quadrature_points(n_q_points)
   , dofs_per_cell(dofs_per_cell)
   , mapping(&mapping, typeid(*this).name())
   , fe(&fe, typeid(*this).name())
@@ -3205,10 +3088,8 @@ namespace internal
                      std::vector<Number> &           values)
   {
     // scalar finite elements, so shape_values.size() == dofs_per_cell
-    const unsigned int dofs_per_cell = shape_values.n_rows();
-    const unsigned int n_quadrature_points =
-      dofs_per_cell > 0 ? shape_values.n_cols() : values.size();
-    AssertDimension(values.size(), n_quadrature_points);
+    const unsigned int dofs_per_cell       = shape_values.n_rows();
+    const unsigned int n_quadrature_points = values.size();
 
     // initialize with zero
     std::fill_n(values.begin(),
@@ -3260,12 +3141,13 @@ namespace internal
 
     // see if there the current cell has DoFs at all, and if not
     // then there is nothing else to do.
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     if (dofs_per_cell == 0)
       return;
 
-    const unsigned int n_quadrature_points = shape_values.n_cols();
-    const unsigned int n_components        = fe.n_components();
+    const unsigned int n_quadrature_points =
+      quadrature_points_fastest ? values[0].size() : values.size();
+    const unsigned int n_components = fe.n_components();
 
     // Assert that we can write all components into the result vectors
     const unsigned result_components = n_components * component_multiple;
@@ -3357,10 +3239,8 @@ namespace internal
     const dealii::Table<2, Tensor<order, spacedim>> &shape_derivatives,
     std::vector<Tensor<order, spacedim, Number>> &   derivatives)
   {
-    const unsigned int dofs_per_cell = shape_derivatives.size()[0];
-    const unsigned int n_quadrature_points =
-      dofs_per_cell > 0 ? shape_derivatives[0].size() : derivatives.size();
-    AssertDimension(derivatives.size(), n_quadrature_points);
+    const unsigned int dofs_per_cell       = shape_derivatives.size()[0];
+    const unsigned int n_quadrature_points = derivatives.size();
 
     // initialize with zero
     std::fill_n(derivatives.begin(),
@@ -3411,13 +3291,14 @@ namespace internal
 
     // see if there the current cell has DoFs at all, and if not
     // then there is nothing else to do.
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     if (dofs_per_cell == 0)
       return;
 
 
-    const unsigned int n_quadrature_points = shape_derivatives[0].size();
-    const unsigned int n_components        = fe.n_components();
+    const unsigned int n_quadrature_points =
+      quadrature_points_fastest ? derivatives[0].size() : derivatives.size();
+    const unsigned int n_components = fe.n_components();
 
     // Assert that we can write all components into the result vectors
     const unsigned result_components = n_components * component_multiple;
@@ -3505,10 +3386,8 @@ namespace internal
     const dealii::Table<2, Tensor<2, spacedim>> &shape_hessians,
     std::vector<Number> &                        laplacians)
   {
-    const unsigned int dofs_per_cell = shape_hessians.size()[0];
-    const unsigned int n_quadrature_points =
-      dofs_per_cell > 0 ? shape_hessians[0].size() : laplacians.size();
-    AssertDimension(laplacians.size(), n_quadrature_points);
+    const unsigned int dofs_per_cell       = shape_hessians.size()[0];
+    const unsigned int n_quadrature_points = laplacians.size();
 
     // initialize with zero
     std::fill_n(laplacians.begin(),
@@ -3556,12 +3435,12 @@ namespace internal
 
     // see if there the current cell has DoFs at all, and if not
     // then there is nothing else to do.
-    const unsigned int dofs_per_cell = fe.dofs_per_cell;
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     if (dofs_per_cell == 0)
       return;
 
 
-    const unsigned int n_quadrature_points = shape_hessians[0].size();
+    const unsigned int n_quadrature_points = laplacians.size();
     const unsigned int n_components        = fe.n_components();
 
     // Assert that we can write all components into the result vectors
@@ -3680,9 +3559,9 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_values(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  std::vector<typename InputVector::value_type> &                values) const
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
+  std::vector<typename InputVector::value_type> & values) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_values,
@@ -3732,9 +3611,9 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_values(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  std::vector<Vector<typename InputVector::value_type>> &        values) const
+  const InputVector &                                    fe_function,
+  const ArrayView<const types::global_dof_index> &       indices,
+  std::vector<Vector<typename InputVector::value_type>> &values) const
 {
   using Number = typename InputVector::value_type;
   // Size of indices must be a multiple of dofs_per_cell such that an integer
@@ -3763,11 +3642,10 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_values(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  VectorSlice<std::vector<std::vector<typename InputVector::value_type>>>
-       values,
-  bool quadrature_points_fastest) const
+  const InputVector &                                      fe_function,
+  const ArrayView<const types::global_dof_index> &         indices,
+  ArrayView<std::vector<typename InputVector::value_type>> values,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_values,
@@ -3823,8 +3701,8 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_gradients(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
   std::vector<Tensor<1, spacedim, typename InputVector::value_type>> &gradients)
   const
 {
@@ -3877,12 +3755,11 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_gradients(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  VectorSlice<std::vector<
-    std::vector<Tensor<1, spacedim, typename InputVector::value_type>>>>
-       gradients,
-  bool quadrature_points_fastest) const
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
+  ArrayView<std::vector<Tensor<1, spacedim, typename InputVector::value_type>>>
+             gradients,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   // Size of indices must be a multiple of dofs_per_cell such that an integer
@@ -3937,8 +3814,8 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_hessians(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
   std::vector<Tensor<2, spacedim, typename InputVector::value_type>> &hessians)
   const
 {
@@ -3965,8 +3842,8 @@ FEValuesBase<dim, spacedim>::get_function_hessians(
   const InputVector &fe_function,
   std::vector<
     std::vector<Tensor<2, spacedim, typename InputVector::value_type>>>
-    &  hessians,
-  bool quadrature_points_fastest) const
+    &        hessians,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_hessians,
@@ -3993,12 +3870,11 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_hessians(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  VectorSlice<std::vector<
-    std::vector<Tensor<2, spacedim, typename InputVector::value_type>>>>
-       hessians,
-  bool quadrature_points_fastest) const
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
+  ArrayView<std::vector<Tensor<2, spacedim, typename InputVector::value_type>>>
+             hessians,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_hessians,
@@ -4050,9 +3926,9 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_laplacians(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  std::vector<typename InputVector::value_type> &laplacians) const
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
+  std::vector<typename InputVector::value_type> & laplacians) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_hessians,
@@ -4101,8 +3977,8 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_laplacians(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
+  const InputVector &                                    fe_function,
+  const ArrayView<const types::global_dof_index> &       indices,
   std::vector<Vector<typename InputVector::value_type>> &laplacians) const
 {
   using Number = typename InputVector::value_type;
@@ -4132,10 +4008,10 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_laplacians(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  std::vector<std::vector<typename InputVector::value_type>> &   laplacians,
-  bool quadrature_points_fastest) const
+  const InputVector &                                         fe_function,
+  const ArrayView<const types::global_dof_index> &            indices,
+  std::vector<std::vector<typename InputVector::value_type>> &laplacians,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   Assert(indices.size() % dofs_per_cell == 0,
@@ -4189,8 +4065,8 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_third_derivatives(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
   std::vector<Tensor<3, spacedim, typename InputVector::value_type>>
     &third_derivatives) const
 {
@@ -4218,8 +4094,8 @@ FEValuesBase<dim, spacedim>::get_function_third_derivatives(
   const InputVector &fe_function,
   std::vector<
     std::vector<Tensor<3, spacedim, typename InputVector::value_type>>>
-    &  third_derivatives,
-  bool quadrature_points_fastest) const
+    &        third_derivatives,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_3rd_derivatives,
@@ -4246,12 +4122,11 @@ template <int dim, int spacedim>
 template <class InputVector>
 void
 FEValuesBase<dim, spacedim>::get_function_third_derivatives(
-  const InputVector &                                            fe_function,
-  const VectorSlice<const std::vector<types::global_dof_index>> &indices,
-  VectorSlice<std::vector<
-    std::vector<Tensor<3, spacedim, typename InputVector::value_type>>>>
-       third_derivatives,
-  bool quadrature_points_fastest) const
+  const InputVector &                             fe_function,
+  const ArrayView<const types::global_dof_index> &indices,
+  ArrayView<std::vector<Tensor<3, spacedim, typename InputVector::value_type>>>
+             third_derivatives,
+  const bool quadrature_points_fastest) const
 {
   using Number = typename InputVector::value_type;
   Assert(this->update_flags & update_3rd_derivatives,
@@ -4285,18 +4160,6 @@ FEValuesBase<dim, spacedim>::get_cell() const
 
 template <int dim, int spacedim>
 const std::vector<Tensor<1, spacedim>> &
-FEValuesBase<dim, spacedim>::get_all_normal_vectors() const
-{
-  Assert(this->update_flags & update_normal_vectors,
-         (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
-           "update_normal_vectors")));
-  return get_normal_vectors();
-}
-
-
-
-template <int dim, int spacedim>
-const std::vector<Tensor<1, spacedim>> &
 FEValuesBase<dim, spacedim>::get_normal_vectors() const
 {
   Assert(this->update_flags & update_normal_vectors,
@@ -4314,6 +4177,7 @@ FEValuesBase<dim, spacedim>::memory_consumption() const
 {
   return (sizeof(this->update_flags) +
           MemoryConsumption::memory_consumption(n_quadrature_points) +
+          MemoryConsumption::memory_consumption(max_n_quadrature_points) +
           sizeof(cell_similarity) +
           MemoryConsumption::memory_consumption(dofs_per_cell) +
           MemoryConsumption::memory_consumption(mapping) +
@@ -4385,13 +4249,11 @@ FEValuesBase<dim, spacedim>::maybe_invalidate_previous_present_cell(
           // triangulations
           invalidate_present_cell();
           tria_listener_refinement =
-            cell->get_triangulation().signals.any_change.connect(std::bind(
-              &FEValuesBase<dim, spacedim>::invalidate_present_cell,
-              std::ref(static_cast<FEValuesBase<dim, spacedim> &>(*this))));
+            cell->get_triangulation().signals.any_change.connect(
+              [this]() { this->invalidate_present_cell(); });
           tria_listener_mesh_transform =
-            cell->get_triangulation().signals.mesh_movement.connect(std::bind(
-              &FEValuesBase<dim, spacedim>::invalidate_present_cell,
-              std::ref(static_cast<FEValuesBase<dim, spacedim> &>(*this))));
+            cell->get_triangulation().signals.mesh_movement.connect(
+              [this]() { this->invalidate_present_cell(); });
         }
     }
   else
@@ -4400,13 +4262,11 @@ FEValuesBase<dim, spacedim>::maybe_invalidate_previous_present_cell(
       // at least subscribe to the triangulation to get notified of
       // changes
       tria_listener_refinement =
-        cell->get_triangulation().signals.post_refinement.connect(std::bind(
-          &FEValuesBase<dim, spacedim>::invalidate_present_cell,
-          std::ref(static_cast<FEValuesBase<dim, spacedim> &>(*this))));
+        cell->get_triangulation().signals.post_refinement.connect(
+          [this]() { this->invalidate_present_cell(); });
       tria_listener_mesh_transform =
-        cell->get_triangulation().signals.mesh_movement.connect(std::bind(
-          &FEValuesBase<dim, spacedim>::invalidate_present_cell,
-          std::ref(static_cast<FEValuesBase<dim, spacedim> &>(*this))));
+        cell->get_triangulation().signals.mesh_movement.connect(
+          [this]() { this->invalidate_present_cell(); });
     }
 }
 
@@ -4497,7 +4357,7 @@ FEValues<dim, spacedim>::FEValues(const Mapping<dim, spacedim> &      mapping,
                                   const Quadrature<dim> &             q,
                                   const UpdateFlags update_flags)
   : FEValuesBase<dim, spacedim>(q.size(),
-                                fe.dofs_per_cell,
+                                fe.n_dofs_per_cell(),
                                 update_default,
                                 mapping,
                                 fe)
@@ -4509,17 +4369,40 @@ FEValues<dim, spacedim>::FEValues(const Mapping<dim, spacedim> &      mapping,
 
 
 template <int dim, int spacedim>
+FEValues<dim, spacedim>::FEValues(const Mapping<dim, spacedim> &      mapping,
+                                  const FiniteElement<dim, spacedim> &fe,
+                                  const hp::QCollection<dim> &        q,
+                                  const UpdateFlags update_flags)
+  : FEValues(mapping, fe, q[0], update_flags)
+{
+  AssertDimension(q.size(), 1);
+}
+
+
+
+template <int dim, int spacedim>
 FEValues<dim, spacedim>::FEValues(const FiniteElement<dim, spacedim> &fe,
                                   const Quadrature<dim> &             q,
                                   const UpdateFlags update_flags)
   : FEValuesBase<dim, spacedim>(q.size(),
-                                fe.dofs_per_cell,
+                                fe.n_dofs_per_cell(),
                                 update_default,
                                 StaticMappingQ1<dim, spacedim>::mapping,
                                 fe)
   , quadrature(q)
 {
   initialize(update_flags);
+}
+
+
+
+template <int dim, int spacedim>
+FEValues<dim, spacedim>::FEValues(const FiniteElement<dim, spacedim> &fe,
+                                  const hp::QCollection<dim> &        q,
+                                  const UpdateFlags update_flags)
+  : FEValues(fe, q[0], update_flags)
+{
+  AssertDimension(q.size(), 1);
 }
 
 
@@ -4542,8 +4425,8 @@ FEValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
 
   // initialize the base classes
   if (flags & update_mapping)
-    this->mapping_output.initialize(this->n_quadrature_points, flags);
-  this->finite_element_output.initialize(this->n_quadrature_points,
+    this->mapping_output.initialize(this->max_n_quadrature_points, flags);
+  this->finite_element_output.initialize(this->max_n_quadrature_points,
                                          *this->fe,
                                          flags);
 
@@ -4551,20 +4434,19 @@ FEValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
   // intermediate data used across calls to reinit. we can do this in parallel
   Threads::Task<
     std::unique_ptr<typename FiniteElement<dim, spacedim>::InternalDataBase>>
-    fe_get_data = Threads::new_task(&FiniteElement<dim, spacedim>::get_data,
-                                    *this->fe,
-                                    flags,
-                                    *this->mapping,
-                                    quadrature,
-                                    this->finite_element_output);
+    fe_get_data = Threads::new_task([&]() {
+      return this->fe->get_data(flags,
+                                *this->mapping,
+                                quadrature,
+                                this->finite_element_output);
+    });
+
   Threads::Task<
     std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>>
     mapping_get_data;
   if (flags & update_mapping)
-    mapping_get_data = Threads::new_task(&Mapping<dim, spacedim>::get_data,
-                                         *this->mapping,
-                                         flags,
-                                         quadrature);
+    mapping_get_data = Threads::new_task(
+      [&]() { return this->mapping->get_data(flags, quadrature); });
 
   this->update_flags = flags;
 
@@ -4573,8 +4455,8 @@ FEValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
   if (flags & update_mapping)
     this->mapping_data = std::move(mapping_get_data.return_value());
   else
-    this->mapping_data = std_cxx14::make_unique<
-      typename Mapping<dim, spacedim>::InternalDataBase>();
+    this->mapping_data =
+      std::make_unique<typename Mapping<dim, spacedim>::InternalDataBase>();
 }
 
 
@@ -4604,7 +4486,7 @@ namespace
       }
     else
       // if the types don't match, there is nothing we can do here
-      present_cell = std_cxx14::make_unique<Type>(new_cell);
+      present_cell = std::make_unique<Type>(new_cell);
   }
 } // namespace
 
@@ -4633,10 +4515,10 @@ FEValues<dim, spacedim>::reinit(
 
 
 template <int dim, int spacedim>
-template <template <int, int> class DoFHandlerType, bool lda>
+template <bool lda>
 void
 FEValues<dim, spacedim>::reinit(
-  const TriaIterator<DoFCellAccessor<DoFHandlerType<dim, spacedim>, lda>> &cell)
+  const TriaIterator<DoFCellAccessor<dim, spacedim, lda>> &cell)
 {
   // assert that the finite elements passed to the constructor and
   // used by the DoFHandler used by this cell, are the same
@@ -4649,8 +4531,8 @@ FEValues<dim, spacedim>::reinit(
 
   reset_pointer_in_place_if_possible<
     typename FEValuesBase<dim, spacedim>::template CellIterator<
-      TriaIterator<DoFCellAccessor<DoFHandlerType<dim, spacedim>, lda>>>>(
-    this->present_cell, cell);
+      TriaIterator<DoFCellAccessor<dim, spacedim, lda>>>>(this->present_cell,
+                                                          cell);
 
   // this was the part of the work that is dependent on the actual
   // data type of the iterator. now pass on to the function doing
@@ -4708,20 +4590,41 @@ FEValues<dim, spacedim>::memory_consumption() const
 
 template <int dim, int spacedim>
 FEFaceValuesBase<dim, spacedim>::FEFaceValuesBase(
-  const unsigned int n_q_points,
+  const unsigned int                  dofs_per_cell,
+  const UpdateFlags                   flags,
+  const Mapping<dim, spacedim> &      mapping,
+  const FiniteElement<dim, spacedim> &fe,
+  const Quadrature<dim - 1> &         quadrature)
+  : FEFaceValuesBase<dim, spacedim>(dofs_per_cell,
+                                    flags,
+                                    mapping,
+                                    fe,
+                                    hp::QCollection<dim - 1>(quadrature))
+{}
+
+
+
+template <int dim, int spacedim>
+FEFaceValuesBase<dim, spacedim>::FEFaceValuesBase(
   const unsigned int dofs_per_cell,
   const UpdateFlags,
   const Mapping<dim, spacedim> &      mapping,
   const FiniteElement<dim, spacedim> &fe,
-  const Quadrature<dim - 1> &         quadrature)
-  : FEValuesBase<dim, spacedim>(n_q_points,
+  const hp::QCollection<dim - 1> &    quadrature)
+  : FEValuesBase<dim, spacedim>(quadrature.max_n_quadrature_points(),
                                 dofs_per_cell,
                                 update_default,
                                 mapping,
                                 fe)
   , present_face_index(numbers::invalid_unsigned_int)
   , quadrature(quadrature)
-{}
+{
+  Assert(quadrature.size() == 1 ||
+           quadrature.size() ==
+             ReferenceCell::internal::Info::get_cell(fe.reference_cell_type())
+               .n_faces(),
+         ExcInternalError());
+}
 
 
 
@@ -4764,8 +4667,21 @@ FEFaceValues<dim, spacedim>::FEFaceValues(
   const FiniteElement<dim, spacedim> &fe,
   const Quadrature<dim - 1> &         quadrature,
   const UpdateFlags                   update_flags)
-  : FEFaceValuesBase<dim, spacedim>(quadrature.size(),
-                                    fe.dofs_per_cell,
+  : FEFaceValues<dim, spacedim>(mapping,
+                                fe,
+                                hp::QCollection<dim - 1>(quadrature),
+                                update_flags)
+{}
+
+
+
+template <int dim, int spacedim>
+FEFaceValues<dim, spacedim>::FEFaceValues(
+  const Mapping<dim, spacedim> &      mapping,
+  const FiniteElement<dim, spacedim> &fe,
+  const hp::QCollection<dim - 1> &    quadrature,
+  const UpdateFlags                   update_flags)
+  : FEFaceValuesBase<dim, spacedim>(fe.n_dofs_per_cell(),
                                     update_flags,
                                     mapping,
                                     fe,
@@ -4781,8 +4697,19 @@ FEFaceValues<dim, spacedim>::FEFaceValues(
   const FiniteElement<dim, spacedim> &fe,
   const Quadrature<dim - 1> &         quadrature,
   const UpdateFlags                   update_flags)
-  : FEFaceValuesBase<dim, spacedim>(quadrature.size(),
-                                    fe.dofs_per_cell,
+  : FEFaceValues<dim, spacedim>(fe,
+                                hp::QCollection<dim - 1>(quadrature),
+                                update_flags)
+{}
+
+
+
+template <int dim, int spacedim>
+FEFaceValues<dim, spacedim>::FEFaceValues(
+  const FiniteElement<dim, spacedim> &fe,
+  const hp::QCollection<dim - 1> &    quadrature,
+  const UpdateFlags                   update_flags)
+  : FEFaceValuesBase<dim, spacedim>(fe.n_dofs_per_cell(),
                                     update_flags,
                                     StaticMappingQ1<dim, spacedim>::mapping,
                                     fe,
@@ -4801,27 +4728,42 @@ FEFaceValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
 
   // initialize the base classes
   if (flags & update_mapping)
-    this->mapping_output.initialize(this->n_quadrature_points, flags);
-  this->finite_element_output.initialize(this->n_quadrature_points,
+    this->mapping_output.initialize(this->max_n_quadrature_points, flags);
+  this->finite_element_output.initialize(this->max_n_quadrature_points,
                                          *this->fe,
                                          flags);
 
   // then get objects into which the FE and the Mapping can store
   // intermediate data used across calls to reinit. this can be done in parallel
+
+  std::unique_ptr<typename FiniteElement<dim, spacedim>::InternalDataBase> (
+    FiniteElement<dim, spacedim>::*finite_element_get_face_data)(
+    const UpdateFlags,
+    const Mapping<dim, spacedim> &,
+    const hp::QCollection<dim - 1> &,
+    dealii::internal::FEValuesImplementation::FiniteElementRelatedData<dim,
+                                                                       spacedim>
+      &) const = &FiniteElement<dim, spacedim>::get_face_data;
+
+  std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase> (
+    Mapping<dim, spacedim>::*mapping_get_face_data)(
+    const UpdateFlags, const hp::QCollection<dim - 1> &) const =
+    &Mapping<dim, spacedim>::get_face_data;
+
+
   Threads::Task<
     std::unique_ptr<typename FiniteElement<dim, spacedim>::InternalDataBase>>
-    fe_get_data =
-      Threads::new_task(&FiniteElement<dim, spacedim>::get_face_data,
-                        *this->fe,
-                        flags,
-                        *this->mapping,
-                        this->quadrature,
-                        this->finite_element_output);
+    fe_get_data = Threads::new_task(finite_element_get_face_data,
+                                    *this->fe,
+                                    flags,
+                                    *this->mapping,
+                                    this->quadrature,
+                                    this->finite_element_output);
   Threads::Task<
     std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>>
     mapping_get_data;
   if (flags & update_mapping)
-    mapping_get_data = Threads::new_task(&Mapping<dim, spacedim>::get_face_data,
+    mapping_get_data = Threads::new_task(mapping_get_face_data,
                                          *this->mapping,
                                          flags,
                                          this->quadrature);
@@ -4833,18 +4775,18 @@ FEFaceValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
   if (flags & update_mapping)
     this->mapping_data = std::move(mapping_get_data.return_value());
   else
-    this->mapping_data = std_cxx14::make_unique<
-      typename Mapping<dim, spacedim>::InternalDataBase>();
+    this->mapping_data =
+      std::make_unique<typename Mapping<dim, spacedim>::InternalDataBase>();
 }
 
 
 
 template <int dim, int spacedim>
-template <template <int, int> class DoFHandlerType, bool lda>
+template <bool lda>
 void
 FEFaceValues<dim, spacedim>::reinit(
-  const TriaIterator<DoFCellAccessor<DoFHandlerType<dim, spacedim>, lda>> &cell,
-  const unsigned int face_no)
+  const TriaIterator<DoFCellAccessor<dim, spacedim, lda>> &cell,
+  const unsigned int                                       face_no)
 {
   // assert that the finite elements passed to the constructor and
   // used by the DoFHandler used by this cell, are the same
@@ -4853,14 +4795,13 @@ FEFaceValues<dim, spacedim>::reinit(
              cell->get_dof_handler().get_fe(cell->active_fe_index())),
          (typename FEValuesBase<dim, spacedim>::ExcFEDontMatch()));
 
-  Assert(face_no < GeometryInfo<dim>::faces_per_cell,
-         ExcIndexRange(face_no, 0, GeometryInfo<dim>::faces_per_cell));
+  AssertIndexRange(face_no, GeometryInfo<dim>::faces_per_cell);
 
   this->maybe_invalidate_previous_present_cell(cell);
   reset_pointer_in_place_if_possible<
     typename FEValuesBase<dim, spacedim>::template CellIterator<
-      TriaIterator<DoFCellAccessor<DoFHandlerType<dim, spacedim>, lda>>>>(
-    this->present_cell, cell);
+      TriaIterator<DoFCellAccessor<dim, spacedim, lda>>>>(this->present_cell,
+                                                          cell);
 
   // this was the part of the work that is dependent on the actual
   // data type of the iterator. now pass on to the function doing
@@ -4871,13 +4812,25 @@ FEFaceValues<dim, spacedim>::reinit(
 
 
 template <int dim, int spacedim>
+template <bool lda>
+void
+FEFaceValues<dim, spacedim>::reinit(
+  const TriaIterator<DoFCellAccessor<dim, spacedim, lda>> &   cell,
+  const typename Triangulation<dim, spacedim>::face_iterator &face)
+{
+  const auto face_n = cell->face_iterator_to_index(face);
+  reinit(cell, face_n);
+}
+
+
+
+template <int dim, int spacedim>
 void
 FEFaceValues<dim, spacedim>::reinit(
   const typename Triangulation<dim, spacedim>::cell_iterator &cell,
   const unsigned int                                          face_no)
 {
-  Assert(face_no < GeometryInfo<dim>::faces_per_cell,
-         ExcIndexRange(face_no, 0, GeometryInfo<dim>::faces_per_cell));
+  AssertIndexRange(face_no, GeometryInfo<dim>::faces_per_cell);
 
   this->maybe_invalidate_previous_present_cell(cell);
   reset_pointer_in_place_if_possible<
@@ -4894,8 +4847,22 @@ FEFaceValues<dim, spacedim>::reinit(
 
 template <int dim, int spacedim>
 void
+FEFaceValues<dim, spacedim>::reinit(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+  const typename Triangulation<dim, spacedim>::face_iterator &face)
+{
+  const auto face_n = cell->face_iterator_to_index(face);
+  reinit(cell, face_n);
+}
+
+
+
+template <int dim, int spacedim>
+void
 FEFaceValues<dim, spacedim>::do_reinit(const unsigned int face_no)
 {
+  this->present_face_no = face_no;
+
   // first of all, set the present_face_index (if available)
   const typename Triangulation<dim, spacedim>::cell_iterator cell =
     *this->present_cell;
@@ -4918,6 +4885,9 @@ FEFaceValues<dim, spacedim>::do_reinit(const unsigned int face_no)
                                      this->mapping_output,
                                      *this->fe_data,
                                      this->finite_element_output);
+
+  const_cast<unsigned int &>(this->n_quadrature_points) =
+    this->quadrature[this->quadrature.size() == 1 ? 0 : face_no].size();
 }
 
 
@@ -4940,8 +4910,7 @@ FESubfaceValues<dim, spacedim>::FESubfaceValues(
   const FiniteElement<dim, spacedim> &fe,
   const Quadrature<dim - 1> &         quadrature,
   const UpdateFlags                   update_flags)
-  : FEFaceValuesBase<dim, spacedim>(quadrature.size(),
-                                    fe.dofs_per_cell,
+  : FEFaceValuesBase<dim, spacedim>(fe.n_dofs_per_cell(),
                                     update_flags,
                                     mapping,
                                     fe,
@@ -4954,17 +4923,41 @@ FESubfaceValues<dim, spacedim>::FESubfaceValues(
 
 template <int dim, int spacedim>
 FESubfaceValues<dim, spacedim>::FESubfaceValues(
+  const Mapping<dim, spacedim> &      mapping,
+  const FiniteElement<dim, spacedim> &fe,
+  const hp::QCollection<dim - 1> &    quadrature,
+  const UpdateFlags                   update_flags)
+  : FESubfaceValues(mapping, fe, quadrature[0], update_flags)
+{
+  AssertDimension(quadrature.size(), 1);
+}
+
+
+
+template <int dim, int spacedim>
+FESubfaceValues<dim, spacedim>::FESubfaceValues(
   const FiniteElement<dim, spacedim> &fe,
   const Quadrature<dim - 1> &         quadrature,
   const UpdateFlags                   update_flags)
-  : FEFaceValuesBase<dim, spacedim>(quadrature.size(),
-                                    fe.dofs_per_cell,
+  : FEFaceValuesBase<dim, spacedim>(fe.n_dofs_per_cell(),
                                     update_flags,
                                     StaticMappingQ1<dim, spacedim>::mapping,
                                     fe,
                                     quadrature)
 {
   initialize(update_flags);
+}
+
+
+
+template <int dim, int spacedim>
+FESubfaceValues<dim, spacedim>::FESubfaceValues(
+  const FiniteElement<dim, spacedim> &fe,
+  const hp::QCollection<dim - 1> &    quadrature,
+  const UpdateFlags                   update_flags)
+  : FESubfaceValues(fe, quadrature[0], update_flags)
+{
+  AssertDimension(quadrature.size(), 1);
 }
 
 
@@ -4977,8 +4970,8 @@ FESubfaceValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
 
   // initialize the base classes
   if (flags & update_mapping)
-    this->mapping_output.initialize(this->n_quadrature_points, flags);
-  this->finite_element_output.initialize(this->n_quadrature_points,
+    this->mapping_output.initialize(this->max_n_quadrature_points, flags);
+  this->finite_element_output.initialize(this->max_n_quadrature_points,
                                          *this->fe,
                                          flags);
 
@@ -4992,7 +4985,7 @@ FESubfaceValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
                         *this->fe,
                         flags,
                         *this->mapping,
-                        this->quadrature,
+                        this->quadrature[0],
                         this->finite_element_output);
   Threads::Task<
     std::unique_ptr<typename Mapping<dim, spacedim>::InternalDataBase>>
@@ -5002,7 +4995,7 @@ FESubfaceValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
       Threads::new_task(&Mapping<dim, spacedim>::get_subface_data,
                         *this->mapping,
                         flags,
-                        this->quadrature);
+                        this->quadrature[0]);
 
   this->update_flags = flags;
 
@@ -5011,28 +5004,27 @@ FESubfaceValues<dim, spacedim>::initialize(const UpdateFlags update_flags)
   if (flags & update_mapping)
     this->mapping_data = std::move(mapping_get_data.return_value());
   else
-    this->mapping_data = std_cxx14::make_unique<
-      typename Mapping<dim, spacedim>::InternalDataBase>();
+    this->mapping_data =
+      std::make_unique<typename Mapping<dim, spacedim>::InternalDataBase>();
 }
 
 
 
 template <int dim, int spacedim>
-template <template <int, int> class DoFHandlerType, bool lda>
+template <bool lda>
 void
 FESubfaceValues<dim, spacedim>::reinit(
-  const TriaIterator<DoFCellAccessor<DoFHandlerType<dim, spacedim>, lda>> &cell,
-  const unsigned int face_no,
-  const unsigned int subface_no)
+  const TriaIterator<DoFCellAccessor<dim, spacedim, lda>> &cell,
+  const unsigned int                                       face_no,
+  const unsigned int                                       subface_no)
 {
   // assert that the finite elements passed to the constructor and
-  // used by the hp::DoFHandler used by this cell, are the same
+  // used by the DoFHandler used by this cell, are the same
   Assert(static_cast<const FiniteElementData<dim> &>(*this->fe) ==
            static_cast<const FiniteElementData<dim> &>(
              cell->get_dof_handler().get_fe(cell->active_fe_index())),
          (typename FEValuesBase<dim, spacedim>::ExcFEDontMatch()));
-  Assert(face_no < GeometryInfo<dim>::faces_per_cell,
-         ExcIndexRange(face_no, 0, GeometryInfo<dim>::faces_per_cell));
+  AssertIndexRange(face_no, GeometryInfo<dim>::faces_per_cell);
   // We would like to check for subface_no < cell->face(face_no)->n_children(),
   // but unfortunately the current function is also called for
   // faces without children (see tests/fe/mapping.cc). Therefore,
@@ -5055,13 +5047,28 @@ FESubfaceValues<dim, spacedim>::reinit(
   this->maybe_invalidate_previous_present_cell(cell);
   reset_pointer_in_place_if_possible<
     typename FEValuesBase<dim, spacedim>::template CellIterator<
-      TriaIterator<DoFCellAccessor<DoFHandlerType<dim, spacedim>, lda>>>>(
-    this->present_cell, cell);
+      TriaIterator<DoFCellAccessor<dim, spacedim, lda>>>>(this->present_cell,
+                                                          cell);
 
   // this was the part of the work that is dependent on the actual
   // data type of the iterator. now pass on to the function doing
   // the real work.
   do_reinit(face_no, subface_no);
+}
+
+
+
+template <int dim, int spacedim>
+template <bool lda>
+void
+FESubfaceValues<dim, spacedim>::reinit(
+  const TriaIterator<DoFCellAccessor<dim, spacedim, lda>> &   cell,
+  const typename Triangulation<dim, spacedim>::face_iterator &face,
+  const typename Triangulation<dim, spacedim>::face_iterator &subface)
+{
+  reinit(cell,
+         cell->face_iterator_to_index(face),
+         face->child_iterator_to_index(subface));
 }
 
 
@@ -5073,10 +5080,17 @@ FESubfaceValues<dim, spacedim>::reinit(
   const unsigned int                                          face_no,
   const unsigned int                                          subface_no)
 {
-  Assert(face_no < GeometryInfo<dim>::faces_per_cell,
-         ExcIndexRange(face_no, 0, GeometryInfo<dim>::faces_per_cell));
-  Assert(subface_no < cell->face(face_no)->n_children(),
-         ExcIndexRange(subface_no, 0, cell->face(face_no)->n_children()));
+  AssertIndexRange(face_no, GeometryInfo<dim>::faces_per_cell);
+  // We would like to check for subface_no < cell->face(face_no)->n_children(),
+  // but unfortunately the current function is also called for
+  // faces without children for periodic faces, which have hanging nodes on
+  // the other side (see include/deal.II/matrix_free/mapping_info.templates.h).
+  AssertIndexRange(subface_no,
+                   (cell->has_periodic_neighbor(face_no) ?
+                      cell->periodic_neighbor(face_no)
+                        ->face(cell->periodic_neighbor_face_no(face_no))
+                        ->n_children() :
+                      cell->face(face_no)->n_children()));
 
   this->maybe_invalidate_previous_present_cell(cell);
   reset_pointer_in_place_if_possible<
@@ -5093,9 +5107,25 @@ FESubfaceValues<dim, spacedim>::reinit(
 
 template <int dim, int spacedim>
 void
+FESubfaceValues<dim, spacedim>::reinit(
+  const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+  const typename Triangulation<dim, spacedim>::face_iterator &face,
+  const typename Triangulation<dim, spacedim>::face_iterator &subface)
+{
+  reinit(cell,
+         cell->face_iterator_to_index(face),
+         face->child_iterator_to_index(subface));
+}
+
+
+
+template <int dim, int spacedim>
+void
 FESubfaceValues<dim, spacedim>::do_reinit(const unsigned int face_no,
                                           const unsigned int subface_no)
 {
+  this->present_face_no = face_no;
+
   // first of all, set the present_face_index (if available)
   const typename Triangulation<dim, spacedim>::cell_iterator cell =
     *this->present_cell;
@@ -5171,7 +5201,7 @@ FESubfaceValues<dim, spacedim>::do_reinit(const unsigned int face_no,
       this->get_mapping().fill_fe_subface_values(*this->present_cell,
                                                  face_no,
                                                  subface_no,
-                                                 this->quadrature,
+                                                 this->quadrature[0],
                                                  *this->mapping_data,
                                                  this->mapping_output);
     }
@@ -5179,7 +5209,7 @@ FESubfaceValues<dim, spacedim>::do_reinit(const unsigned int face_no,
   this->get_fe().fill_fe_subface_values(*this->present_cell,
                                         face_no,
                                         subface_no,
-                                        this->quadrature,
+                                        this->quadrature[0],
                                         this->get_mapping(),
                                         *this->mapping_data,
                                         this->mapping_output,

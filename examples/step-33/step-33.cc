@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2007 - 2018 by the deal.II authors
+ * Copyright (C) 2007 - 2020 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -355,9 +355,9 @@ namespace Step33
     // go with the pragmatic, even if not pretty, solution shown here:
     template <typename DataVector>
     static void
-    compute_Wminus(const BoundaryKind (&boundary_kind)[n_components],
-                   const Tensor<1, dim> &normal_vector,
-                   const DataVector &    Wplus,
+    compute_Wminus(const std::array<BoundaryKind, n_components> &boundary_kind,
+                   const Tensor<1, dim> &                        normal_vector,
+                   const DataVector &                            Wplus,
                    const Vector<double> &boundary_values,
                    const DataVector &    Wminus)
     {
@@ -447,7 +447,7 @@ namespace Step33
                                   const Vector<double> & solution,
                                   Vector<double> &       refinement_indicators)
     {
-      const unsigned int dofs_per_cell = dof_handler.get_fe().dofs_per_cell;
+      const unsigned int dofs_per_cell = dof_handler.get_fe().n_dofs_per_cell();
       std::vector<unsigned int> dofs(dofs_per_cell);
 
       const QMidpoint<dim> quadrature_formula;
@@ -460,11 +460,9 @@ namespace Step33
       std::vector<std::vector<Tensor<1, dim>>> dU(
         1, std::vector<Tensor<1, dim>>(n_components));
 
-      typename DoFHandler<dim>::active_cell_iterator cell = dof_handler
-                                                              .begin_active(),
-                                                     endc = dof_handler.end();
-      for (unsigned int cell_no = 0; cell != endc; ++cell, ++cell_no)
+      for (const auto &cell : dof_handler.active_cell_iterators())
         {
+          const unsigned int cell_no = cell->active_cell_index();
           fe_v.reinit(cell);
           fe_v.get_function_gradients(solution, dU);
 
@@ -1061,8 +1059,9 @@ namespace Step33
 
       struct BoundaryConditions
       {
-        typename EulerEquations<dim>::BoundaryKind
-          kind[EulerEquations<dim>::n_components];
+        std::array<typename EulerEquations<dim>::BoundaryKind,
+                   EulerEquations<dim>::n_components>
+          kind;
 
         FunctionParser<dim> values;
 
@@ -1093,8 +1092,9 @@ namespace Step33
     AllParameters<dim>::BoundaryConditions::BoundaryConditions()
       : values(EulerEquations<dim>::n_components)
     {
-      for (unsigned int c = 0; c < EulerEquations<dim>::n_components; ++c)
-        kind[c] = EulerEquations<dim>::no_penetration_boundary;
+      std::fill(kind.begin(),
+                kind.end(),
+                EulerEquations<dim>::no_penetration_boundary);
     }
 
 
@@ -1359,7 +1359,7 @@ namespace Step33
     // only prints something if verbose output has been requested) deals with
     // the interface we have in this program to the Trilinos library that
     // provides us with linear solvers. Similarly to including PETSc matrices
-    // in step-17, step-18, and step-19, all we need to do is to create a
+    // in step-17 and step-18, all we need to do is to create a
     // Trilinos sparse matrix instead of the standard deal.II class. The
     // system matrix is used for the Jacobian in each Newton step. Since we do
     // not intend to run this program in parallel (which wouldn't be too hard
@@ -1381,8 +1381,8 @@ namespace Step33
     : mapping()
     , fe(FE_Q<dim>(1), EulerEquations<dim>::n_components)
     , dof_handler(triangulation)
-    , quadrature(2)
-    , face_quadrature(2)
+    , quadrature(fe.degree + 1)
+    , face_quadrature(fe.degree + 1)
     , verbose_cout(std::cout, false)
   {
     ParameterHandler prm;
@@ -1439,16 +1439,17 @@ namespace Step33
   template <int dim>
   void ConservationLaw<dim>::assemble_system()
   {
-    const unsigned int dofs_per_cell = dof_handler.get_fe().dofs_per_cell;
+    const unsigned int dofs_per_cell = dof_handler.get_fe().n_dofs_per_cell();
 
     std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
     std::vector<types::global_dof_index> dof_indices_neighbor(dofs_per_cell);
 
     const UpdateFlags update_flags = update_values | update_gradients |
-                                     update_q_points | update_JxW_values,
-                      face_update_flags = update_values | update_q_points |
-                                          update_JxW_values |
-                                          update_normal_vectors,
+                                     update_quadrature_points |
+                                     update_JxW_values,
+                      face_update_flags =
+                        update_values | update_quadrature_points |
+                        update_JxW_values | update_normal_vectors,
                       neighbor_face_update_flags = update_values;
 
     FEValues<dim>        fe_v(mapping, fe, quadrature, update_flags);
@@ -1472,10 +1473,7 @@ namespace Step33
     // Then loop over all cells, initialize the FEValues object for the
     // current cell and call the function that assembles the problem on this
     // cell.
-    typename DoFHandler<dim>::active_cell_iterator cell =
-                                                     dof_handler.begin_active(),
-                                                   endc = dof_handler.end();
-    for (; cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_v.reinit(cell);
         cell->get_dof_indices(dof_indices);
@@ -1488,9 +1486,7 @@ namespace Step33
         // whether we are working on an external or internal face; if it is an
         // external face, the fourth argument denoting the degrees of freedom
         // indices of the neighbor is ignored, so we pass an empty vector):
-        for (unsigned int face_no = 0;
-             face_no < GeometryInfo<dim>::faces_per_cell;
-             ++face_no)
+        for (const auto face_no : cell->face_indices())
           if (cell->at_boundary(face_no))
             {
               fe_v_face.reinit(cell, face_no);
@@ -1557,8 +1553,7 @@ namespace Step33
                       Assert(neighbor_child->face(neighbor2) ==
                                cell->face(face_no)->child(subface_no),
                              ExcInternalError());
-                      Assert(neighbor_child->has_children() == false,
-                             ExcInternalError());
+                      Assert(neighbor_child->is_active(), ExcInternalError());
 
                       fe_v_subface.reinit(cell, face_no, subface_no);
                       fe_v_face_neighbor.reinit(neighbor_child, neighbor2);
@@ -2152,8 +2147,7 @@ namespace Step33
 
             direct.solve(system_matrix, newton_update, right_hand_side);
 
-            return std::pair<unsigned int, double>(solver_control.last_step(),
-                                                   solver_control.last_value());
+            return {solver_control.last_step(), solver_control.last_value()};
           }
 
         // Likewise, if we are to use an iterative solver, we use Aztec's GMRES
@@ -2215,13 +2209,12 @@ namespace Step33
             solver.Iterate(parameters.max_iterations,
                            parameters.linear_residual);
 
-            return std::pair<unsigned int, double>(solver.NumIters(),
-                                                   solver.TrueResidual());
+            return {solver.NumIters(), solver.TrueResidual()};
           }
       }
 
     Assert(false, ExcNotImplemented());
-    return std::pair<unsigned int, double>(0, 0);
+    return {0, 0};
   }
 
 
@@ -2252,12 +2245,9 @@ namespace Step33
   void
   ConservationLaw<dim>::refine_grid(const Vector<double> &refinement_indicators)
   {
-    typename DoFHandler<dim>::active_cell_iterator cell =
-                                                     dof_handler.begin_active(),
-                                                   endc = dof_handler.end();
-
-    for (unsigned int cell_no = 0; cell != endc; ++cell, ++cell_no)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
+        const unsigned int cell_no = cell->active_cell_index();
         cell->clear_coarsen_flag();
         cell->clear_refine_flag();
 

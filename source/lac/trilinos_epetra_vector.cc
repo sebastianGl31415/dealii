@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2015 - 2018 by the deal.II authors
+// Copyright (C) 2015 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -12,8 +12,6 @@
 // the top level directory of deal.II.
 //
 // ---------------------------------------------------------------------
-
-#include <deal.II/base/std_cxx14/memory.h>
 
 #include <deal.II/lac/trilinos_epetra_vector.h>
 
@@ -41,7 +39,8 @@ namespace LinearAlgebra
   namespace EpetraWrappers
   {
     Vector::Vector()
-      : vector(new Epetra_FEVector(
+      : Subscriptor()
+      , vector(new Epetra_FEVector(
           Epetra_Map(0, 0, 0, Utilities::Trilinos::comm_self())))
     {}
 
@@ -56,7 +55,8 @@ namespace LinearAlgebra
 
     Vector::Vector(const IndexSet &parallel_partitioner,
                    const MPI_Comm &communicator)
-      : vector(new Epetra_FEVector(
+      : Subscriptor()
+      , vector(new Epetra_FEVector(
           parallel_partitioner.make_trilinos_map(communicator, false)))
     {}
 
@@ -70,7 +70,7 @@ namespace LinearAlgebra
       Epetra_Map input_map =
         parallel_partitioner.make_trilinos_map(communicator, false);
       if (vector->Map().SameAs(input_map) == false)
-        vector = std_cxx14::make_unique<Epetra_FEVector>(input_map);
+        vector = std::make_unique<Epetra_FEVector>(input_map);
       else if (omit_zeroing_entries == false)
         {
           const int ierr = vector->PutScalar(0.);
@@ -121,8 +121,7 @@ namespace LinearAlgebra
               (void)ierr;
             }
           else
-            vector =
-              std_cxx14::make_unique<Epetra_FEVector>(V.trilinos_vector());
+            vector = std::make_unique<Epetra_FEVector>(V.trilinos_vector());
         }
 
       return *this;
@@ -572,7 +571,7 @@ namespace LinearAlgebra
           const size_type n_indices = vector->Map().NumMyElements();
 #    ifndef DEAL_II_WITH_64BIT_INDICES
           unsigned int *vector_indices =
-            (unsigned int *)vector->Map().MyGlobalElements();
+            reinterpret_cast<unsigned int *>(vector->Map().MyGlobalElements());
 #    else
           size_type *vector_indices =
             reinterpret_cast<size_type *>(vector->Map().MyGlobalElements64());

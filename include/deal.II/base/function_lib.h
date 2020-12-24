@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2018 by the deal.II authors
+// Copyright (C) 1999 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -21,6 +21,7 @@
 
 #include <deal.II/base/function.h>
 #include <deal.II/base/point.h>
+#include <deal.II/base/smartpointer.h>
 #include <deal.II/base/table.h>
 
 #include <array>
@@ -45,7 +46,6 @@ namespace Functions
    * Together with the function, its derivatives and Laplacian are defined.
    *
    * @ingroup functions
-   * @author: Guido Kanschat, 1999
    */
   template <int dim>
   class SquareFunction : public Function<dim>
@@ -85,7 +85,6 @@ namespace Functions
    * function serves as an example for a vanishing Laplacian.
    *
    * @ingroup functions
-   * @author: Guido Kanschat, 2000
    */
   template <int dim>
   class Q1WedgeFunction : public Function<dim>
@@ -148,7 +147,6 @@ namespace Functions
    * Together with the function, its derivatives and Laplacian are defined.
    *
    * @ingroup functions
-   * @author: Guido Kanschat, 1999
    */
   template <int dim>
   class PillowFunction : public Function<dim>
@@ -216,7 +214,6 @@ namespace Functions
    * $\cos(\pi/2 x_i)$.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 1999
    */
   template <int dim>
   class CosineFunction : public Function<dim>
@@ -285,7 +282,6 @@ namespace Functions
    * operators without bothering about boundary terms.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 2010
    */
   template <int dim>
   class CosineGradFunction : public Function<dim>
@@ -332,7 +328,6 @@ namespace Functions
    * Product of exponential functions in each coordinate direction.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 1999
    */
   template <int dim>
   class ExpFunction : public Function<dim>
@@ -393,8 +388,6 @@ namespace Functions
    * used with GridGenerator::hyper_L().
    *
    * @ingroup functions
-   * @author Guido Kanschat
-   * @date 1999
    */
   class LSingularityFunction : public Function<2>
   {
@@ -444,7 +437,6 @@ namespace Functions
    * with vanishing curl and divergence.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 2010
    */
   class LSingularityGradFunction : public Function<2>
   {
@@ -493,7 +485,6 @@ namespace Functions
    * Singularity on the slit domain in 2D and 3D.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 1999, 2006
    */
   template <int dim>
   class SlitSingularityFunction : public Function<dim>
@@ -540,7 +531,6 @@ namespace Functions
    * Singularity on the slit domain with one Neumann boundary in 2D.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 2002
    */
   class SlitHyperSingularityFunction : public Function<2>
   {
@@ -596,7 +586,6 @@ namespace Functions
    * Together with the function, its derivatives and Laplacian are defined.
    *
    * @ingroup functions
-   * @author: Guido Kanschat, 2000
    */
   template <int dim>
   class JumpFunction : public Function<dim>
@@ -658,8 +647,8 @@ namespace Functions
      * calculating the memory usage of trees (e.g., <tt>std::map</tt>) is
      * difficult.
      */
-    std::size_t
-    memory_consumption() const;
+    virtual std::size_t
+    memory_consumption() const override;
 
   protected:
     /**
@@ -700,7 +689,6 @@ namespace Functions
    * Fourier cosine decomposition.
    *
    * @ingroup functions
-   * @author Wolfgang Bangerth, 2001
    */
   template <int dim>
   class FourierCosineFunction : public Function<dim>
@@ -755,7 +743,6 @@ namespace Functions
    * Fourier sine decomposition.
    *
    * @ingroup functions
-   * @author Wolfgang Bangerth, 2001
    */
   template <int dim>
   class FourierSineFunction : public Function<dim>
@@ -806,7 +793,6 @@ namespace Functions
    * $f(x) = \sum_j w_j sin(\sum_i k_i x_i) = Im(\sum_j w_j \exp(i k.x))$.
    *
    * @ingroup functions
-   * @author Wolfgang Bangerth, 2001
    */
   template <int dim>
   class FourierSineSum : public Function<dim>
@@ -861,7 +847,6 @@ namespace Functions
    * \exp(i k.x))$.
    *
    * @ingroup functions
-   * @author Wolfgang Bangerth, 2001
    */
   template <int dim>
   class FourierCosineSum : public Function<dim>
@@ -912,8 +897,11 @@ namespace Functions
    * radius of the supporting ball of a cut-off function. It also stores the
    * number of the non-zero component, if the function is vector-valued.
    *
+   * This class can also be used for approximated Dirac delta functions. These
+   * are special cut-off functions whose integral is always equal to one,
+   * independently of the radius of the supporting ball.
+   *
    * @ingroup functions
-   * @author Guido Kanschat, 2002
    */
   template <int dim>
   class CutOffFunctionBase : public Function<dim>
@@ -926,28 +914,62 @@ namespace Functions
     static const unsigned int no_component = numbers::invalid_unsigned_int;
 
     /**
-     * Constructor. Arguments are the center of the ball and its radius.
+     * Constructor.
      *
-     * If an argument <tt>select</tt> is given and not -1, the cut-off
-     * function will be non-zero for this component only.
+     * @param[in] radius Radius of the ball
+     * @param[in] center Center of the ball
+     * @param[in] n_components Number of components of this function object
+     * @param[in] select If this is different from
+     * CutOffFunctionBase<dim>::no_component, then the function will be non-zero
+     * for this component only
+     * @param[in] integrate_to_one Rescale the value of the function whenever a
+     * new radius is set, to guarantee that the integral is equal to one
+     * @param[in] unitary_integral_value Value of the integral when the radius
+     * is equal to 1.0. Derived classes will need to supply this value, to
+     * guarantee that the rescaling is performed correctly.
      */
     CutOffFunctionBase(
-      const double radius             = 1.,
-      const Point<dim>                = Point<dim>(),
+      const double       radius       = 1.,
+      const Point<dim>   center       = Point<dim>(),
       const unsigned int n_components = 1,
-      const unsigned int select       = CutOffFunctionBase<dim>::no_component);
+      const unsigned int select       = CutOffFunctionBase<dim>::no_component,
+      const bool         integrate_to_one       = false,
+      const double       unitary_integral_value = 1.0);
 
     /**
-     * Move the center of the ball to new point <tt>p</tt>.
+     * Virtual destructor.
      */
-    void
-    new_center(const Point<dim> &p);
+    virtual ~CutOffFunctionBase() = default;
 
     /**
-     * Set the radius of the ball to <tt>r</tt>.
+     * Set the center of the ball to the point @p p.
      */
-    void
-    new_radius(const double r);
+    virtual void
+    set_center(const Point<dim> &p);
+
+    /**
+     * Set the radius of the ball to @p r
+     */
+    virtual void
+    set_radius(const double r);
+
+    /**
+     * Return the center stored in this object.
+     */
+    const Point<dim> &
+    get_center() const;
+
+    /**
+     * Return the radius stored in this object.
+     */
+    double
+    get_radius() const;
+
+    /**
+     * Return a boolean indicating whether this function integrates to one.
+     */
+    bool
+    integrates_to_one() const;
 
   protected:
     /**
@@ -965,6 +987,91 @@ namespace Functions
      * in all components.
      */
     const unsigned int selected;
+
+    /**
+     * Flag that controls whether we rescale the value when the radius changes.
+     */
+    bool integrate_to_one;
+
+    /**
+     * The reference integral value. Derived classes should specify what their
+     * integral is when @p radius = 1.0.
+     */
+    const double unitary_integral_value;
+
+    /**
+     * Current rescaling to apply the cut-off function.
+     */
+    double rescaling;
+  };
+
+
+  /**
+   * Tensor product of CutOffFunctionBase objects.
+   *
+   * Instead of using the distance to compute the cut-off function, this class
+   * performs a tensor product of the same CutOffFunctionBase object in each
+   * coordinate direction.
+   *
+   * @ingroup functions
+   */
+  template <int dim>
+  class CutOffFunctionTensorProduct : public CutOffFunctionBase<dim>
+  {
+  public:
+    /**
+     * Construct an empty CutOffFunctionTensorProduct object.
+     *
+     * Before you can use this class, you have to call the set_base() method
+     * with a class derived from the CutOffFunctionBase object.
+     *
+     * If you try to use this class before you call the set_base() method,
+     * and exception will be triggered.
+     */
+    CutOffFunctionTensorProduct(
+      double             radius       = 1.0,
+      const Point<dim> & center       = Point<dim>(),
+      const unsigned int n_components = 1,
+      const unsigned int select       = CutOffFunctionBase<dim>::no_component,
+      const bool         integrate_to_one = false);
+
+    /**
+     * Initialize the class with an object of type
+     * @tparam CutOffFunctionBaseType<1>.
+     */
+    template <template <int> class CutOffFunctionBaseType>
+    void
+    set_base();
+
+    /**
+     * Set the new center.
+     */
+    virtual void
+    set_center(const Point<dim> &center) override;
+
+    /**
+     * Set the new radius.
+     */
+    virtual void
+    set_radius(const double radius) override;
+
+    /**
+     * Function value at one point.
+     */
+    virtual double
+    value(const Point<dim> &p, const unsigned int component = 0) const override;
+
+    /**
+     * Function gradient at one point.
+     */
+    virtual Tensor<1, dim>
+    gradient(const Point<dim> & p,
+             const unsigned int component = 0) const override;
+
+  private:
+    std::array<std::unique_ptr<CutOffFunctionBase<1>>, dim> base;
+
+    bool initialized;
   };
 
 
@@ -976,7 +1083,6 @@ namespace Functions
    * valued, it can be restricted to a single component.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 2001, 2002
    */
   template <int dim>
   class CutOffFunctionLinfty : public CutOffFunctionBase<dim>
@@ -992,7 +1098,8 @@ namespace Functions
       const double radius             = 1.,
       const Point<dim>                = Point<dim>(),
       const unsigned int n_components = 1,
-      const unsigned int select       = CutOffFunctionBase<dim>::no_component);
+      const unsigned int select       = CutOffFunctionBase<dim>::no_component,
+      const bool         integrate_to_one = false);
 
     /**
      * Function value at one point.
@@ -1024,7 +1131,6 @@ namespace Functions
    * component.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 2001, 2002
    */
   template <int dim>
   class CutOffFunctionW1 : public CutOffFunctionBase<dim>
@@ -1040,7 +1146,8 @@ namespace Functions
       const double radius             = 1.,
       const Point<dim>                = Point<dim>(),
       const unsigned int n_components = 1,
-      const unsigned int select       = CutOffFunctionBase<dim>::no_component);
+      const unsigned int select       = CutOffFunctionBase<dim>::no_component,
+      const bool         integrate_to_one = false);
 
     /**
      * Function value at one point.
@@ -1066,6 +1173,62 @@ namespace Functions
 
 
   /**
+   * A cut-off function for an arbitrarily-sized ball that is in the space $C^1$
+   * (i.e., continuously differentiable). This is a cut-off function that is
+   * often used in the literature of the Immersed Boundary Method.
+   *
+   * The expression of the function in radial coordinates is given by
+   * $f(r)=1/2(cos(\pi r/s)+1)$ where $r<s$ is the distance to the center, and
+   * $s$ is the radius of the sphere. If vector valued, it can be restricted to
+   * a single component.
+   *
+   * @ingroup functions
+   */
+  template <int dim>
+  class CutOffFunctionC1 : public CutOffFunctionBase<dim>
+  {
+  public:
+    /**
+     * Constructor.
+     */
+    CutOffFunctionC1(
+      const double radius             = 1.,
+      const Point<dim>                = Point<dim>(),
+      const unsigned int n_components = 1,
+      const unsigned int select       = CutOffFunctionBase<dim>::no_component,
+      bool               integrate_to_one = false);
+
+    /**
+     * Function value at one point.
+     */
+    virtual double
+    value(const Point<dim> &p, const unsigned int component = 0) const override;
+
+    /**
+     * Function values at multiple points.
+     */
+    virtual void
+    value_list(const std::vector<Point<dim>> &points,
+               std::vector<double> &          values,
+               const unsigned int             component = 0) const override;
+
+    /**
+     * Function values at multiple points.
+     */
+    virtual void
+    vector_value_list(const std::vector<Point<dim>> &points,
+                      std::vector<Vector<double>> &  values) const override;
+
+    /**
+     * Function gradient at one point.
+     */
+    virtual Tensor<1, dim>
+    gradient(const Point<dim> & p,
+             const unsigned int component = 0) const override;
+  };
+
+
+  /**
    * Cut-off function for an arbitrary ball. This is the traditional cut-off
    * function in C-infinity for a ball of certain <tt>radius</tt> around
    * <tt>center</tt>, $f(r)=exp(1-1/(1-r**2/s**2))$, where $r$ is the distance
@@ -1073,7 +1236,6 @@ namespace Functions
    * can be restricted to a single component.
    *
    * @ingroup functions
-   * @author Guido Kanschat, 2001, 2002
    */
   template <int dim>
   class CutOffFunctionCinfty : public CutOffFunctionBase<dim>
@@ -1089,7 +1251,8 @@ namespace Functions
       const double radius             = 1.,
       const Point<dim>                = Point<dim>(),
       const unsigned int n_components = 1,
-      const unsigned int select       = CutOffFunctionBase<dim>::no_component);
+      const unsigned int select       = CutOffFunctionBase<dim>::no_component,
+      bool               integrate_to_one = false);
 
     /**
      * Function value at one point.
@@ -1133,7 +1296,7 @@ namespace Functions
    * exponents are of course equally valid. Exponents can't be real when the
    * bases are negative numbers.
    *
-   * @author Wolfgang Bangerth, 2006
+   * @ingroup functions
    */
   template <int dim>
   class Monomial : public Function<dim>
@@ -1217,22 +1380,26 @@ namespace Functions
    * @note The use of the related class InterpolatedUniformGridData is
    * discussed in step-53.
    *
-   * @author Wolfgang Bangerth, 2013
+   * @ingroup functions
    */
   template <int dim>
   class InterpolatedTensorProductGridData : public Function<dim>
   {
   public:
     /**
-     * Constructor.
+     * Constructor to initialize this class instance with the data given in @p
+     * data_values.
+     *
      * @param coordinate_values An array of dim arrays. Each of the inner
      * arrays contains the coordinate values $x_0,\ldots, x_{K-1}$ and
      * similarly for the other coordinate directions. These arrays need not
      * have the same size. Obviously, we need dim such arrays for a dim-
      * dimensional function object. The coordinate values within this array
      * are assumed to be strictly ascending to allow for efficient lookup.
+     *
      * @param data_values A dim-dimensional table of data at each of the mesh
-     * points defined by the coordinate arrays above. Note that the Table
+     * points defined by the coordinate arrays above. The data passed in is
+     * copied into internal data structures. Note that the Table
      * class has a number of conversion constructors that allow converting
      * other data types into a table where you specify this argument.
      */
@@ -1267,6 +1434,12 @@ namespace Functions
     virtual Tensor<1, dim>
     gradient(const Point<dim> & p,
              const unsigned int component = 0) const override;
+
+    /**
+     * Return an estimate for the memory consumption, in bytes, of this object.
+     */
+    virtual std::size_t
+    memory_consumption() const override;
 
   protected:
     /**
@@ -1320,7 +1493,7 @@ namespace Functions
    *
    * @note The use of this class is discussed in step-53.
    *
-   * @author Wolfgang Bangerth, 2013
+   * @ingroup functions
    */
   template <int dim>
   class InterpolatedUniformGridData : public Function<dim>
@@ -1358,6 +1531,27 @@ namespace Functions
     virtual double
     value(const Point<dim> &p, const unsigned int component = 0) const override;
 
+    /**
+     * Compute the gradient of the function set by bilinear interpolation of the
+     * given data set.
+     *
+     * @param p The point at which the function is to be evaluated.
+     * @param component The vector component. Since this function is scalar,
+     *   only zero is a valid argument here.
+     * @return The gradient of the interpolated function at this point. If the
+     *   point lies outside the set of coordinates, the function is extended
+     *   by a constant whose gradient is then of course zero.
+     */
+    virtual Tensor<1, dim>
+    gradient(const Point<dim> & p,
+             const unsigned int component = 0) const override;
+
+    /**
+     * Return an estimate for the memory consumption, in bytes, of this object.
+     */
+    virtual std::size_t
+    memory_consumption() const override;
+
   private:
     /**
      * The set of interval endpoints in each of the coordinate directions.
@@ -1386,7 +1580,7 @@ namespace Functions
    * takes a Table<2,double> to describe the set of exponents and a
    * Vector<double> to describe the set of coefficients.
    *
-   * @author Ángel Rodríguez, 2015
+   * @ingroup functions
    */
   template <int dim>
   class Polynomial : public Function<dim>
@@ -1426,6 +1620,12 @@ namespace Functions
     gradient(const Point<dim> & p,
              const unsigned int component = 0) const override;
 
+    /**
+     * Return an estimate for the memory consumption, in bytes, of this object.
+     */
+    virtual std::size_t
+    memory_consumption() const override;
+
   private:
     /**
      * The set of exponents.
@@ -1438,7 +1638,33 @@ namespace Functions
     const std::vector<double> coefficients;
   };
 
+#ifndef DOXYGEN
 
+
+
+  // Template definitions
+  template <int dim>
+  template <template <int> class CutOffFunctionBaseType>
+  void
+  CutOffFunctionTensorProduct<dim>::set_base()
+  {
+    initialized = true;
+    static_assert(
+      std::is_base_of<CutOffFunctionBase<1>, CutOffFunctionBaseType<1>>::value,
+      "You can only construct a CutOffFunctionTensorProduct function from "
+      "a class derived from CutOffFunctionBase.");
+
+    for (unsigned int i = 0; i < dim; ++i)
+      base[i].reset(new CutOffFunctionBaseType<1>(this->radius,
+                                                  Point<1>(this->center[i]),
+                                                  this->n_components,
+                                                  this->selected,
+                                                  this->integrate_to_one));
+  }
+
+
+
+#endif
 
 } // namespace Functions
 DEAL_II_NAMESPACE_CLOSE

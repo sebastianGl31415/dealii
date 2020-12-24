@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2018 by the deal.II authors
+// Copyright (C) 2018 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -33,8 +33,7 @@ test()
     if (cell->at_boundary())
       {
         cell->set_manifold_id(1);
-        for (unsigned int face_n = 0; face_n < GeometryInfo<2>::faces_per_cell;
-             ++face_n)
+        for (const unsigned int face_n : GeometryInfo<2>::face_indices())
           if (!cell->face(face_n)->at_boundary())
             cell->face(face_n)->set_manifold_id(1);
       }
@@ -62,8 +61,7 @@ test()
   for (const auto &cell : triangulation_3.active_cell_iterators())
     {
       cell_centers[cell->manifold_id()].push_back(cell->center());
-      for (unsigned int face_n = 0; face_n < GeometryInfo<3>::faces_per_cell;
-           ++face_n)
+      for (const unsigned int face_n : GeometryInfo<3>::face_indices())
         face_centers[cell->face(face_n)->manifold_id()].push_back(
           cell->face(face_n)->center());
       for (unsigned int line_n = 0; line_n < GeometryInfo<3>::lines_per_cell;
@@ -87,9 +85,10 @@ test()
   // The generated arrays of face and line centers contain duplicates: get rid
   // of them by sorting and then std::unique-ing
   auto point_comparator = [](const Point<3> &a, const Point<3> &b) {
-    // just use std::tuple's lexical ordering so that we don't have to think
-    // too hard
-    return std::tie(a[0], a[1], a[2]) < std::tie(b[0], b[1], b[2]);
+    // to minimize roundoff problems, align numbers in some lexicographic-like
+    // order
+    return 1e-10 * a[0] + 1e-5 * a[1] + a[2] <
+           1e-10 * b[0] + 1e-5 * b[1] + b[2];
   };
 
   deallog << "face centers:" << std::endl;

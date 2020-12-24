@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2009 - 2017 by the deal.II authors
+// Copyright (C) 2009 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -21,6 +21,7 @@
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/memory_consumption.h>
 
+#include <algorithm>
 #include <iosfwd>
 #include <vector>
 
@@ -66,8 +67,6 @@ DEAL_II_NAMESPACE_OPEN
  * would result in a mask <code>[true, false]</code> in both 2d and 3d.
  *
  * @ingroup fe
- * @author Wolfgang Bangerth
- * @date 2012
  * @ingroup vector_valued
  */
 class BlockMask
@@ -234,6 +233,7 @@ std::ostream &
 operator<<(std::ostream &out, const BlockMask &mask);
 
 
+#ifndef DOXYGEN
 // -------------------- inline functions ---------------------
 
 inline BlockMask::BlockMask(const std::vector<bool> &block_mask)
@@ -263,8 +263,7 @@ inline bool BlockMask::operator[](const unsigned int block_index) const
     {
       // otherwise check the validity of the index and
       // return whatever is appropriate
-      Assert(block_index < block_mask.size(),
-             ExcIndexRange(block_index, 0, block_mask.size()));
+      AssertIndexRange(block_index, block_mask.size());
       return block_mask[block_index];
     }
 }
@@ -289,11 +288,9 @@ BlockMask::n_selected_blocks(const unsigned int n) const
   else
     {
       AssertDimension(real_n, block_mask.size());
-      unsigned int c = 0;
-      for (unsigned int i = 0; i < block_mask.size(); ++i)
-        if (block_mask[i] == true)
-          ++c;
-      return c;
+      return std::count_if(block_mask.begin(),
+                           block_mask.end(),
+                           [](const bool selected) { return selected; });
     }
 }
 
@@ -384,7 +381,7 @@ BlockMask::operator!=(const BlockMask &mask) const
 {
   return block_mask != mask.block_mask;
 }
-
+#endif // DOXYGEN
 
 DEAL_II_NAMESPACE_CLOSE
 

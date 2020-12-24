@@ -1,7 +1,7 @@
 #!/bin/bash
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2018 by the deal.II authors
+## Copyright (C) 2018 - 2020 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -42,7 +42,7 @@ checks() {
   CLANG_FORMAT_PATH="$(cd "$(dirname "$0")" && pwd)/programs/clang-6/bin"
   export PATH="${CLANG_FORMAT_PATH}:${PATH}"
 
-  if ! [ -x "$(command -v ${DEAL_II_CLANG_FORMAT})" ]; then
+  if ! [ -x "$(command -v "${DEAL_II_CLANG_FORMAT}")" ]; then
     echo "***   No clang-format program found."
     echo "***"
     echo "***   You can run the './contrib/utilities/download_clang_format'"
@@ -66,6 +66,52 @@ checks() {
     echo "***   to install a compatible binary into './contrib/utilities/programs'."
     exit 1
   fi
+
+
+  # check formatting of usernames and email addresses, examples that will be detected:
+  # not-using-a-name <a@b.com>
+  # John Doe <doe@macbook.local>
+  # Jane Doe <a@nodomain>
+  #
+  # For commits already in the history, please see .mailmap in the root directory.
+  #
+  # Note that we currently allow email addresses of the form
+  # Luca Heltai <luca-heltai@users.noreply.github.com>
+  # as these are generated when using the website to commit.
+  #
+  # Finally, to stay sane, just go back until the beginning of 2019 for now.
+  #
+  # first user names:
+  git log --since "2019-01-01" --format="%aN" --no-merges | sort -u | while read name ; do
+      words=($name)
+      if [ "${#words[@]}" -lt "2" ]; then
+	  echo "invalid author '$name' without firstname and lastname"
+	  echo ""
+	  echo "hint: for possible solutions, consult the webpage:"
+	  echo "      https://github.com/dealii/dealii/wiki/Indentation#commit-authorship"
+	  exit 2
+      fi
+  done || exit 2
+
+  # now emails:
+  git log --since "2019-01-01" --format="%aE" --no-merges | sort -u | while read email ; do
+      words=($name)
+      if ! echo "$email" | grep -q "\."; then
+	  echo "invalid email '$email'"
+          echo ""
+          echo "hint: for possible solutions, consult the webpage:"
+          echo "      https://github.com/dealii/dealii/wiki/Indentation#commit-authorship"
+	  exit 3
+      fi
+      if ! echo "$email" | grep -q -v -e "\.local$"; then
+	  echo "invalid email '$email'"
+          echo ""
+          echo "hint: for possible solutions, consult the webpage:"
+          echo "      https://github.com/dealii/dealii/wiki/Indentation#commit-authorship"
+	  exit 3
+      fi
+  done || exit 3
+
 }
 
 #
@@ -115,6 +161,23 @@ format_file()
   rm -f "${tmpfile}"
 }
 export -f format_file
+
+#
+# Remove trailing whitespace.
+#
+
+remove_trailing_whitespace()
+{
+  file="${1}"
+  tmpfile="$(mktemp "${TMPDIR}/$(basename "$1").tmp.XXXXXXXX")"
+
+  sed 's/\s\+$//g' "${file}" > "${tmpfile}"
+  if ! diff -q "${file}" "${tmpfile}" >/dev/null; then
+    mv "${tmpfile}" "${file}"
+  fi
+  rm -f "${tmpfile}"
+}
+export -f remove_trailing_whitespace
 
 #
 # In order to format .inst.in files, we need to replace \{ and \} by a
@@ -205,20 +268,21 @@ export -f fix_permissions
 #   serves as a good candidate to separate individual file names.
 # - For 'xargs', -0 does the opposite: it separates filenames that are
 #   delimited by \0
-# - the options "-n 1 -P 10" make sure that the following script with be
+# - the options "-n 1 -P 10" make sure that the following script will be
 #   called exactly with one file name as argument at a time, but we allow
 #   execution for up to 10 times in parallel
 #
 
 process()
 {
+  directories=$1
   case "${OSTYPE}" in
     darwin*)
-      find -E ${1} -regex "${2}" -print0 |
+      find -E ${directories} -regex "${2}" -print0 |
         xargs -0 -n 1 -P 10 -I {} bash -c "${3} {}"
       ;;
     *)
-      find ${1} -regextype egrep -regex "${2}" -print0 |
+      find ${directories} -regextype egrep -regex "${2}" -print0 |
         xargs -0 -n 1 -P 10 -I {} bash -c "${3} {}"
       ;;
   esac
@@ -235,7 +299,7 @@ process()
 process_changed()
 {
   LAST_MERGE_COMMIT="$(git log --format="%H" --merges --max-count=1 master)"
-  COMMON_ANCESTOR_WITH_MASTER="$(git merge-base ${LAST_MERGE_COMMIT} HEAD)"
+  COMMON_ANCESTOR_WITH_MASTER="$(git merge-base "${LAST_MERGE_COMMIT}" HEAD)"
 
   case "${OSTYPE}" in
     darwin*)
@@ -247,8 +311,9 @@ process_changed()
   esac
 
   ( git ls-files --others --exclude-standard -- ${1};
-    git diff --name-only --diff-filter=d $COMMON_ANCESTOR_WITH_MASTER -- ${1} )|
+    git diff --name-only $COMMON_ANCESTOR_WITH_MASTER -- ${1} )|
       sort -u |
+      xargs -n 1 ls -d 2>/dev/null |
       grep -E "^${2}$" |
       ${XARGS} '\n' -n 1 -P 10 -I {} bash -c "${3} {}"
 }

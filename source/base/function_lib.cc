@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2017 by the deal.II authors
+// Copyright (C) 1999 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -1435,7 +1435,7 @@ namespace Functions
                                      const unsigned int /*component*/) const
   {
     Assert(false, ExcNotImplemented());
-    return Tensor<1, 2>();
+    return {};
   }
 
 
@@ -1933,7 +1933,7 @@ namespace Functions
                                     const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     return std::cos(fourier_coefficients * p);
   }
 
@@ -1945,7 +1945,7 @@ namespace Functions
                                        const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     return -fourier_coefficients * std::sin(fourier_coefficients * p);
   }
 
@@ -1957,7 +1957,7 @@ namespace Functions
                                         const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     return (fourier_coefficients * fourier_coefficients) *
            (-std::cos(fourier_coefficients * p));
   }
@@ -1983,7 +1983,7 @@ namespace Functions
                                   const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     return std::sin(fourier_coefficients * p);
   }
 
@@ -1995,7 +1995,7 @@ namespace Functions
                                      const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     return fourier_coefficients * std::cos(fourier_coefficients * p);
   }
 
@@ -2007,7 +2007,7 @@ namespace Functions
                                       const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
     return (fourier_coefficients * fourier_coefficients) *
            (-std::sin(fourier_coefficients * p));
   }
@@ -2039,7 +2039,7 @@ namespace Functions
                              const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     const unsigned int n   = weights.size();
     double             sum = 0;
@@ -2057,7 +2057,7 @@ namespace Functions
                                 const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     const unsigned int n = weights.size();
     Tensor<1, dim>     sum;
@@ -2075,7 +2075,7 @@ namespace Functions
                                  const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     const unsigned int n   = weights.size();
     double             sum = 0;
@@ -2113,7 +2113,7 @@ namespace Functions
                                const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     const unsigned int n   = weights.size();
     double             sum = 0;
@@ -2131,7 +2131,7 @@ namespace Functions
                                   const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     const unsigned int n = weights.size();
     Tensor<1, dim>     sum;
@@ -2149,7 +2149,7 @@ namespace Functions
                                    const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     const unsigned int n   = weights.size();
     double             sum = 0;
@@ -2180,8 +2180,7 @@ namespace Functions
   Monomial<dim>::value(const Point<dim> &p, const unsigned int component) const
   {
     (void)component;
-    Assert(component < this->n_components,
-           ExcIndexRange(component, 0, this->n_components));
+    AssertIndexRange(component, this->n_components);
 
     double prod = 1;
     for (unsigned int s = 0; s < dim; ++s)
@@ -2216,7 +2215,7 @@ namespace Functions
                           const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     Tensor<1, dim> r;
     for (unsigned int d = 0; d < dim; ++d)
@@ -2540,6 +2539,19 @@ namespace Functions
 
 
   template <int dim>
+  std::size_t
+  InterpolatedTensorProductGridData<dim>::memory_consumption() const
+  {
+    return sizeof(*this) +
+           MemoryConsumption::memory_consumption(coordinate_values) -
+           sizeof(coordinate_values) +
+           MemoryConsumption::memory_consumption(data_values) -
+           sizeof(data_values);
+  }
+
+
+
+  template <int dim>
   double
   InterpolatedTensorProductGridData<dim>::value(
     const Point<dim> & p,
@@ -2670,6 +2682,69 @@ namespace Functions
     return interpolate(data_values, ix, p_unit);
   }
 
+
+
+  template <int dim>
+  Tensor<1, dim>
+  InterpolatedUniformGridData<dim>::gradient(const Point<dim> & p,
+                                             const unsigned int component) const
+  {
+    (void)component;
+    Assert(
+      component == 0,
+      ExcMessage(
+        "This is a scalar function object, the component can only be zero."));
+
+    // find out where this data point lies, relative to the given
+    // subdivision points
+    TableIndices<dim> ix;
+    for (unsigned int d = 0; d < dim; ++d)
+      {
+        const double delta_x = ((this->interval_endpoints[d].second -
+                                 this->interval_endpoints[d].first) /
+                                this->n_subintervals[d]);
+        if (p[d] <= this->interval_endpoints[d].first)
+          ix[d] = 0;
+        else if (p[d] >= this->interval_endpoints[d].second - delta_x)
+          ix[d] = this->n_subintervals[d] - 1;
+        else
+          ix[d] = static_cast<unsigned int>(
+            (p[d] - this->interval_endpoints[d].first) / delta_x);
+      }
+
+    // now compute the relative point within the interval/rectangle/box
+    // defined by the point coordinates found above. truncate below and
+    // above to accommodate points that may lie outside the range
+    Point<dim> p_unit;
+    Point<dim> delta_x;
+    for (unsigned int d = 0; d < dim; ++d)
+      {
+        delta_x[d] = ((this->interval_endpoints[d].second -
+                       this->interval_endpoints[d].first) /
+                      this->n_subintervals[d]);
+        p_unit[d] =
+          std::max(std::min((p[d] - this->interval_endpoints[d].first -
+                             ix[d] * delta_x[d]) /
+                              delta_x[d],
+                            1.),
+                   0.);
+      }
+
+    return gradient_interpolate(this->data_values, ix, p_unit, delta_x);
+  }
+
+
+
+  template <int dim>
+  std::size_t
+  InterpolatedUniformGridData<dim>::memory_consumption() const
+  {
+    return sizeof(*this) + data_values.memory_consumption() -
+           sizeof(data_values);
+  }
+
+
+
   /* ---------------------- Polynomial ----------------------- */
 
 
@@ -2695,7 +2770,7 @@ namespace Functions
                          const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     double sum = 0;
     for (unsigned int monom = 0; monom < exponents.n_rows(); ++monom)
@@ -2737,7 +2812,7 @@ namespace Functions
                             const unsigned int component) const
   {
     (void)component;
-    Assert(component == 0, ExcIndexRange(component, 0, 1));
+    AssertIndexRange(component, 1);
 
     Tensor<1, dim> r;
 
@@ -2775,6 +2850,18 @@ namespace Functions
       }
     return r;
   }
+
+
+
+  template <int dim>
+  std::size_t
+  Polynomial<dim>::memory_consumption() const
+  {
+    return sizeof(*this) + exponents.memory_consumption() - sizeof(exponents) +
+           MemoryConsumption::memory_consumption(coefficients) -
+           sizeof(coefficients);
+  }
+
 
 
   // explicit instantiations

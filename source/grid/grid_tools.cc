@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2001 - 2018 by the deal.II authors
+// Copyright (C) 2001 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -41,8 +41,8 @@
 #include <deal.II/grid/tria_accessor.h>
 #include <deal.II/grid/tria_iterator.h>
 
+#include <deal.II/lac/constrained_linear_operator.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
-#include <deal.II/lac/filtered_matrix.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/sparse_matrix.h>
@@ -52,9 +52,12 @@
 #include <deal.II/lac/vector_memory.h>
 
 #include <deal.II/numerics/matrix_tools.h>
+#include <deal.II/numerics/vector_tools_integrate_difference.h>
 
+DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
+DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
 
 #include <array>
 #include <cmath>
@@ -102,11 +105,9 @@ namespace GridTools
     const typename Triangulation<dim, spacedim>::active_cell_iterator endc =
       tria.end();
     for (; cell != endc; ++cell)
-      for (unsigned int face = 0; face < GeometryInfo<dim>::faces_per_cell;
-           ++face)
+      for (const unsigned int face : cell->face_indices())
         if (cell->face(face)->at_boundary())
-          for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_face;
-               ++i)
+          for (unsigned int i = 0; i < cell->face(face)->n_vertices(); ++i)
             boundary_vertices[cell->face(face)->vertex_index(i)] = true;
 
     // now traverse the list of boundary vertices and check distances.
@@ -121,7 +122,7 @@ namespace GridTools
           if ((*pi == true) && (*pj == true) &&
               ((vertices[i] - vertices[j]).norm_square() > max_distance_sqr))
             max_distance_sqr = (vertices[i] - vertices[j]).norm_square();
-      };
+      }
 
     return std::sqrt(max_distance_sqr);
   }
@@ -173,8 +174,8 @@ namespace GridTools
     double global_volume = 0;
 
 #ifdef DEAL_II_WITH_MPI
-    if (const parallel::Triangulation<dim, spacedim> *p_tria =
-          dynamic_cast<const parallel::Triangulation<dim, spacedim> *>(
+    if (const parallel::TriangulationBase<dim, spacedim> *p_tria =
+          dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
             &triangulation))
       global_volume =
         Utilities::MPI::sum(local_volume, p_tria->get_communicator());
@@ -187,230 +188,200 @@ namespace GridTools
 
 
 
-  template <>
-  double
-  cell_measure<1>(
-    const std::vector<Point<1>> &all_vertices,
-    const unsigned int (&vertex_indices)[GeometryInfo<1>::vertices_per_cell])
+  namespace
   {
-    return all_vertices[vertex_indices[1]][0] -
-           all_vertices[vertex_indices[0]][0];
+    /**
+     * The algorithm to compute the affine approximation to a cell finds an
+     * affine map A x_hat + b from the reference cell to the real space.
+     *
+     * Some details about how we compute the least square plane. We look
+     * for a spacedim x (dim + 1) matrix X such that X * M = Y where M is
+     * a (dim+1) x n_vertices matrix and Y a spacedim x n_vertices.  And:
+     * The i-th column of M is unit_vertex[i] and the last row all
+     * 1's. The i-th column of Y is real_vertex[i].  If we split X=[A|b],
+     * the least square approx is A x_hat+b Classically X = Y * (M^t (M
+     * M^t)^{-1}) Let K = M^t * (M M^t)^{-1} = [KA Kb] this can be
+     * precomputed, and that is exactly what we do.  Finally A = Y*KA and
+     * b = Y*Kb.
+     */
+    template <int dim>
+    struct TransformR2UAffine
+    {
+      static const double KA[GeometryInfo<dim>::vertices_per_cell][dim];
+      static const double Kb[GeometryInfo<dim>::vertices_per_cell];
+    };
+
+
+    /*
+      Octave code:
+      M=[0 1; 1 1];
+      K1 = transpose(M) * inverse (M*transpose(M));
+      printf ("{%f, %f},\n", K1' );
+    */
+    template <>
+    const double TransformR2UAffine<1>::KA[GeometryInfo<1>::vertices_per_cell]
+                                          [1] = {{-1.000000}, {1.000000}};
+
+    template <>
+    const double TransformR2UAffine<1>::Kb[GeometryInfo<1>::vertices_per_cell] =
+      {1.000000, 0.000000};
+
+
+    /*
+      Octave code:
+      M=[0 1 0 1;0 0 1 1;1 1 1 1];
+      K2 = transpose(M) * inverse (M*transpose(M));
+      printf ("{%f, %f, %f},\n", K2' );
+    */
+    template <>
+    const double TransformR2UAffine<2>::KA[GeometryInfo<2>::vertices_per_cell]
+                                          [2] = {{-0.500000, -0.500000},
+                                                 {0.500000, -0.500000},
+                                                 {-0.500000, 0.500000},
+                                                 {0.500000, 0.500000}};
+
+    /*
+      Octave code:
+      M=[0 1 0 1 0 1 0 1;0 0 1 1 0 0 1 1; 0 0 0 0 1 1 1 1; 1 1 1 1 1 1 1 1];
+      K3 = transpose(M) * inverse (M*transpose(M))
+      printf ("{%f, %f, %f, %f},\n", K3' );
+    */
+    template <>
+    const double TransformR2UAffine<2>::Kb[GeometryInfo<2>::vertices_per_cell] =
+      {0.750000, 0.250000, 0.250000, -0.250000};
+
+
+    template <>
+    const double TransformR2UAffine<3>::KA[GeometryInfo<3>::vertices_per_cell]
+                                          [3] = {
+                                            {-0.250000, -0.250000, -0.250000},
+                                            {0.250000, -0.250000, -0.250000},
+                                            {-0.250000, 0.250000, -0.250000},
+                                            {0.250000, 0.250000, -0.250000},
+                                            {-0.250000, -0.250000, 0.250000},
+                                            {0.250000, -0.250000, 0.250000},
+                                            {-0.250000, 0.250000, 0.250000},
+                                            {0.250000, 0.250000, 0.250000}
+
+    };
+
+
+    template <>
+    const double TransformR2UAffine<3>::Kb[GeometryInfo<3>::vertices_per_cell] =
+      {0.500000,
+       0.250000,
+       0.250000,
+       0.000000,
+       0.250000,
+       0.000000,
+       0.000000,
+       -0.250000};
+  } // namespace
+
+
+
+  template <int dim, int spacedim>
+  std::pair<DerivativeForm<1, dim, spacedim>, Tensor<1, spacedim>>
+  affine_cell_approximation(const ArrayView<const Point<spacedim>> &vertices)
+  {
+    AssertDimension(vertices.size(), GeometryInfo<dim>::vertices_per_cell);
+
+    // A = vertex * KA
+    DerivativeForm<1, dim, spacedim> A;
+
+    for (unsigned int d = 0; d < spacedim; ++d)
+      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+        for (unsigned int e = 0; e < dim; ++e)
+          A[d][e] += vertices[v][d] * TransformR2UAffine<dim>::KA[v][e];
+
+    // b = vertex * Kb
+    Tensor<1, spacedim> b;
+    for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+      b += vertices[v] * TransformR2UAffine<dim>::Kb[v];
+
+    return std::make_pair(A, b);
   }
 
 
 
-  template <>
-  double
-  cell_measure<3>(
-    const std::vector<Point<3>> &all_vertices,
-    const unsigned int (&vertex_indices)[GeometryInfo<3>::vertices_per_cell])
+  template <int dim>
+  Vector<double>
+  compute_aspect_ratio_of_cells(const Mapping<dim> &      mapping,
+                                const Triangulation<dim> &triangulation,
+                                const Quadrature<dim> &   quadrature)
   {
-    // note that this is the
-    // cell_measure based on the new
-    // deal.II numbering. When called
-    // from inside GridReordering make
-    // sure that you reorder the
-    // vertex_indices before
-    const double x[8] = {all_vertices[vertex_indices[0]](0),
-                         all_vertices[vertex_indices[1]](0),
-                         all_vertices[vertex_indices[2]](0),
-                         all_vertices[vertex_indices[3]](0),
-                         all_vertices[vertex_indices[4]](0),
-                         all_vertices[vertex_indices[5]](0),
-                         all_vertices[vertex_indices[6]](0),
-                         all_vertices[vertex_indices[7]](0)};
-    const double y[8] = {all_vertices[vertex_indices[0]](1),
-                         all_vertices[vertex_indices[1]](1),
-                         all_vertices[vertex_indices[2]](1),
-                         all_vertices[vertex_indices[3]](1),
-                         all_vertices[vertex_indices[4]](1),
-                         all_vertices[vertex_indices[5]](1),
-                         all_vertices[vertex_indices[6]](1),
-                         all_vertices[vertex_indices[7]](1)};
-    const double z[8] = {all_vertices[vertex_indices[0]](2),
-                         all_vertices[vertex_indices[1]](2),
-                         all_vertices[vertex_indices[2]](2),
-                         all_vertices[vertex_indices[3]](2),
-                         all_vertices[vertex_indices[4]](2),
-                         all_vertices[vertex_indices[5]](2),
-                         all_vertices[vertex_indices[6]](2),
-                         all_vertices[vertex_indices[7]](2)};
+    FE_Nothing<dim> fe;
+    FEValues<dim>   fe_values(mapping, fe, quadrature, update_jacobians);
 
-    /*
-      This is the same Maple script as in the barycenter method above
-      except of that here the shape functions tphi[0]-tphi[7] are ordered
-      according to the lexicographic numbering.
+    Vector<double> aspect_ratio_vector(triangulation.n_active_cells());
 
-      x := array(0..7):
-      y := array(0..7):
-      z := array(0..7):
-      tphi[0] := (1-xi)*(1-eta)*(1-zeta):
-      tphi[1] :=     xi*(1-eta)*(1-zeta):
-      tphi[2] := (1-xi)*    eta*(1-zeta):
-      tphi[3] :=     xi*    eta*(1-zeta):
-      tphi[4] := (1-xi)*(1-eta)*zeta:
-      tphi[5] :=     xi*(1-eta)*zeta:
-      tphi[6] := (1-xi)*    eta*zeta:
-      tphi[7] :=     xi*    eta*zeta:
-      x_real := sum(x[s]*tphi[s], s=0..7):
-      y_real := sum(y[s]*tphi[s], s=0..7):
-      z_real := sum(z[s]*tphi[s], s=0..7):
-      with (linalg):
-      J := matrix(3,3, [[diff(x_real, xi), diff(x_real, eta), diff(x_real,
-      zeta)], [diff(y_real, xi), diff(y_real, eta), diff(y_real, zeta)],
-      [diff(z_real, xi), diff(z_real, eta), diff(z_real, zeta)]]):
-      detJ := det (J):
+    // loop over cells of processor
+    for (const auto &cell : triangulation.active_cell_iterators())
+      {
+        if (cell->is_locally_owned())
+          {
+            double aspect_ratio_cell = 0.0;
 
-      measure := simplify ( int ( int ( int (detJ, xi=0..1), eta=0..1),
-      zeta=0..1)):
+            fe_values.reinit(cell);
 
-      readlib(C):
+            // loop over quadrature points
+            for (unsigned int q = 0; q < quadrature.size(); ++q)
+              {
+                const Tensor<2, dim, double> jacobian =
+                  Tensor<2, dim, double>(fe_values.jacobian(q));
 
-      C(measure, optimized);
+                // We intentionally do not want to throw an exception in case of
+                // inverted elements since this is not the task of this
+                // function. Instead, inf is written into the vector in case of
+                // inverted elements.
+                if (determinant(jacobian) <= 0)
+                  {
+                    aspect_ratio_cell = std::numeric_limits<double>::infinity();
+                  }
+                else
+                  {
+                    LAPACKFullMatrix<double> J = LAPACKFullMatrix<double>(dim);
+                    for (unsigned int i = 0; i < dim; i++)
+                      for (unsigned int j = 0; j < dim; j++)
+                        J(i, j) = jacobian[i][j];
 
-      The C code produced by this maple script is further optimized by
-      hand. In particular, division by 12 is performed only once, not
-      hundred of times.
-    */
+                    J.compute_svd();
 
-    const double t3  = y[3] * x[2];
-    const double t5  = z[1] * x[5];
-    const double t9  = z[3] * x[2];
-    const double t11 = x[1] * y[0];
-    const double t14 = x[4] * y[0];
-    const double t18 = x[5] * y[7];
-    const double t20 = y[1] * x[3];
-    const double t22 = y[5] * x[4];
-    const double t26 = z[7] * x[6];
-    const double t28 = x[0] * y[4];
-    const double t34 =
-      z[3] * x[1] * y[2] + t3 * z[1] - t5 * y[7] + y[7] * x[4] * z[6] +
-      t9 * y[6] - t11 * z[4] - t5 * y[3] - t14 * z[2] + z[1] * x[4] * y[0] -
-      t18 * z[3] + t20 * z[0] - t22 * z[0] - y[0] * x[5] * z[4] - t26 * y[3] +
-      t28 * z[2] - t9 * y[1] - y[1] * x[4] * z[0] - t11 * z[5];
-    const double t37 = y[1] * x[0];
-    const double t44 = x[1] * y[5];
-    const double t46 = z[1] * x[0];
-    const double t49 = x[0] * y[2];
-    const double t52 = y[5] * x[7];
-    const double t54 = x[3] * y[7];
-    const double t56 = x[2] * z[0];
-    const double t58 = x[3] * y[2];
-    const double t64 = -x[6] * y[4] * z[2] - t37 * z[2] + t18 * z[6] -
-                       x[3] * y[6] * z[2] + t11 * z[2] + t5 * y[0] +
-                       t44 * z[4] - t46 * y[4] - t20 * z[7] - t49 * z[6] -
-                       t22 * z[1] + t52 * z[3] - t54 * z[2] - t56 * y[4] -
-                       t58 * z[0] + y[1] * x[2] * z[0] + t9 * y[7] + t37 * z[4];
-    const double t66 = x[1] * y[7];
-    const double t68 = y[0] * x[6];
-    const double t70 = x[7] * y[6];
-    const double t73 = z[5] * x[4];
-    const double t76 = x[6] * y[7];
-    const double t90 = x[4] * z[0];
-    const double t92 = x[1] * y[3];
-    const double t95 = -t66 * z[3] - t68 * z[2] - t70 * z[2] + t26 * y[5] -
-                       t73 * y[6] - t14 * z[6] + t76 * z[2] - t3 * z[6] +
-                       x[6] * y[2] * z[4] - z[3] * x[6] * y[2] + t26 * y[4] -
-                       t44 * z[3] - x[1] * y[2] * z[0] + x[5] * y[6] * z[4] +
-                       t54 * z[5] + t90 * y[2] - t92 * z[2] + t46 * y[2];
-    const double t102 = x[2] * y[0];
-    const double t107 = y[3] * x[7];
-    const double t114 = x[0] * y[6];
-    const double t125 =
-      y[0] * x[3] * z[2] - z[7] * x[5] * y[6] - x[2] * y[6] * z[4] +
-      t102 * z[6] - t52 * z[6] + x[2] * y[4] * z[6] - t107 * z[5] - t54 * z[6] +
-      t58 * z[6] - x[7] * y[4] * z[6] + t37 * z[5] - t114 * z[4] + t102 * z[4] -
-      z[1] * x[2] * y[0] + t28 * z[6] - y[5] * x[6] * z[4] -
-      z[5] * x[1] * y[4] - t73 * y[7];
-    const double t129 = z[0] * x[6];
-    const double t133 = y[1] * x[7];
-    const double t145 = y[1] * x[5];
-    const double t156 = t90 * y[6] - t129 * y[4] + z[7] * x[2] * y[6] -
-                        t133 * z[5] + x[5] * y[3] * z[7] - t26 * y[2] -
-                        t70 * z[3] + t46 * y[3] + z[5] * x[7] * y[4] +
-                        z[7] * x[3] * y[6] - t49 * z[4] + t145 * z[7] -
-                        x[2] * y[7] * z[6] + t70 * z[5] + t66 * z[5] -
-                        z[7] * x[4] * y[6] + t18 * z[4] + x[1] * y[4] * z[0];
-    const double t160 = x[5] * y[4];
-    const double t165 = z[1] * x[7];
-    const double t178 = z[1] * x[3];
-    const double t181 =
-      t107 * z[6] + t22 * z[7] + t76 * z[3] + t160 * z[1] - x[4] * y[2] * z[6] +
-      t70 * z[4] + t165 * y[5] + x[7] * y[2] * z[6] - t76 * z[5] - t76 * z[4] +
-      t133 * z[3] - t58 * z[1] + y[5] * x[0] * z[4] + t114 * z[2] - t3 * z[7] +
-      t20 * z[2] + t178 * y[7] + t129 * y[2];
-    const double t207 = t92 * z[7] + t22 * z[6] + z[3] * x[0] * y[2] -
-                        x[0] * y[3] * z[2] - z[3] * x[7] * y[2] - t165 * y[3] -
-                        t9 * y[0] + t58 * z[7] + y[3] * x[6] * z[2] +
-                        t107 * z[2] + t73 * y[0] - x[3] * y[5] * z[7] +
-                        t3 * z[0] - t56 * y[6] - z[5] * x[0] * y[4] +
-                        t73 * y[1] - t160 * z[6] + t160 * z[0];
-    const double t228 = -t44 * z[7] + z[5] * x[6] * y[4] - t52 * z[4] -
-                        t145 * z[4] + t68 * z[4] + t92 * z[5] - t92 * z[0] +
-                        t11 * z[3] + t44 * z[0] + t178 * y[5] - t46 * y[5] -
-                        t178 * y[0] - t145 * z[0] - t20 * z[5] - t37 * z[3] -
-                        t160 * z[7] + t145 * z[3] + x[4] * y[6] * z[2];
+                    double const max_sv = J.singular_value(0);
+                    double const min_sv = J.singular_value(dim - 1);
+                    double const ar     = max_sv / min_sv;
 
-    return (t34 + t64 + t95 + t125 + t156 + t181 + t207 + t228) / 12.;
+                    // Take the max between the previous and the current
+                    // aspect ratio value; if we had previously encountered
+                    // an inverted cell, we will have placed an infinity
+                    // in the aspect_ratio_cell variable, and that value
+                    // will survive this max operation.
+                    aspect_ratio_cell = std::max(aspect_ratio_cell, ar);
+                  }
+              }
+
+            // fill vector
+            aspect_ratio_vector(cell->active_cell_index()) = aspect_ratio_cell;
+          }
+      }
+
+    return aspect_ratio_vector;
   }
 
 
 
-  template <>
+  template <int dim>
   double
-  cell_measure<2>(
-    const std::vector<Point<2>> &all_vertices,
-    const unsigned int (&vertex_indices)[GeometryInfo<2>::vertices_per_cell])
+  compute_maximum_aspect_ratio(const Mapping<dim> &      mapping,
+                               const Triangulation<dim> &triangulation,
+                               const Quadrature<dim> &   quadrature)
   {
-    /*
-      Get the computation of the measure by this little Maple script. We
-      use the blinear mapping of the unit quad to the real quad. However,
-      every transformation mapping the unit faces to straight lines should
-      do.
+    Vector<double> aspect_ratio_vector =
+      compute_aspect_ratio_of_cells(mapping, triangulation, quadrature);
 
-      Remember that the area of the quad is given by
-      \int_K 1 dx dy  = \int_{\hat K} |det J| d(xi) d(eta)
-
-      # x and y are arrays holding the x- and y-values of the four vertices
-      # of this cell in real space.
-      x := array(0..3);
-      y := array(0..3);
-      z := array(0..3);
-      tphi[0] := (1-xi)*(1-eta):
-      tphi[1] :=     xi*(1-eta):
-      tphi[2] := (1-xi)*eta:
-      tphi[3] :=     xi*eta:
-      x_real := sum(x[s]*tphi[s], s=0..3):
-      y_real := sum(y[s]*tphi[s], s=0..3):
-      z_real := sum(z[s]*tphi[s], s=0..3):
-
-      Jxi := <diff(x_real,xi)  | diff(y_real,xi) | diff(z_real,xi)>;
-      Jeta := <diff(x_real,eta)| diff(y_real,eta)| diff(z_real,eta)>;
-      with(VectorCalculus):
-      J := CrossProduct(Jxi, Jeta);
-      detJ := sqrt(J[1]^2 + J[2]^2 +J[3]^2);
-
-      # measure := evalf (Int (Int (detJ, xi=0..1, method = _NCrule ) ,
-      eta=0..1, method = _NCrule  ) ): # readlib(C):
-
-      # C(measure, optimized);
-
-      additional optimizaton: divide by 2 only one time
-    */
-
-    const double x[4] = {all_vertices[vertex_indices[0]](0),
-                         all_vertices[vertex_indices[1]](0),
-                         all_vertices[vertex_indices[2]](0),
-                         all_vertices[vertex_indices[3]](0)};
-
-    const double y[4] = {all_vertices[vertex_indices[0]](1),
-                         all_vertices[vertex_indices[1]](1),
-                         all_vertices[vertex_indices[2]](1),
-                         all_vertices[vertex_indices[3]](1)};
-
-    return (-x[1] * y[0] + x[1] * y[3] + y[0] * x[2] + x[0] * y[1] -
-            x[0] * y[2] - y[1] * x[3] - x[2] * y[3] + x[3] * y[2]) /
-           2;
+    return VectorTools::compute_global_error(triangulation,
+                                             aspect_ratio_vector,
+                                             VectorTools::Linfty_norm);
   }
 
 
@@ -431,18 +402,9 @@ namespace GridTools
 
   // Generic functions for appending face data in 2D or 3D. TODO: we can
   // remove these once we have 'if constexpr'.
-  namespace
+  namespace internal
   {
-    void
-    append_face_data(const CellData<0> & /*face_data*/,
-                     SubCellData & /*subcell_data*/)
-    {
-      Assert(false, ExcInternalError());
-    }
-
-
-
-    void
+    inline void
     append_face_data(const CellData<1> &face_data, SubCellData &subcell_data)
     {
       subcell_data.boundary_lines.push_back(face_data);
@@ -450,7 +412,7 @@ namespace GridTools
 
 
 
-    void
+    inline void
     append_face_data(const CellData<2> &face_data, SubCellData &subcell_data)
     {
       subcell_data.boundary_quads.push_back(face_data);
@@ -491,7 +453,75 @@ namespace GridTools
         return false;
       }
     };
-  } // namespace
+
+
+    /**
+     * get_coarse_mesh_description() needs to store face data for dim>1, but
+     * we can not have this code in the function, as this requires either an
+     * instantiation of CellData<dim-1>, or constexpr if. We use a class with
+     * specialization instead for now.
+     *
+     * Data on faces is added with insert_face_data() and then retrieved with
+     * get().
+     */
+    template <int dim>
+    class FaceDataHelper
+    {
+    public:
+      /**
+       * Store the data about the given face @p face.
+       */
+      template <class FaceIteratorType>
+      void
+      insert_face_data(const FaceIteratorType &face)
+      {
+        CellData<dim - 1> face_cell_data;
+        for (unsigned int vertex_n = 0; vertex_n < face->n_vertices();
+             ++vertex_n)
+          face_cell_data.vertices[vertex_n] = face->vertex_index(vertex_n);
+        face_cell_data.boundary_id = face->boundary_id();
+        face_cell_data.manifold_id = face->manifold_id();
+
+        face_data.insert(face_cell_data);
+      }
+
+      /**
+       * Return  the @p subcell_data with the stored information.
+       */
+      SubCellData
+      get()
+      {
+        SubCellData subcell_data;
+
+        for (const CellData<dim - 1> &face_cell_data : face_data)
+          internal::append_face_data(face_cell_data, subcell_data);
+        return subcell_data;
+      }
+
+
+    private:
+      std::set<CellData<dim - 1>, internal::CellDataComparator<dim - 1>>
+        face_data;
+    };
+
+
+    // Do nothing for dim=1:
+    template <>
+    class FaceDataHelper<1>
+    {
+    public:
+      template <class FaceIteratorType>
+      void
+      insert_face_data(const FaceIteratorType &)
+      {}
+
+      SubCellData
+      get()
+      {
+        return SubCellData();
+      }
+    };
+  } // namespace internal
 
 
 
@@ -505,25 +535,23 @@ namespace GridTools
 
     std::vector<Point<spacedim>> vertices;
     std::vector<CellData<dim>>   cells;
-    SubCellData                  subcell_data;
 
     unsigned int max_level_0_vertex_n = 0;
     for (const auto &cell : tria.cell_iterators_on_level(0))
-      for (unsigned int cell_vertex_n = 0;
-           cell_vertex_n < GeometryInfo<dim>::vertices_per_cell;
-           ++cell_vertex_n)
+      for (const unsigned int cell_vertex_n : cell->vertex_indices())
         max_level_0_vertex_n =
           std::max(cell->vertex_index(cell_vertex_n), max_level_0_vertex_n);
     vertices.resize(max_level_0_vertex_n + 1);
-    std::set<CellData<dim - 1>, CellDataComparator<dim - 1>> face_data;
-    std::set<CellData<1>, CellDataComparator<1>> line_data; // only used in 3D
+
+    internal::FaceDataHelper<dim> face_data;
+    std::set<CellData<1>, internal::CellDataComparator<1>>
+      line_data; // only used in 3D
+
     for (const auto &cell : tria.cell_iterators_on_level(0))
       {
         // Save cell data
         CellData<dim> cell_data;
-        for (unsigned int cell_vertex_n = 0;
-             cell_vertex_n < GeometryInfo<dim>::vertices_per_cell;
-             ++cell_vertex_n)
+        for (const unsigned int cell_vertex_n : cell->vertex_indices())
           {
             Assert(cell->vertex_index(cell_vertex_n) < vertices.size(),
                    ExcInternalError());
@@ -537,36 +565,19 @@ namespace GridTools
         cells.push_back(cell_data);
 
         // Save face data
-        if (dim != 1)
+        if (dim > 1)
           {
-            for (unsigned int face_n = 0;
-                 face_n < GeometryInfo<dim>::faces_per_cell;
-                 ++face_n)
-              {
-                const auto        face = cell->face(face_n);
-                CellData<dim - 1> face_cell_data;
-                for (unsigned int vertex_n = 0;
-                     vertex_n < GeometryInfo<dim>::vertices_per_face;
-                     ++vertex_n)
-                  face_cell_data.vertices[vertex_n] =
-                    face->vertex_index(vertex_n);
-                face_cell_data.boundary_id = face->boundary_id();
-                face_cell_data.manifold_id = face->manifold_id();
-
-                face_data.insert(face_cell_data);
-              }
+            for (const unsigned int face_n : cell->face_indices())
+              face_data.insert_face_data(cell->face(face_n));
           }
         // Save line data
         if (dim == 3)
           {
-            for (unsigned int line_n = 0;
-                 line_n < GeometryInfo<dim>::lines_per_cell;
-                 ++line_n)
+            for (unsigned int line_n = 0; line_n < cell->n_lines(); ++line_n)
               {
                 const auto  line = cell->line(line_n);
                 CellData<1> line_cell_data;
-                for (unsigned int vertex_n = 0;
-                     vertex_n < GeometryInfo<2>::vertices_per_face;
+                for (unsigned int vertex_n = 0; vertex_n < line->n_vertices();
                      ++vertex_n)
                   line_cell_data.vertices[vertex_n] =
                     line->vertex_index(vertex_n);
@@ -577,15 +588,14 @@ namespace GridTools
               }
           }
       }
+
       // Double-check that there are no unused vertices:
 #ifdef DEBUG
     {
       std::vector<bool> used_vertices(vertices.size());
       for (const CellData<dim> &cell_data : cells)
-        for (unsigned int cell_vertex_n = 0;
-             cell_vertex_n < GeometryInfo<dim>::vertices_per_cell;
-             ++cell_vertex_n)
-          used_vertices[cell_data.vertices[cell_vertex_n]] = true;
+        for (const auto v : cell_data.vertices)
+          used_vertices[v] = true;
       Assert(std::find(used_vertices.begin(), used_vertices.end(), false) ==
                used_vertices.end(),
              ExcMessage("The level zero vertices should form a contiguous "
@@ -593,11 +603,12 @@ namespace GridTools
     }
 #endif
 
-    for (const CellData<dim - 1> &face_cell_data : face_data)
-      append_face_data(face_cell_data, subcell_data);
+    SubCellData subcell_data = face_data.get();
+
     if (dim == 3)
       for (const CellData<1> &face_line_data : line_data)
         subcell_data.boundary_lines.push_back(face_line_data);
+
     return std::tuple<std::vector<Point<spacedim>>,
                       std::vector<CellData<dim>>,
                       SubCellData>(std::move(vertices),
@@ -622,7 +633,7 @@ namespace GridTools
     // first check which vertices are actually used
     std::vector<bool> vertex_used(vertices.size(), false);
     for (unsigned int c = 0; c < cells.size(); ++c)
-      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+      for (unsigned int v = 0; v < cells[c].vertices.size(); ++v)
         {
           Assert(cells[c].vertices[v] < vertices.size(),
                  ExcMessage("Invalid vertex index encountered! cells[" +
@@ -651,12 +662,15 @@ namespace GridTools
 
     // next replace old vertex numbers by the new ones
     for (unsigned int c = 0; c < cells.size(); ++c)
-      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
-        cells[c].vertices[v] = new_vertex_numbers[cells[c].vertices[v]];
+      for (auto &v : cells[c].vertices)
+        v = new_vertex_numbers[v];
 
     // same for boundary data
-    for (unsigned int c = 0; c < subcelldata.boundary_lines.size(); ++c)
-      for (unsigned int v = 0; v < GeometryInfo<1>::vertices_per_cell; ++v)
+    for (unsigned int c = 0; c < subcelldata.boundary_lines.size(); // NOLINT
+         ++c)
+      for (unsigned int v = 0;
+           v < subcelldata.boundary_lines[c].vertices.size();
+           ++v)
         {
           Assert(subcelldata.boundary_lines[c].vertices[v] <
                    new_vertex_numbers.size(),
@@ -674,8 +688,11 @@ namespace GridTools
             new_vertex_numbers[subcelldata.boundary_lines[c].vertices[v]];
         }
 
-    for (unsigned int c = 0; c < subcelldata.boundary_quads.size(); ++c)
-      for (unsigned int v = 0; v < GeometryInfo<2>::vertices_per_cell; ++v)
+    for (unsigned int c = 0; c < subcelldata.boundary_quads.size(); // NOLINT
+         ++c)
+      for (unsigned int v = 0;
+           v < subcelldata.boundary_quads[c].vertices.size();
+           ++v)
         {
           Assert(subcelldata.boundary_quads[c].vertices[v] <
                    new_vertex_numbers.size(),
@@ -712,53 +729,111 @@ namespace GridTools
                              std::vector<CellData<dim>> &  cells,
                              SubCellData &                 subcelldata,
                              std::vector<unsigned int> &   considered_vertices,
-                             double                        tol)
+                             const double                  tol)
   {
-    // create a vector of vertex
-    // indices. initialize it to the identity,
-    // later on change that if necessary.
+    AssertIndexRange(2, vertices.size());
+    // create a vector of vertex indices. initialize it to the identity, later
+    // on change that if necessary.
     std::vector<unsigned int> new_vertex_numbers(vertices.size());
-    for (unsigned int i = 0; i < vertices.size(); ++i)
-      new_vertex_numbers[i] = i;
+    std::iota(new_vertex_numbers.begin(), new_vertex_numbers.end(), 0);
 
-    // if the considered_vertices vector is
-    // empty, consider all vertices
+    // if the considered_vertices vector is empty, consider all vertices
     if (considered_vertices.size() == 0)
       considered_vertices = new_vertex_numbers;
-
     Assert(considered_vertices.size() <= vertices.size(), ExcInternalError());
 
+    // The algorithm below improves upon the naive O(n^2) algorithm by first
+    // sorting vertices by their value in one component and then only
+    // comparing vertices for equality which are nearly equal in that
+    // component. For example, if @p vertices form a cube, then we will only
+    // compare points that have the same x coordinate when we try to find
+    // duplicated vertices.
 
-    // now loop over all vertices to be
-    // considered and try to find an identical
-    // one
-    for (unsigned int i = 0; i < considered_vertices.size(); ++i)
+    // Start by finding the longest coordinate direction. This minimizes the
+    // number of points that need to be compared against each-other in a
+    // single set for typical geometries.
+    const BoundingBox<spacedim> bbox(vertices);
+    const auto &                min = bbox.get_boundary_points().first;
+    const auto &                max = bbox.get_boundary_points().second;
+
+    unsigned int longest_coordinate_direction = 0;
+    double       longest_coordinate_length    = max[0] - min[0];
+    for (unsigned int d = 1; d < spacedim; ++d)
       {
-        Assert(considered_vertices[i] < vertices.size(), ExcInternalError());
-        if (new_vertex_numbers[considered_vertices[i]] !=
-            considered_vertices[i])
-          // this vertex has been identified with
-          // another one already, skip it in the
-          // test
-          continue;
-        // this vertex is not identified with
-        // another one so far. search in the list
-        // of remaining vertices. if a duplicate
-        // vertex is found, set the new vertex
-        // index for that vertex to this vertex'
-        // index.
-        for (unsigned int j = i + 1; j < considered_vertices.size(); ++j)
+        const double coordinate_length = max[d] - min[d];
+        if (longest_coordinate_length < coordinate_length)
           {
-            bool equal = true;
-            for (unsigned int d = 0; d < spacedim; ++d)
-              equal &= (std::abs(vertices[considered_vertices[j]](d) -
-                                 vertices[considered_vertices[i]](d)) < tol);
-            if (equal)
-              {
-                new_vertex_numbers[considered_vertices[j]] =
-                  considered_vertices[i];
-              }
+            longest_coordinate_length    = coordinate_length;
+            longest_coordinate_direction = d;
           }
+      }
+
+    // Sort vertices (while preserving their vertex numbers) along that
+    // coordinate direction:
+    std::vector<std::pair<unsigned int, Point<spacedim>>> sorted_vertices;
+    sorted_vertices.reserve(vertices.size());
+    for (const unsigned int vertex_n : considered_vertices)
+      {
+        AssertIndexRange(vertex_n, vertices.size());
+        sorted_vertices.emplace_back(vertex_n, vertices[vertex_n]);
+      }
+    std::sort(sorted_vertices.begin(),
+              sorted_vertices.end(),
+              [&](const std::pair<unsigned int, Point<spacedim>> &a,
+                  const std::pair<unsigned int, Point<spacedim>> &b) {
+                return a.second[longest_coordinate_direction] <
+                       b.second[longest_coordinate_direction];
+              });
+
+    auto within_tolerance = [=](const Point<spacedim> &a,
+                                const Point<spacedim> &b) {
+      for (unsigned int d = 0; d < spacedim; ++d)
+        if (std::abs(a[d] - b[d]) > tol)
+          return false;
+      return true;
+    };
+
+    // Find a range of numbers that have the same component in the longest
+    // coordinate direction:
+    auto range_start = sorted_vertices.begin();
+    while (range_start != sorted_vertices.end())
+      {
+        auto range_end = range_start + 1;
+        while (range_end != sorted_vertices.end() &&
+               std::abs(range_end->second[longest_coordinate_direction] -
+                        range_start->second[longest_coordinate_direction]) <
+                 tol)
+          ++range_end;
+
+        // preserve behavior with older versions of this function by replacing
+        // higher vertex numbers by lower vertex numbers
+        std::sort(range_start,
+                  range_end,
+                  [](const std::pair<unsigned int, Point<spacedim>> &a,
+                     const std::pair<unsigned int, Point<spacedim>> &b) {
+                    return a.first < b.first;
+                  });
+
+        // Now de-duplicate [range_start, range_end)
+        //
+        // We have identified all points that are within a strip of width 'tol'
+        // in one coordinate direction. Now we need to figure out which of these
+        // are also close in other coordinate directions. If two are close, we
+        // can mark the second one for deletion.
+        for (auto reference = range_start; reference != range_end; ++reference)
+          {
+            if (reference->first != numbers::invalid_unsigned_int)
+              for (auto it = reference + 1; it != range_end; ++it)
+                {
+                  if (within_tolerance(reference->second, it->second))
+                    {
+                      new_vertex_numbers[it->first] = reference->first;
+                      // skip the replaced vertex in the future
+                      it->first = numbers::invalid_unsigned_int;
+                    }
+                }
+          }
+        range_start = range_end;
       }
 
     // now we got a renumbering list. simply renumber all vertices
@@ -780,8 +855,8 @@ namespace GridTools
 
 
 
-  // define some transformations in an anonymous namespace
-  namespace
+  // define some transformations
+  namespace internal
   {
     template <int spacedim>
     class Shift
@@ -801,26 +876,6 @@ namespace GridTools
     };
 
 
-    // the following class is only
-    // needed in 2d, so avoid trouble
-    // with compilers warning otherwise
-    class Rotate2d
-    {
-    public:
-      explicit Rotate2d(const double angle)
-        : angle(angle)
-      {}
-      Point<2>
-      operator()(const Point<2> &p) const
-      {
-        return Point<2>(std::cos(angle) * p(0) - std::sin(angle) * p(1),
-                        std::sin(angle) * p(0) + std::cos(angle) * p(1));
-      }
-
-    private:
-      const double angle;
-    };
-
     // Transformation to rotate around one of the cartesian axes.
     class Rotate3d
     {
@@ -834,17 +889,17 @@ namespace GridTools
       operator()(const Point<3> &p) const
       {
         if (axis == 0)
-          return Point<3>(p(0),
-                          std::cos(angle) * p(1) - std::sin(angle) * p(2),
-                          std::sin(angle) * p(1) + std::cos(angle) * p(2));
+          return {p(0),
+                  std::cos(angle) * p(1) - std::sin(angle) * p(2),
+                  std::sin(angle) * p(1) + std::cos(angle) * p(2)};
         else if (axis == 1)
-          return Point<3>(std::cos(angle) * p(0) + std::sin(angle) * p(2),
-                          p(1),
-                          -std::sin(angle) * p(0) + std::cos(angle) * p(2));
+          return {std::cos(angle) * p(0) + std::sin(angle) * p(2),
+                  p(1),
+                  -std::sin(angle) * p(0) + std::cos(angle) * p(2)};
         else
-          return Point<3>(std::cos(angle) * p(0) - std::sin(angle) * p(1),
-                          std::sin(angle) * p(0) + std::cos(angle) * p(1),
-                          p(2));
+          return {std::cos(angle) * p(0) - std::sin(angle) * p(1),
+                  std::sin(angle) * p(0) + std::cos(angle) * p(1),
+                  p(2)};
       }
 
     private:
@@ -868,7 +923,7 @@ namespace GridTools
     private:
       const double factor;
     };
-  } // namespace
+  } // namespace internal
 
 
   template <int dim, int spacedim>
@@ -876,16 +931,9 @@ namespace GridTools
   shift(const Tensor<1, spacedim> &   shift_vector,
         Triangulation<dim, spacedim> &triangulation)
   {
-    transform(Shift<spacedim>(shift_vector), triangulation);
+    transform(internal::Shift<spacedim>(shift_vector), triangulation);
   }
 
-
-
-  void
-  rotate(const double angle, Triangulation<2> &triangulation)
-  {
-    transform(Rotate2d(angle), triangulation);
-  }
 
   template <int dim>
   void
@@ -895,7 +943,7 @@ namespace GridTools
   {
     Assert(axis < 3, ExcMessage("Invalid axis given!"));
 
-    transform(Rotate3d(angle, axis), triangulation);
+    transform(internal::Rotate3d(angle, axis), triangulation);
   }
 
   template <int dim, int spacedim>
@@ -904,27 +952,27 @@ namespace GridTools
         Triangulation<dim, spacedim> &triangulation)
   {
     Assert(scaling_factor > 0, ExcScalingFactorNotPositive(scaling_factor));
-    transform(Scale<spacedim>(scaling_factor), triangulation);
+    transform(internal::Scale<spacedim>(scaling_factor), triangulation);
   }
 
 
-  namespace
+  namespace internal
   {
     /**
      * Solve the Laplace equation for the @p laplace_transform function for one
      * of the @p dim space dimensions. Factorized into a function of its own
      * in order to allow parallel execution.
      */
-    void
-    laplace_solve(const SparseMatrix<double> &                     S,
-                  const std::map<types::global_dof_index, double> &fixed_dofs,
-                  Vector<double> &                                 u)
+    inline void
+    laplace_solve(const SparseMatrix<double> &     S,
+                  const AffineConstraints<double> &constraints,
+                  Vector<double> &                 u)
     {
-      const unsigned int                       n_dofs = S.n();
-      FilteredMatrix<Vector<double>>           SF(S);
+      const unsigned int n_dofs = S.n();
+      const auto         op     = linear_operator(S);
+      const auto         SF     = constrained_linear_operator(constraints, op);
       PreconditionJacobi<SparseMatrix<double>> prec;
       prec.initialize(S, 1.2);
-      FilteredMatrix<Vector<double>> PF(prec);
 
       SolverControl                       control(n_dofs, 1.e-10, false, false);
       GrowingVectorMemory<Vector<double>> mem;
@@ -932,24 +980,13 @@ namespace GridTools
 
       Vector<double> f(n_dofs);
 
-      SF.add_constraints(fixed_dofs);
-      SF.apply_constraints(f, true);
-      solver.solve(SF, u, f, PF);
+      const auto constrained_rhs =
+        constrained_right_hand_side(constraints, op, f);
+      solver.solve(SF, u, constrained_rhs, prec);
+
+      constraints.distribute(u);
     }
-  } // namespace
-
-
-
-  // Implementation for 1D only
-  template <>
-  void
-  laplace_transform(const std::map<unsigned int, Point<1>> &,
-                    Triangulation<1> &,
-                    const Function<1> *,
-                    const bool)
-  {
-    Assert(false, ExcNotImplemented());
-  }
+  } // namespace internal
 
 
   // Implementation for dimensions except 1
@@ -960,6 +997,9 @@ namespace GridTools
                     const Function<dim> *                     coefficient,
                     const bool solve_for_absolute_positions)
   {
+    if (dim == 1)
+      Assert(false, ExcNotImplemented());
+
     // first provide everything that is needed for solving a Laplace
     // equation.
     FE_Q<dim> q1(1);
@@ -983,20 +1023,16 @@ namespace GridTools
       StaticMappingQ1<dim>::mapping, dof_handler, quadrature, S, coefficient);
 
     // set up the boundary values for the laplace problem
-    std::map<types::global_dof_index, double>                   fixed_dofs[dim];
+    std::array<AffineConstraints<double>, dim>                  constraints;
     typename std::map<unsigned int, Point<dim>>::const_iterator map_end =
       new_points.end();
 
     // fill these maps using the data given by new_points
-    typename DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active(),
-                                            endc = dof_handler.end();
-    for (; cell != endc; ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       {
         // loop over all vertices of the cell and see if it is listed in the map
         // given as first argument of the function
-        for (unsigned int vertex_no = 0;
-             vertex_no < GeometryInfo<dim>::vertices_per_cell;
-             ++vertex_no)
+        for (const unsigned int vertex_no : cell->vertex_indices())
           {
             const unsigned int vertex_index = cell->vertex_index(vertex_no);
             const Point<dim> & vertex_point = cell->vertex(vertex_no);
@@ -1006,13 +1042,19 @@ namespace GridTools
 
             if (map_iter != map_end)
               for (unsigned int i = 0; i < dim; ++i)
-                fixed_dofs[i].insert(std::pair<types::global_dof_index, double>(
-                  cell->vertex_dof_index(vertex_no, 0),
-                  (solve_for_absolute_positions ?
-                     map_iter->second(i) :
-                     map_iter->second(i) - vertex_point[i])));
+                {
+                  constraints[i].add_line(cell->vertex_dof_index(vertex_no, 0));
+                  constraints[i].set_inhomogeneity(
+                    cell->vertex_dof_index(vertex_no, 0),
+                    (solve_for_absolute_positions ?
+                       map_iter->second(i) :
+                       map_iter->second(i) - vertex_point[i]));
+                }
           }
       }
+
+    for (unsigned int i = 0; i < dim; ++i)
+      constraints[i].close();
 
     // solve the dim problems with different right hand sides.
     Vector<double> us[dim];
@@ -1022,16 +1064,15 @@ namespace GridTools
     // solve linear systems in parallel
     Threads::TaskGroup<> tasks;
     for (unsigned int i = 0; i < dim; ++i)
-      tasks += Threads::new_task(&laplace_solve, S, fixed_dofs[i], us[i]);
+      tasks +=
+        Threads::new_task(&internal::laplace_solve, S, constraints[i], us[i]);
     tasks.join_all();
 
     // change the coordinates of the points of the triangulation
     // according to the computed values
     std::vector<bool> vertex_touched(triangulation.n_vertices(), false);
-    for (cell = dof_handler.begin_active(); cell != endc; ++cell)
-      for (unsigned int vertex_no = 0;
-           vertex_no < GeometryInfo<dim>::vertices_per_cell;
-           ++vertex_no)
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      for (const unsigned int vertex_no : cell->vertex_indices())
         if (vertex_touched[cell->vertex_index(vertex_no)] == false)
           {
             Point<dim> &v = cell->vertex(vertex_no);
@@ -1058,14 +1099,13 @@ namespace GridTools
       endc = tria.end();
     for (; cell != endc; ++cell)
       {
-        for (unsigned int i = 0; i < GeometryInfo<dim>::faces_per_cell; ++i)
+        for (unsigned int i : cell->face_indices())
           {
             const typename Triangulation<dim, spacedim>::face_iterator &face =
               cell->face(i);
             if (face->at_boundary())
               {
-                for (unsigned j = 0; j < GeometryInfo<dim>::vertices_per_face;
-                     ++j)
+                for (unsigned j = 0; j < face->n_vertices(); ++j)
                   {
                     const Point<spacedim> &vertex       = face->vertex(j);
                     const unsigned int     vertex_index = face->vertex_index(j);
@@ -1085,7 +1125,8 @@ namespace GridTools
   void
   distort_random(const double                  factor,
                  Triangulation<dim, spacedim> &triangulation,
-                 const bool                    keep_boundary)
+                 const bool                    keep_boundary,
+                 const unsigned int            seed)
   {
     // if spacedim>dim we need to make sure that we perturb
     // points but keep them on
@@ -1117,20 +1158,16 @@ namespace GridTools
                                                   0,
                                   false);
     // for parallel::shared::Triangulation we need to work on all vertices,
-    // not just the ones related to loacally owned cells;
+    // not just the ones related to locally owned cells;
     const bool is_parallel_shared =
       (dynamic_cast<parallel::shared::Triangulation<dim, spacedim> *>(
          &triangulation) != nullptr);
-    for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-           triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       if (is_parallel_shared || cell->is_locally_owned())
         {
           if (dim > 1)
             {
-              for (unsigned int i = 0; i < GeometryInfo<dim>::lines_per_cell;
-                   ++i)
+              for (unsigned int i = 0; i < cell->n_lines(); ++i)
                 {
                   const typename Triangulation<dim, spacedim>::line_iterator
                     line = cell->line(i);
@@ -1165,12 +1202,8 @@ namespace GridTools
             }
         }
 
-    // create a random number generator for the interval [-1,1]. we use
-    // this to make sure the distribution we get is repeatable, i.e.,
-    // if you call the function twice on the same mesh, then you will
-    // get the same mesh. this would not be the case if you used
-    // the rand() function, which carries around some internal state
-    boost::random::mt19937                     rng;
+    // create a random number generator for the interval [-1,1]
+    boost::random::mt19937                     rng(seed);
     boost::random::uniform_real_distribution<> uniform_distribution(-1, 1);
 
     // If the triangulation is distributed, we need to
@@ -1185,15 +1218,10 @@ namespace GridTools
         std::vector<bool> vertex_moved(triangulation.n_vertices(), false);
 
         // Next move vertices on locally owned cells
-        for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-               triangulation.begin_active();
-             cell != triangulation.end();
-             ++cell)
+        for (const auto &cell : triangulation.active_cell_iterators())
           if (cell->is_locally_owned())
             {
-              for (unsigned int vertex_no = 0;
-                   vertex_no < GeometryInfo<dim>::vertices_per_cell;
-                   ++vertex_no)
+              for (const unsigned int vertex_no : cell->vertex_indices())
                 {
                   const unsigned global_vertex_no =
                     cell->vertex_index(vertex_no);
@@ -1263,13 +1291,8 @@ namespace GridTools
           }
 
         // now do the actual move of the vertices
-        for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-               triangulation.begin_active();
-             cell != triangulation.end();
-             ++cell)
-          for (unsigned int vertex_no = 0;
-               vertex_no < GeometryInfo<dim>::vertices_per_cell;
-               ++vertex_no)
+        for (const auto &cell : triangulation.active_cell_iterators())
+          for (const unsigned int vertex_no : cell->vertex_indices())
             cell->vertex(vertex_no) =
               new_vertex_locations[cell->vertex_index(vertex_no)];
       }
@@ -1289,9 +1312,7 @@ namespace GridTools
           endc = triangulation.end();
         for (; cell != endc; ++cell)
           if (!cell->is_artificial())
-            for (unsigned int face = 0;
-                 face < GeometryInfo<dim>::faces_per_cell;
-                 ++face)
+            for (const unsigned int face : cell->face_indices())
               if (cell->face(face)->has_children() &&
                   !cell->face(face)->at_boundary())
                 {
@@ -1362,27 +1383,27 @@ namespace GridTools
 
     // If marked_indices is empty, consider all used_vertices for finding the
     // closest vertex to the point. Otherwise, marked_indices is used.
-    const std::vector<bool> &used = (marked_vertices.size() == 0) ?
-                                      tria.get_used_vertices() :
-                                      marked_vertices;
+    const std::vector<bool> &vertices_to_use = (marked_vertices.size() == 0) ?
+                                                 tria.get_used_vertices() :
+                                                 marked_vertices;
 
     // At the beginning, the first used vertex is considered to be the closest
     // one.
     std::vector<bool>::const_iterator first =
-      std::find(used.begin(), used.end(), true);
+      std::find(vertices_to_use.begin(), vertices_to_use.end(), true);
 
     // Assert that at least one vertex is actually used
-    Assert(first != used.end(), ExcInternalError());
+    Assert(first != vertices_to_use.end(), ExcInternalError());
 
-    unsigned int best_vertex = std::distance(used.begin(), first);
+    unsigned int best_vertex = std::distance(vertices_to_use.begin(), first);
     double       best_dist   = (p - vertices[best_vertex]).norm_square();
 
     // For all remaining vertices, test
     // whether they are any closer
     for (unsigned int j = best_vertex + 1; j < vertices.size(); j++)
-      if (used[j])
+      if (vertices_to_use[j])
         {
-          double dist = (p - vertices[j]).norm_square();
+          const double dist = (p - vertices[j]).norm_square();
           if (dist < best_dist)
             {
               best_vertex = j;
@@ -1465,8 +1486,7 @@ namespace GridTools
     // make sure that the given vertex is
     // an active vertex of the underlying
     // triangulation
-    Assert(vertex < mesh.get_triangulation().n_vertices(),
-           ExcIndexRange(0, mesh.get_triangulation().n_vertices(), vertex));
+    AssertIndexRange(vertex, mesh.get_triangulation().n_vertices());
     Assert(mesh.get_triangulation().get_used_vertices()[vertex],
            ExcVertexNotUsed(vertex));
 
@@ -1476,11 +1496,6 @@ namespace GridTools
     std::set<typename dealii::internal::
                ActiveCellIterator<dim, spacedim, MeshType<dim, spacedim>>::type>
       adjacent_cells;
-
-    typename dealii::internal::
-      ActiveCellIterator<dim, spacedim, MeshType<dim, spacedim>>::type
-        cell = mesh.begin_active(),
-        endc = mesh.end();
 
     // go through all active cells and look if the vertex is part of that cell
     //
@@ -1515,9 +1530,9 @@ namespace GridTools
     // finer and so in the 2d case below we simply add *any* *active* neighbor.
     // in the worst case, we add cells multiple times to the adjacent_cells
     // list, but std::set throws out those cells already entered
-    for (; cell != endc; ++cell)
+    for (const auto &cell : mesh.active_cell_iterators())
       {
-        for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; v++)
+        for (const unsigned int v : cell->vertex_indices())
           if (cell->vertex_index(v) == vertex)
             {
               // OK, we found a cell that contains
@@ -1533,10 +1548,10 @@ namespace GridTools
                 for (unsigned int vface = 0; vface < dim; vface++)
                   {
                     const unsigned int face =
-                      GeometryInfo<dim>::vertex_to_face[v][vface];
+                      GeometryInfo<dim>::vertex_to_face[v][vface]; // TODO
 
                     if (!cell->at_boundary(face) &&
-                        cell->neighbor(face)->active())
+                        cell->neighbor(face)->is_active())
                       {
                         // there is a (possibly) coarser cell behind a
                         // face to which the vertex belongs. the
@@ -1559,7 +1574,7 @@ namespace GridTools
         // in 3d also loop over the edges
         if (dim >= 3)
           {
-            for (unsigned int e = 0; e < GeometryInfo<dim>::lines_per_cell; ++e)
+            for (unsigned int e = 0; e < cell->n_lines(); ++e)
               if (cell->line(e)->has_children())
                 // the only place where this vertex could have been
                 // hiding is on the mid-edge point of the edge we
@@ -1632,7 +1647,7 @@ namespace GridTools
   }
 
 
-  namespace
+  namespace internal
   {
     template <int spacedim>
     bool
@@ -1650,7 +1665,7 @@ namespace GridTools
       // return if the scalar product of a is larger.
       return (scalar_product_a > scalar_product_b);
     }
-  } // namespace
+  } // namespace internal
 
   template <int dim, template <int, int> class MeshType, int spacedim>
 #ifndef _MSC_VER
@@ -1670,7 +1685,8 @@ namespace GridTools
     const std::vector<std::vector<Tensor<1, spacedim>>> &vertex_to_cell_centers,
     const typename MeshType<dim, spacedim>::active_cell_iterator &cell_hint,
     const std::vector<bool> &                              marked_vertices,
-    const RTree<std::pair<Point<spacedim>, unsigned int>> &used_vertices_rtree)
+    const RTree<std::pair<Point<spacedim>, unsigned int>> &used_vertices_rtree,
+    const double                                           tolerance)
   {
     std::pair<typename MeshType<dim, spacedim>::active_cell_iterator,
               Point<dim>>
@@ -1694,9 +1710,12 @@ namespace GridTools
         // invalid cell, then query for the closest global vertex
         if (current_cell.state() == IteratorState::valid)
           {
+            const auto cell_vertices = mapping.get_vertices(current_cell);
             const unsigned int closest_vertex =
-              find_closest_vertex_of_cell<dim, spacedim>(current_cell, p);
-            vertex_to_point      = p - current_cell->vertex(closest_vertex);
+              find_closest_vertex_of_cell<dim, spacedim>(current_cell,
+                                                         p,
+                                                         mapping);
+            vertex_to_point      = p - cell_vertices[closest_vertex];
             closest_vertex_index = current_cell->vertex_index(closest_vertex);
           }
         else
@@ -1725,8 +1744,8 @@ namespace GridTools
               }
             else
               {
-                closest_vertex_index =
-                  GridTools::find_closest_vertex(mesh, p, marked_vertices);
+                closest_vertex_index = GridTools::find_closest_vertex(
+                  mapping, mesh, p, marked_vertices);
               }
             vertex_to_point = p - mesh.get_vertices()[closest_vertex_index];
           }
@@ -1745,7 +1764,7 @@ namespace GridTools
           neighbor_permutation[i] = i;
 
         auto comp = [&](const unsigned int a, const unsigned int b) -> bool {
-          return compare_point_association<spacedim>(
+          return internal::compare_point_association<spacedim>(
             a,
             b,
             vertex_to_point,
@@ -1757,9 +1776,8 @@ namespace GridTools
                   comp);
         // It is possible the vertex is close
         // to an edge, thus we add a tolerance
-        // setting it initially to 1e-10
         // to keep also the "best" cell
-        double best_distance = 1e-10;
+        double best_distance = tolerance;
 
         // Search all of the cells adjacent to the closest vertex of the cell
         // hint Most likely we will find the point in them.
@@ -1769,27 +1787,33 @@ namespace GridTools
               {
                 auto cell = vertex_to_cells[closest_vertex_index].begin();
                 std::advance(cell, neighbor_permutation[i]);
-                const Point<dim> p_unit =
-                  mapping.transform_real_to_unit_cell(*cell, p);
-                if (GeometryInfo<dim>::is_inside_unit_cell(p_unit))
+
+                if (!(*cell)->is_artificial())
                   {
-                    cell_and_position.first  = *cell;
-                    cell_and_position.second = p_unit;
-                    found_cell               = true;
-                    approx_cell              = false;
-                    break;
-                  }
-                // The point is not inside this cell: checking how far outside
-                // it is and whether we want to use this cell as a backup if we
-                // can't find a cell within which the point lies.
-                const double dist =
-                  GeometryInfo<dim>::distance_to_unit_cell(p_unit);
-                if (dist < best_distance)
-                  {
-                    best_distance                   = dist;
-                    cell_and_position_approx.first  = *cell;
-                    cell_and_position_approx.second = p_unit;
-                    approx_cell                     = true;
+                    const Point<dim> p_unit =
+                      mapping.transform_real_to_unit_cell(*cell, p);
+                    if (GeometryInfo<dim>::is_inside_unit_cell(p_unit,
+                                                               tolerance))
+                      {
+                        cell_and_position.first  = *cell;
+                        cell_and_position.second = p_unit;
+                        found_cell               = true;
+                        approx_cell              = false;
+                        break;
+                      }
+                    // The point is not inside this cell: checking how far
+                    // outside it is and whether we want to use this cell as a
+                    // backup if we can't find a cell within which the point
+                    // lies.
+                    const double dist =
+                      GeometryInfo<dim>::distance_to_unit_cell(p_unit);
+                    if (dist < best_distance)
+                      {
+                        best_distance                   = dist;
+                        cell_and_position_approx.first  = *cell;
+                        cell_and_position_approx.second = p_unit;
+                        approx_cell                     = true;
+                      }
                   }
               }
             catch (typename Mapping<dim>::ExcTransformationFailed &)
@@ -1811,9 +1835,11 @@ namespace GridTools
         // the user did not provide a hint_cell, and at the beginning of the
         // while loop we performed an actual global search on the mesh
         // vertices. Not finding the point then means the point is outside the
-        // domain.
-        AssertThrow(current_cell.state() == IteratorState::valid,
-                    ExcPointNotFound<spacedim>(p));
+        // domain, or that we've had problems with the algorithm above. Try as a
+        // last resort the other (simpler) algorithm.
+        if (current_cell.state() != IteratorState::valid)
+          return find_active_cell_around_point(
+            mapping, mesh, p, marked_vertices, tolerance);
 
         current_cell = typename MeshType<dim, spacedim>::active_cell_iterator();
       }
@@ -1826,15 +1852,16 @@ namespace GridTools
   unsigned int
   find_closest_vertex_of_cell(
     const typename Triangulation<dim, spacedim>::active_cell_iterator &cell,
-    const Point<spacedim> &                                            position)
+    const Point<spacedim> &                                            position,
+    const Mapping<dim, spacedim> &                                     mapping)
   {
-    double       minimum_distance = position.distance_square(cell->vertex(0));
+    const auto   vertices         = mapping.get_vertices(cell);
+    double       minimum_distance = position.distance_square(vertices[0]);
     unsigned int closest_vertex   = 0;
 
-    for (unsigned int v = 1; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+    for (unsigned int v = 1; v < cell->n_vertices(); ++v)
       {
-        const double vertex_distance =
-          position.distance_square(cell->vertex(v));
+        const double vertex_distance = position.distance_square(vertices[v]);
         if (vertex_distance < minimum_distance)
           {
             closest_vertex   = v;
@@ -1860,7 +1887,7 @@ namespace GridTools
         bool has_predicate =
           false; // Start assuming there's no cells with predicate inside
         std::vector<typename MeshType::active_cell_iterator> active_cells;
-        if (parent_cell->active())
+        if (parent_cell->is_active())
           active_cells = {parent_cell};
         else
           // Finding all active cells descendants of the current one (or the
@@ -1887,9 +1914,7 @@ namespace GridTools
 
         for (; i < active_cells.size(); ++i)
           if (predicate(active_cells[i]))
-            for (unsigned int v = 0;
-                 v < GeometryInfo<spacedim>::vertices_per_cell;
-                 ++v)
+            for (const unsigned int v : active_cells[i]->vertex_indices())
               for (unsigned int d = 0; d < spacedim; ++d)
                 {
                   minp[d] = std::min(minp[d], active_cells[i]->vertex(v)[d]);
@@ -2089,18 +2114,64 @@ namespace GridTools
           map_owners_guessed[pt] = owners_found;
       }
 
-    std::tuple<std::vector<std::vector<unsigned int>>,
-               std::map<unsigned int, unsigned int>,
-               std::map<unsigned int, std::vector<unsigned int>>>
-      output_tuple;
-
-    std::get<0>(output_tuple) = point_owners;
-    std::get<1>(output_tuple) = map_owners_found;
-    std::get<2>(output_tuple) = map_owners_guessed;
-
-    return output_tuple;
+    return std::make_tuple(std::move(point_owners),
+                           std::move(map_owners_found),
+                           std::move(map_owners_guessed));
   }
 
+  template <int spacedim>
+#ifndef DOXYGEN
+  std::tuple<std::map<unsigned int, std::vector<unsigned int>>,
+             std::map<unsigned int, unsigned int>,
+             std::map<unsigned int, std::vector<unsigned int>>>
+#else
+  return_type
+#endif
+  guess_point_owner(
+    const RTree<std::pair<BoundingBox<spacedim>, unsigned int>> &covering_rtree,
+    const std::vector<Point<spacedim>> &                         points)
+  {
+    std::map<unsigned int, std::vector<unsigned int>> point_owners;
+    std::map<unsigned int, unsigned int>              map_owners_found;
+    std::map<unsigned int, std::vector<unsigned int>> map_owners_guessed;
+    std::vector<std::pair<BoundingBox<spacedim>, unsigned int>> search_result;
+
+    unsigned int n_points = points.size();
+    for (unsigned int pt_n = 0; pt_n < n_points; ++pt_n)
+      {
+        search_result.clear(); // clearing last output
+
+        // Running tree search
+        covering_rtree.query(boost::geometry::index::intersects(points[pt_n]),
+                             std::back_inserter(search_result));
+
+        // Keep track of how many processes we guess to own the point
+        std::set<unsigned int> owners_found;
+        // Check in which other processes the point might be
+        for (const auto &rank_bbox : search_result)
+          {
+            // Try to add the owner to the owners found,
+            // and check if it was already present
+            const bool pt_inserted = owners_found.insert(pt_n).second;
+            if (pt_inserted)
+              point_owners[rank_bbox.second].emplace_back(pt_n);
+          }
+        Assert(owners_found.size() > 0,
+               ExcMessage("No owners found for the point " +
+                          std::to_string(pt_n)));
+        if (owners_found.size() == 1)
+          map_owners_found[pt_n] = *owners_found.begin();
+        else
+          // Multiple owners
+          std::copy(owners_found.begin(),
+                    owners_found.end(),
+                    std::back_inserter(map_owners_guessed[pt_n]));
+      }
+
+    return std::make_tuple(std::move(point_owners),
+                           std::move(map_owners_found),
+                           std::move(map_owners_guessed));
+  }
 
 
   template <int dim, int spacedim>
@@ -2115,23 +2186,21 @@ namespace GridTools
       cell = triangulation.begin_active(),
       endc = triangulation.end();
     for (; cell != endc; ++cell)
-      for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell; ++i)
+      for (const unsigned int i : cell->vertex_indices())
         vertex_to_cell_map[cell->vertex_index(i)].insert(cell);
 
     // Take care of hanging nodes
     cell = triangulation.begin_active();
     for (; cell != endc; ++cell)
       {
-        for (unsigned int i = 0; i < GeometryInfo<dim>::faces_per_cell; ++i)
+        for (unsigned int i : cell->face_indices())
           {
             if ((cell->at_boundary(i) == false) &&
-                (cell->neighbor(i)->active()))
+                (cell->neighbor(i)->is_active()))
               {
                 typename Triangulation<dim, spacedim>::active_cell_iterator
                   adjacent_cell = cell->neighbor(i);
-                for (unsigned int j = 0;
-                     j < GeometryInfo<dim>::vertices_per_face;
-                     ++j)
+                for (unsigned int j = 0; j < cell->face(i)->n_vertices(); ++j)
                   vertex_to_cell_map[cell->face(i)->vertex_index(j)].insert(
                     adjacent_cell);
               }
@@ -2140,7 +2209,7 @@ namespace GridTools
         // in 3d also loop over the edges
         if (dim == 3)
           {
-            for (unsigned int i = 0; i < GeometryInfo<dim>::lines_per_cell; ++i)
+            for (unsigned int i = 0; i < cell->n_lines(); ++i)
               if (cell->line(i)->has_children())
                 // the only place where this vertex could have been
                 // hiding is on the mid-edge point of the edge we
@@ -2200,8 +2269,7 @@ namespace GridTools
       {
         if (cell->is_locally_owned())
           {
-            for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell;
-                 ++i)
+            for (const unsigned int i : cell->vertex_indices())
               {
                 types::subdomain_id lowest_subdomain_id = cell->subdomain_id();
                 typename std::set<active_cell_iterator>::iterator
@@ -2269,11 +2337,11 @@ namespace GridTools
         // received.
         if (cell->is_ghost())
           {
-            for (unsigned int i = 0; i < GeometryInfo<dim>::faces_per_cell; ++i)
+            for (unsigned int i : cell->face_indices())
               {
                 if (cell->at_boundary(i) == false)
                   {
-                    if (cell->neighbor(i)->active())
+                    if (cell->neighbor(i)->is_active())
                       {
                         typename Triangulation<dim,
                                                spacedim>::active_cell_iterator
@@ -2284,7 +2352,7 @@ namespace GridTools
                               adjacent_cell->subdomain_id();
                             if (cell->subdomain_id() < adj_subdomain_id)
                               for (unsigned int j = 0;
-                                   j < GeometryInfo<dim>::vertices_per_face;
+                                   j < cell->face(i)->n_vertices();
                                    ++j)
                                 {
                                   vertices_to_recv[cell->subdomain_id()].insert(
@@ -2304,30 +2372,27 @@ namespace GridTools
 
     // Make indices global by getting the number of vertices owned by each
     // processors and shifting the indices accordingly
-    const unsigned int n_cpu =
-      Utilities::MPI::n_mpi_processes(triangulation.get_communicator());
-    std::vector<types::global_vertex_index> indices(n_cpu);
-    int ierr = MPI_Allgather(&next_index,
-                             1,
-                             DEAL_II_VERTEX_INDEX_MPI_TYPE,
-                             indices.data(),
-                             1,
-                             DEAL_II_VERTEX_INDEX_MPI_TYPE,
-                             triangulation.get_communicator());
+    types::global_vertex_index shift = 0;
+    int ierr = MPI_Exscan(&next_index,
+                          &shift,
+                          1,
+                          DEAL_II_VERTEX_INDEX_MPI_TYPE,
+                          MPI_SUM,
+                          triangulation.get_communicator());
     AssertThrowMPI(ierr);
-    Assert(indices.begin() + triangulation.locally_owned_subdomain() <
-             indices.end(),
-           ExcInternalError());
-    const types::global_vertex_index shift =
-      std::accumulate(indices.begin(),
-                      indices.begin() + triangulation.locally_owned_subdomain(),
-                      types::global_vertex_index(0));
 
     std::map<unsigned int, types::global_vertex_index>::iterator
       global_index_it = local_to_global_vertex_index.begin(),
       global_index_end = local_to_global_vertex_index.end();
     for (; global_index_it != global_index_end; ++global_index_it)
       global_index_it->second += shift;
+
+
+    const int mpi_tag = Utilities::MPI::internal::Tags::
+      grid_tools_compute_local_to_global_vertex_index_map;
+    const int mpi_tag2 = Utilities::MPI::internal::Tags::
+      grid_tools_compute_local_to_global_vertex_index_map2;
+
 
     // In a first message, send the global ID of the vertices and the local
     // positions in the cells. In a second messages, send the cell ID as a
@@ -2362,11 +2427,11 @@ namespace GridTools
           }
 
         // Send the message
-        ierr = MPI_Isend(&vertices_send_buffers[i][0],
+        ierr = MPI_Isend(vertices_send_buffers[i].data(),
                          buffer_size,
                          DEAL_II_VERTEX_INDEX_MPI_TYPE,
                          destination,
-                         0,
+                         mpi_tag,
                          triangulation.get_communicator(),
                          &first_requests[i]);
         AssertThrowMPI(ierr);
@@ -2387,11 +2452,11 @@ namespace GridTools
         vertices_recv_buffers[i].resize(buffer_size);
 
         // Receive the message
-        ierr = MPI_Recv(&vertices_recv_buffers[i][0],
+        ierr = MPI_Recv(vertices_recv_buffers[i].data(),
                         buffer_size,
                         DEAL_II_VERTEX_INDEX_MPI_TYPE,
                         source,
-                        0,
+                        mpi_tag,
                         triangulation.get_communicator(),
                         MPI_STATUS_IGNORE);
         AssertThrowMPI(ierr);
@@ -2428,11 +2493,11 @@ namespace GridTools
           }
 
         // Send the message
-        ierr = MPI_Isend(&cellids_send_buffers[i][0],
+        ierr = MPI_Isend(cellids_send_buffers[i].data(),
                          buffer_size,
                          MPI_CHAR,
                          destination,
-                         0,
+                         mpi_tag2,
                          triangulation.get_communicator(),
                          &second_requests[i]);
         AssertThrowMPI(ierr);
@@ -2451,11 +2516,11 @@ namespace GridTools
         cellids_recv_buffers[i].resize(buffer_size);
 
         // Receive the message
-        ierr = MPI_Recv(&cellids_recv_buffers[i][0],
+        ierr = MPI_Recv(cellids_recv_buffers[i].data(),
                         buffer_size,
                         MPI_CHAR,
                         source,
-                        0,
+                        mpi_tag2,
                         triangulation.get_communicator(),
                         MPI_STATUS_IGNORE);
         AssertThrowMPI(ierr);
@@ -2521,45 +2586,23 @@ namespace GridTools
     cell_connectivity.reinit(triangulation.n_active_cells(),
                              triangulation.n_active_cells());
 
-    // create a map pair<lvl,idx> -> SparsityPattern index
-    // TODO: we are no longer using user_indices for this because we can get
-    // pointer/index clashes when saving/restoring them. The following approach
-    // works, but this map can get quite big. Not sure about more efficient
-    // solutions.
-    std::map<std::pair<unsigned int, unsigned int>, unsigned int> indexmap;
-    for (typename dealii::internal::
-           ActiveCellIterator<dim, spacedim, Triangulation<dim, spacedim>>::type
-             cell = triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
-      indexmap[std::pair<unsigned int, unsigned int>(cell->level(),
-                                                     cell->index())] =
-        cell->active_cell_index();
-
-    // next loop over all cells and their neighbors to build the sparsity
+    // loop over all cells and their neighbors to build the sparsity
     // pattern. note that it's a bit hard to enter all the connections when a
     // neighbor has children since we would need to find out which of its
     // children is adjacent to the current cell. this problem can be omitted
     // if we only do something if the neighbor has no children -- in that case
     // it is either on the same or a coarser level than we are. in return, we
     // have to add entries in both directions for both cells
-    for (typename dealii::internal::
-           ActiveCellIterator<dim, spacedim, Triangulation<dim, spacedim>>::type
-             cell = triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       {
         const unsigned int index = cell->active_cell_index();
         cell_connectivity.add(index, index);
-        for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+        for (auto f : cell->face_indices())
           if ((cell->at_boundary(f) == false) &&
               (cell->neighbor(f)->has_children() == false))
             {
-              unsigned int other_index =
-                indexmap
-                  .find(std::pair<unsigned int, unsigned int>(
-                    cell->neighbor(f)->level(), cell->neighbor(f)->index()))
-                  ->second;
+              const unsigned int other_index =
+                cell->neighbor(f)->active_cell_index();
               cell_connectivity.add(index, other_index);
               cell_connectivity.add(other_index, index);
             }
@@ -2576,24 +2619,18 @@ namespace GridTools
   {
     std::vector<std::vector<unsigned int>> vertex_to_cell(
       triangulation.n_vertices());
-    for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-           triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       {
-        for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+        for (const unsigned int v : cell->vertex_indices())
           vertex_to_cell[cell->vertex_index(v)].push_back(
             cell->active_cell_index());
       }
 
     cell_connectivity.reinit(triangulation.n_active_cells(),
                              triangulation.n_active_cells());
-    for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-           triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       {
-        for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+        for (const unsigned int v : cell->vertex_indices())
           for (unsigned int n = 0;
                n < vertex_to_cell[cell->vertex_index(v)].size();
                ++n)
@@ -2617,7 +2654,7 @@ namespace GridTools
          cell != triangulation.end(level);
          ++cell)
       {
-        for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+        for (const unsigned int v : cell->vertex_indices())
           vertex_to_cell[cell->vertex_index(v)].push_back(cell->index());
       }
 
@@ -2628,7 +2665,7 @@ namespace GridTools
          cell != triangulation.end(level);
          ++cell)
       {
-        for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+        for (const unsigned int v : cell->vertex_indices())
           for (unsigned int n = 0;
                n < vertex_to_cell[cell->vertex_index(v)].size();
                ++n)
@@ -2645,21 +2682,40 @@ namespace GridTools
                           Triangulation<dim, spacedim> &   triangulation,
                           const SparsityTools::Partitioner partitioner)
   {
+    Assert((dynamic_cast<parallel::distributed::Triangulation<dim, spacedim> *>(
+              &triangulation) == nullptr),
+           ExcMessage("Objects of type parallel::distributed::Triangulation "
+                      "are already partitioned implicitly and can not be "
+                      "partitioned again explicitly."));
+
     std::vector<unsigned int> cell_weights;
 
     // Get cell weighting if a signal has been attached to the triangulation
     if (!triangulation.signals.cell_weight.empty())
       {
-        cell_weights.resize(triangulation.n_active_cells(),
-                            std::numeric_limits<unsigned int>::max());
+        cell_weights.resize(triangulation.n_active_cells(), 0U);
 
-        unsigned int c = 0;
-        typename Triangulation<dim>::active_cell_iterator
-          cell = triangulation.begin_active(),
-          endc = triangulation.end();
-        for (; cell != endc; ++cell, ++c)
-          cell_weights[c] = triangulation.signals.cell_weight(
-            cell, Triangulation<dim, spacedim>::CellStatus::CELL_PERSIST);
+        // In a first step, obtain the weights of the locally owned
+        // cells. For all others, the weight remains at the zero the
+        // vector was initialized with above.
+        for (const auto &cell : triangulation.active_cell_iterators())
+          if (cell->is_locally_owned())
+            cell_weights[cell->active_cell_index()] =
+              triangulation.signals.cell_weight(
+                cell, Triangulation<dim, spacedim>::CellStatus::CELL_PERSIST);
+
+        // If this is a parallel triangulation, we then need to also
+        // get the weights for all other cells. We have asserted above
+        // that this function can't be used for
+        // parallel::distribute::Triangulation objects, so the only
+        // ones we have to worry about here are
+        // parallel::shared::Triangulation
+        if (const auto shared_tria =
+              dynamic_cast<parallel::shared::Triangulation<dim, spacedim> *>(
+                &triangulation))
+          Utilities::MPI::sum(cell_weights,
+                              shared_tria->get_communicator(),
+                              cell_weights);
       }
 
     // Call the other more general function
@@ -2688,13 +2744,7 @@ namespace GridTools
     // check for an easy return
     if (n_partitions == 1)
       {
-        for (typename dealii::internal::ActiveCellIterator<
-               dim,
-               spacedim,
-               Triangulation<dim, spacedim>>::type cell =
-               triangulation.begin_active();
-             cell != triangulation.end();
-             ++cell)
+        for (const auto &cell : triangulation.active_cell_iterators())
           cell->set_subdomain_id(0);
         return;
       }
@@ -2726,21 +2776,40 @@ namespace GridTools
                           Triangulation<dim, spacedim> &triangulation,
                           const SparsityTools::Partitioner partitioner)
   {
+    Assert((dynamic_cast<parallel::distributed::Triangulation<dim, spacedim> *>(
+              &triangulation) == nullptr),
+           ExcMessage("Objects of type parallel::distributed::Triangulation "
+                      "are already partitioned implicitly and can not be "
+                      "partitioned again explicitly."));
+
     std::vector<unsigned int> cell_weights;
 
     // Get cell weighting if a signal has been attached to the triangulation
     if (!triangulation.signals.cell_weight.empty())
       {
-        cell_weights.resize(triangulation.n_active_cells(),
-                            std::numeric_limits<unsigned int>::max());
+        cell_weights.resize(triangulation.n_active_cells(), 0U);
 
-        unsigned int c = 0;
-        typename Triangulation<dim>::active_cell_iterator
-          cell = triangulation.begin_active(),
-          endc = triangulation.end();
-        for (; cell != endc; ++cell, ++c)
-          cell_weights[c] = triangulation.signals.cell_weight(
-            cell, Triangulation<dim, spacedim>::CellStatus::CELL_PERSIST);
+        // In a first step, obtain the weights of the locally owned
+        // cells. For all others, the weight remains at the zero the
+        // vector was initialized with above.
+        for (const auto &cell : triangulation.active_cell_iterators())
+          if (cell->is_locally_owned())
+            cell_weights[cell->active_cell_index()] =
+              triangulation.signals.cell_weight(
+                cell, Triangulation<dim, spacedim>::CellStatus::CELL_PERSIST);
+
+        // If this is a parallel triangulation, we then need to also
+        // get the weights for all other cells. We have asserted above
+        // that this function can't be used for
+        // parallel::distribute::Triangulation objects, so the only
+        // ones we have to worry about here are
+        // parallel::shared::Triangulation
+        if (const auto shared_tria =
+              dynamic_cast<parallel::shared::Triangulation<dim, spacedim> *>(
+                &triangulation))
+          Utilities::MPI::sum(cell_weights,
+                              shared_tria->get_communicator(),
+                              cell_weights);
       }
 
     // Call the other more general function
@@ -2772,16 +2841,13 @@ namespace GridTools
     Assert(cell_connection_graph.n_cols() == triangulation.n_active_cells(),
            ExcMessage("Connectivity graph has wrong size"));
 
+    // signal that partitioning is going to happen
+    triangulation.signals.pre_partition();
+
     // check for an easy return
     if (n_partitions == 1)
       {
-        for (typename dealii::internal::ActiveCellIterator<
-               dim,
-               spacedim,
-               Triangulation<dim, spacedim>>::type cell =
-               triangulation.begin_active();
-             cell != triangulation.end();
-             ++cell)
+        for (const auto &cell : triangulation.active_cell_iterators())
           cell->set_subdomain_id(0);
         return;
       }
@@ -2797,18 +2863,13 @@ namespace GridTools
                              partition_indices,
                              partitioner);
 
-    // finally loop over all cells and set the
-    // subdomain ids
-    for (typename dealii::internal::
-           ActiveCellIterator<dim, spacedim, Triangulation<dim, spacedim>>::type
-             cell = triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    // finally loop over all cells and set the subdomain ids
+    for (const auto &cell : triangulation.active_cell_iterators())
       cell->set_subdomain_id(partition_indices[cell->active_cell_index()]);
   }
 
 
-  namespace
+  namespace internal
   {
     /**
      * recursive helper function for partition_triangulation_zorder
@@ -2821,7 +2882,7 @@ namespace GridTools
                                            const unsigned int n_active_cells,
                                            const unsigned int n_partitions)
     {
-      if (cell->active())
+      if (cell->is_active())
         {
           while (current_cell_idx >=
                  std::floor(static_cast<uint_least64_t>(n_active_cells) *
@@ -2840,12 +2901,13 @@ namespace GridTools
                                                    n_partitions);
         }
     }
-  } // namespace
+  } // namespace internal
 
   template <int dim, int spacedim>
   void
   partition_triangulation_zorder(const unsigned int            n_partitions,
-                                 Triangulation<dim, spacedim> &triangulation)
+                                 Triangulation<dim, spacedim> &triangulation,
+                                 const bool                    group_siblings)
   {
     Assert((dynamic_cast<parallel::distributed::Triangulation<dim, spacedim> *>(
               &triangulation) == nullptr),
@@ -2854,16 +2916,13 @@ namespace GridTools
                       "partitioned again explicitly."));
     Assert(n_partitions > 0, ExcInvalidNumberOfPartitions(n_partitions));
 
+    // signal that partitioning is going to happen
+    triangulation.signals.pre_partition();
+
     // check for an easy return
     if (n_partitions == 1)
       {
-        for (typename dealii::internal::ActiveCellIterator<
-               dim,
-               spacedim,
-               Triangulation<dim, spacedim>>::type cell =
-               triangulation.begin_active();
-             cell != triangulation.end();
-             ++cell)
+        for (const auto &cell : triangulation.active_cell_iterators())
           cell->set_subdomain_id(0);
         return;
       }
@@ -2897,11 +2956,11 @@ namespace GridTools
         typename Triangulation<dim, spacedim>::cell_iterator coarse_cell(
           &triangulation, 0, coarse_cell_idx);
 
-        set_subdomain_id_in_zorder_recursively(coarse_cell,
-                                               current_proc_idx,
-                                               current_cell_idx,
-                                               n_active_cells,
-                                               n_partitions);
+        internal::set_subdomain_id_in_zorder_recursively(coarse_cell,
+                                                         current_proc_idx,
+                                                         current_cell_idx,
+                                                         n_active_cells,
+                                                         n_partitions);
       }
 
     // if all children of a cell are active (e.g. we
@@ -2911,40 +2970,41 @@ namespace GridTools
     // the processor with the largest number of children
     // (ties are broken by picking the lower rank).
     // Duplicate this logic here.
-    {
-      typename Triangulation<dim, spacedim>::cell_iterator
-        cell = triangulation.begin(),
-        endc = triangulation.end();
-      for (; cell != endc; ++cell)
-        {
-          if (cell->active())
-            continue;
-          bool                                 all_children_active = true;
-          std::map<unsigned int, unsigned int> map_cpu_n_cells;
-          for (unsigned int n = 0; n < cell->n_children(); ++n)
-            if (!cell->child(n)->active())
-              {
-                all_children_active = false;
-                break;
-              }
-            else
-              ++map_cpu_n_cells[cell->child(n)->subdomain_id()];
+    if (group_siblings)
+      {
+        typename Triangulation<dim, spacedim>::cell_iterator
+          cell = triangulation.begin(),
+          endc = triangulation.end();
+        for (; cell != endc; ++cell)
+          {
+            if (cell->is_active())
+              continue;
+            bool                                 all_children_active = true;
+            std::map<unsigned int, unsigned int> map_cpu_n_cells;
+            for (unsigned int n = 0; n < cell->n_children(); ++n)
+              if (!cell->child(n)->is_active())
+                {
+                  all_children_active = false;
+                  break;
+                }
+              else
+                ++map_cpu_n_cells[cell->child(n)->subdomain_id()];
 
-          if (!all_children_active)
-            continue;
+            if (!all_children_active)
+              continue;
 
-          unsigned int new_owner = cell->child(0)->subdomain_id();
-          for (std::map<unsigned int, unsigned int>::iterator it =
-                 map_cpu_n_cells.begin();
-               it != map_cpu_n_cells.end();
-               ++it)
-            if (it->second > map_cpu_n_cells[new_owner])
-              new_owner = it->first;
+            unsigned int new_owner = cell->child(0)->subdomain_id();
+            for (std::map<unsigned int, unsigned int>::iterator it =
+                   map_cpu_n_cells.begin();
+                 it != map_cpu_n_cells.end();
+                 ++it)
+              if (it->second > map_cpu_n_cells[new_owner])
+                new_owner = it->first;
 
-          for (unsigned int n = 0; n < cell->n_children(); ++n)
-            cell->child(n)->set_subdomain_id(new_owner);
-        }
-    }
+            for (unsigned int n = 0; n < cell->n_children(); ++n)
+              cell->child(n)->set_subdomain_id(new_owner);
+          }
+      }
   }
 
 
@@ -2960,7 +3020,7 @@ namespace GridTools
           endc = triangulation.end(lvl);
         for (; cell != endc; ++cell)
           {
-            if (!cell->has_children())
+            if (cell->is_active())
               cell->set_level_subdomain_id(cell->subdomain_id());
             else
               {
@@ -2983,10 +3043,7 @@ namespace GridTools
     Assert(subdomain.size() == triangulation.n_active_cells(),
            ExcDimensionMismatch(subdomain.size(),
                                 triangulation.n_active_cells()));
-    for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-           triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       subdomain[cell->active_cell_index()] = cell->subdomain_id();
   }
 
@@ -2999,10 +3056,7 @@ namespace GridTools
     const types::subdomain_id           subdomain)
   {
     unsigned int count = 0;
-    for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-           triangulation.begin_active();
-         cell != triangulation.end();
-         ++cell)
+    for (const auto &cell : triangulation.active_cell_iterators())
       if (cell->subdomain_id() == subdomain)
         ++count;
 
@@ -3026,51 +3080,16 @@ namespace GridTools
     if (const parallel::distributed::Triangulation<dim, spacedim> *tr =
           dynamic_cast<const parallel::distributed::Triangulation<dim, spacedim>
                          *>(&triangulation))
-      for (typename dealii::internal::ActiveCellIterator<
-             dim,
-             spacedim,
-             Triangulation<dim, spacedim>>::type cell =
-             triangulation.begin_active();
-           cell != triangulation.end();
-           ++cell)
+      for (const auto &cell : triangulation.active_cell_iterators())
         if (cell->is_artificial() ||
             (cell->is_ghost() &&
              (cell->subdomain_id() < tr->locally_owned_subdomain())))
-          for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell;
-               ++v)
+          for (const unsigned int v : cell->vertex_indices())
             locally_owned_vertices[cell->vertex_index(v)] = false;
 
     return locally_owned_vertices;
   }
 
-
-
-  namespace
-  {
-    template <int dim, int spacedim>
-    double
-    diameter(const typename Triangulation<dim, spacedim>::cell_iterator &cell,
-             const Mapping<dim, spacedim> &mapping)
-    {
-      const auto vertices = mapping.get_vertices(cell);
-      switch (dim)
-        {
-          case 1:
-            return (vertices[1] - vertices[0]).norm();
-          case 2:
-            return std::max((vertices[3] - vertices[0]).norm(),
-                            (vertices[2] - vertices[1]).norm());
-          case 3:
-            return std::max(std::max((vertices[7] - vertices[0]).norm(),
-                                     (vertices[6] - vertices[1]).norm()),
-                            std::max((vertices[2] - vertices[5]).norm(),
-                                     (vertices[3] - vertices[4]).norm()));
-          default:
-            Assert(false, ExcNotImplemented());
-            return -1e10;
-        }
-    }
-  } // namespace
 
 
   template <int dim, int spacedim>
@@ -3081,14 +3100,13 @@ namespace GridTools
     double min_diameter = std::numeric_limits<double>::max();
     for (const auto &cell : triangulation.active_cell_iterators())
       if (!cell->is_artificial())
-        min_diameter =
-          std::min(min_diameter, diameter<dim, spacedim>(cell, mapping));
+        min_diameter = std::min(min_diameter, cell->diameter(mapping));
 
     double global_min_diameter = 0;
 
 #ifdef DEAL_II_WITH_MPI
-    if (const parallel::Triangulation<dim, spacedim> *p_tria =
-          dynamic_cast<const parallel::Triangulation<dim, spacedim> *>(
+    if (const parallel::TriangulationBase<dim, spacedim> *p_tria =
+          dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
             &triangulation))
       global_min_diameter =
         Utilities::MPI::min(min_diameter, p_tria->get_communicator());
@@ -3109,13 +3127,13 @@ namespace GridTools
     double max_diameter = 0.;
     for (const auto &cell : triangulation.active_cell_iterators())
       if (!cell->is_artificial())
-        max_diameter = std::max(max_diameter, diameter(cell, mapping));
+        max_diameter = std::max(max_diameter, cell->diameter(mapping));
 
     double global_max_diameter = 0;
 
 #ifdef DEAL_II_WITH_MPI
-    if (const parallel::Triangulation<dim, spacedim> *p_tria =
-          dynamic_cast<const parallel::Triangulation<dim, spacedim> *>(
+    if (const parallel::TriangulationBase<dim, spacedim> *p_tria =
+          dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
             &triangulation))
       global_max_diameter =
         Utilities::MPI::max(max_diameter, p_tria->get_communicator());
@@ -3177,8 +3195,7 @@ namespace GridTools
         Tensor<spacedim - structdim, spacedim>
           parent_alternating_forms[GeometryInfo<structdim>::vertices_per_cell];
 
-        for (unsigned int i = 0; i < GeometryInfo<structdim>::vertices_per_cell;
-             ++i)
+        for (const unsigned int i : object->vertex_indices())
           parent_vertices[i] = object->vertex(i);
 
         GeometryInfo<structdim>::alternating_form_at_vertices(
@@ -3206,9 +3223,7 @@ namespace GridTools
           [GeometryInfo<structdim>::vertices_per_cell];
 
         for (unsigned int c = 0; c < object->n_children(); ++c)
-          for (unsigned int i = 0;
-               i < GeometryInfo<structdim>::vertices_per_cell;
-               ++i)
+          for (const unsigned int i : object->child(c)->vertex_indices())
             child_vertices[c][i] = object->child(c)->vertex(i);
 
         // replace mid-object
@@ -3237,9 +3252,7 @@ namespace GridTools
         // objective function
         double objective = 0;
         for (unsigned int c = 0; c < object->n_children(); ++c)
-          for (unsigned int i = 0;
-               i < GeometryInfo<structdim>::vertices_per_cell;
-               ++i)
+          for (const unsigned int i : object->child(c)->vertex_indices())
             objective +=
               (child_alternating_forms[c][i] -
                average_parent_alternating_form / std::pow(2., 1. * structdim))
@@ -3327,11 +3340,8 @@ namespace GridTools
           Iterator::AccessorType::structure_dimension;
 
         double diameter = object->diameter();
-        for (unsigned int f = 0; f < GeometryInfo<structdim>::faces_per_cell;
-             ++f)
-          for (unsigned int e = f + 1;
-               e < GeometryInfo<structdim>::faces_per_cell;
-               ++e)
+        for (const unsigned int f : object->face_indices())
+          for (unsigned int e = f + 1; e < object->n_faces(); ++e)
             diameter = std::min(
               diameter,
               get_face_midpoint(object,
@@ -3455,8 +3465,7 @@ namespace GridTools
 
         Point<spacedim>
           parent_vertices[GeometryInfo<structdim>::vertices_per_cell];
-        for (unsigned int i = 0; i < GeometryInfo<structdim>::vertices_per_cell;
-             ++i)
+        for (const unsigned int i : GeometryInfo<structdim>::vertex_indices())
           parent_vertices[i] = object->vertex(i);
 
         Tensor<spacedim - structdim, spacedim>
@@ -3469,9 +3478,7 @@ namespace GridTools
                         [GeometryInfo<structdim>::vertices_per_cell];
 
         for (unsigned int c = 0; c < object->n_children(); ++c)
-          for (unsigned int i = 0;
-               i < GeometryInfo<structdim>::vertices_per_cell;
-               ++i)
+          for (const unsigned int i : object->child(c)->vertex_indices())
             child_vertices[c][i] = object->child(c)->vertex(i);
 
         Tensor<spacedim - structdim, spacedim> child_alternating_forms
@@ -3485,12 +3492,8 @@ namespace GridTools
         old_min_product =
           child_alternating_forms[0][0] * parent_alternating_forms[0];
         for (unsigned int c = 0; c < object->n_children(); ++c)
-          for (unsigned int i = 0;
-               i < GeometryInfo<structdim>::vertices_per_cell;
-               ++i)
-            for (unsigned int j = 0;
-                 j < GeometryInfo<structdim>::vertices_per_cell;
-                 ++j)
+          for (const unsigned int i : object->child(c)->vertex_indices())
+            for (const unsigned int j : object->vertex_indices())
               old_min_product = std::min<double>(old_min_product,
                                                  child_alternating_forms[c][i] *
                                                    parent_alternating_forms[j]);
@@ -3512,12 +3515,8 @@ namespace GridTools
         new_min_product =
           child_alternating_forms[0][0] * parent_alternating_forms[0];
         for (unsigned int c = 0; c < object->n_children(); ++c)
-          for (unsigned int i = 0;
-               i < GeometryInfo<structdim>::vertices_per_cell;
-               ++i)
-            for (unsigned int j = 0;
-                 j < GeometryInfo<structdim>::vertices_per_cell;
-                 ++j)
+          for (const unsigned int i : object->child(c)->vertex_indices())
+            for (const unsigned int j : object->vertex_indices())
               new_min_product = std::min<double>(new_min_product,
                                                  child_alternating_forms[c][i] *
                                                    parent_alternating_forms[j]);
@@ -3541,16 +3540,6 @@ namespace GridTools
 
 
 
-      void
-      fix_up_faces(const dealii::Triangulation<1, 1>::cell_iterator &,
-                   std::integral_constant<int, 1>,
-                   std::integral_constant<int, 1>)
-      {
-        // nothing to do for the faces of cells in 1d
-      }
-
-
-
       // possibly fix up the faces of a cell by moving around its mid-points
       template <int dim, int spacedim>
       void
@@ -3568,7 +3557,7 @@ namespace GridTools
         // distorted but the neighbor is even more refined, then the face had
         // been deformed before already, and had been ignored at the time; we
         // should then also be able to ignore it this time as well
-        for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+        for (auto f : cell->face_indices())
           {
             Assert(cell->face(f)->has_children(), ExcInternalError());
             Assert(cell->face(f)->refinement_case() ==
@@ -3603,6 +3592,9 @@ namespace GridTools
       &distorted_cells,
     Triangulation<dim, spacedim> & /*triangulation*/)
   {
+    static_assert(
+      dim != 1 && spacedim != 1,
+      "This function is only valid when dim != 1 or spacedim != 1.");
     typename Triangulation<dim, spacedim>::DistortedCellList unfixable_subset;
 
     // loop over all cells that we have to fix up
@@ -3615,12 +3607,12 @@ namespace GridTools
         const typename Triangulation<dim, spacedim>::cell_iterator cell =
           *cell_ptr;
 
-        Assert(!cell->active(),
+        Assert(!cell->is_active(),
                ExcMessage(
                  "This function is only valid for a list of cells that "
                  "have children (i.e., no cell in the list may be active)."));
 
-        internal::FixUpDistortedChildCells ::fix_up_faces(
+        internal::FixUpDistortedChildCells::fix_up_faces(
           cell,
           std::integral_constant<int, dim>(),
           std::integral_constant<int, spacedim>());
@@ -3643,7 +3635,7 @@ namespace GridTools
     const auto                      src_boundary_ids = tria.get_boundary_ids();
     std::vector<types::manifold_id> dst_manifold_ids(src_boundary_ids.size());
     auto                            m_it = dst_manifold_ids.begin();
-    for (auto b : src_boundary_ids)
+    for (const auto b : src_boundary_ids)
       {
         *m_it = static_cast<types::manifold_id>(b);
         ++m_it;
@@ -3678,13 +3670,10 @@ namespace GridTools
     // we cannot immediately reset their boundary ids. thus, copy first
     // and reset later
     if (dim >= 3)
-      for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-             tria.begin_active();
-           cell != tria.end();
-           ++cell)
-        for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+      for (const auto &cell : tria.active_cell_iterators())
+        for (auto f : cell->face_indices())
           if (cell->face(f)->at_boundary())
-            for (unsigned int e = 0; e < GeometryInfo<dim>::lines_per_face; ++e)
+            for (unsigned int e = 0; e < cell->face(f)->n_lines(); ++e)
               {
                 const auto         bid = cell->face(f)->line(e)->boundary_id();
                 const unsigned int ind = std::find(src_boundary_ids.begin(),
@@ -3697,11 +3686,8 @@ namespace GridTools
               }
 
     // now do cells
-    for (typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-           tria.begin_active();
-         cell != tria.end();
-         ++cell)
-      for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+    for (const auto &cell : tria.active_cell_iterators())
+      for (auto f : cell->face_indices())
         if (cell->face(f)->at_boundary())
           {
             const auto         bid = cell->face(f)->boundary_id();
@@ -3718,8 +3704,7 @@ namespace GridTools
               }
 
             if (dim >= 3)
-              for (unsigned int e = 0; e < GeometryInfo<dim>::lines_per_face;
-                   ++e)
+              for (unsigned int e = 0; e < cell->face(f)->n_lines(); ++e)
                 {
                   const auto bid = cell->face(f)->line(e)->boundary_id();
                   const unsigned int ind = std::find(src_boundary_ids.begin(),
@@ -3748,7 +3733,7 @@ namespace GridTools
         cell->set_manifold_id(cell->material_id());
         if (compute_face_ids == true)
           {
-            for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+            for (auto f : cell->face_indices())
               {
                 if (cell->at_boundary(f) == false)
                   cell->face(f)->set_manifold_id(
@@ -3760,6 +3745,95 @@ namespace GridTools
           }
       }
   }
+
+
+  template <int dim, int spacedim>
+  void
+  assign_co_dimensional_manifold_indicators(
+    Triangulation<dim, spacedim> &            tria,
+    const std::function<types::manifold_id(
+      const std::set<types::manifold_id> &)> &disambiguation_function,
+    bool                                      overwrite_only_flat_manifold_ids)
+  {
+    // Easy case first:
+    if (dim == 1)
+      return;
+    const unsigned int n_subobjects =
+      dim == 2 ? tria.n_lines() : tria.n_lines() + tria.n_quads();
+
+    // If user index is zero, then it has not been set.
+    std::vector<std::set<types::manifold_id>> manifold_ids(n_subobjects + 1);
+    std::vector<unsigned int>                 backup;
+    tria.save_user_indices(backup);
+    tria.clear_user_data();
+
+    unsigned next_index = 1;
+    for (auto &cell : tria.active_cell_iterators())
+      {
+        if (dim > 1)
+          for (unsigned int l = 0; l < cell->n_lines(); ++l)
+            {
+              if (cell->line(l)->user_index() == 0)
+                {
+                  AssertIndexRange(next_index, n_subobjects + 1);
+                  manifold_ids[next_index].insert(cell->manifold_id());
+                  cell->line(l)->set_user_index(next_index++);
+                }
+              else
+                manifold_ids[cell->line(l)->user_index()].insert(
+                  cell->manifold_id());
+            }
+        if (dim > 2)
+          for (unsigned int l = 0; l < cell->n_faces(); ++l)
+            {
+              if (cell->quad(l)->user_index() == 0)
+                {
+                  AssertIndexRange(next_index, n_subobjects + 1);
+                  manifold_ids[next_index].insert(cell->manifold_id());
+                  cell->quad(l)->set_user_index(next_index++);
+                }
+              else
+                manifold_ids[cell->quad(l)->user_index()].insert(
+                  cell->manifold_id());
+            }
+      }
+    for (auto &cell : tria.active_cell_iterators())
+      {
+        if (dim > 1)
+          for (unsigned int l = 0; l < cell->n_lines(); ++l)
+            {
+              const auto id = cell->line(l)->user_index();
+              // Make sure we change the manifold indicator only once
+              if (id != 0)
+                {
+                  if (cell->line(l)->manifold_id() ==
+                        numbers::flat_manifold_id ||
+                      overwrite_only_flat_manifold_ids == false)
+                    cell->line(l)->set_manifold_id(
+                      disambiguation_function(manifold_ids[id]));
+                  cell->line(l)->set_user_index(0);
+                }
+            }
+        if (dim > 2)
+          for (unsigned int l = 0; l < cell->n_faces(); ++l)
+            {
+              const auto id = cell->quad(l)->user_index();
+              // Make sure we change the manifold indicator only once
+              if (id != 0)
+                {
+                  if (cell->quad(l)->manifold_id() ==
+                        numbers::flat_manifold_id ||
+                      overwrite_only_flat_manifold_ids == false)
+                    cell->quad(l)->set_manifold_id(
+                      disambiguation_function(manifold_ids[id]));
+                  cell->quad(l)->set_user_index(0);
+                }
+            }
+      }
+    tria.load_user_indices(backup);
+  }
+
+
 
   template <int dim, int spacedim>
   std::pair<unsigned int, double>
@@ -3802,18 +3876,14 @@ namespace GridTools
     unsigned int iter                = 0;
     bool         continue_refinement = true;
 
-    typename Triangulation<dim, spacedim>::active_cell_iterator
-      cell = tria.begin_active(),
-      endc = tria.end();
-
     while (continue_refinement && (iter < max_iterations))
       {
         if (max_iterations != numbers::invalid_unsigned_int)
           iter++;
         continue_refinement = false;
 
-        for (cell = tria.begin_active(); cell != endc; ++cell)
-          for (unsigned int j = 0; j < GeometryInfo<dim>::faces_per_cell; j++)
+        for (const auto &cell : tria.active_cell_iterators())
+          for (const unsigned int j : cell->face_indices())
             if (cell->at_boundary(j) == false &&
                 cell->neighbor(j)->has_children())
               {
@@ -3839,15 +3909,11 @@ namespace GridTools
     unsigned int iter                = 0;
     bool         continue_refinement = true;
 
-    typename Triangulation<dim, spacedim>::active_cell_iterator
-      cell = tria.begin_active(),
-      endc = tria.end();
-
     while (continue_refinement && (iter < max_iterations))
       {
         iter++;
         continue_refinement = false;
-        for (cell = tria.begin_active(); cell != endc; ++cell)
+        for (const auto &cell : tria.active_cell_iterators())
           {
             std::pair<unsigned int, double> info =
               GridTools::get_longest_direction<dim, spacedim>(cell);
@@ -3886,10 +3952,10 @@ namespace GridTools
       {
         has_cells_with_more_than_dim_faces_on_boundary = false;
 
-        for (auto cell : tria.active_cell_iterators())
+        for (const auto &cell : tria.active_cell_iterators())
           {
             unsigned int boundary_face_counter = 0;
-            for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+            for (auto f : cell->face_indices())
               if (cell->face(f)->at_boundary())
                 boundary_face_counter++;
             if (boundary_face_counter > dim)
@@ -3916,7 +3982,7 @@ namespace GridTools
       {
         while (refinement_cycles > 0)
           {
-            for (auto cell : tria.active_cell_iterators())
+            for (const auto &cell : tria.active_cell_iterators())
               cell->set_coarsen_flag();
             tria.execute_coarsening_and_refinement();
             refinement_cycles--;
@@ -3936,7 +4002,7 @@ namespace GridTools
     const unsigned int v0 = 0, v1 = 1, v2 = (dim > 1 ? 2 : 0),
                        v3 = (dim > 1 ? 3 : 0);
 
-    for (auto cell : tria.active_cell_iterators())
+    for (const auto &cell : tria.active_cell_iterators())
       {
         double       angle_fraction   = 0;
         unsigned int vertex_at_corner = numbers::invalid_unsigned_int;
@@ -4085,7 +4151,7 @@ namespace GridTools
       {
         while (refinement_cycles > 0)
           {
-            for (auto cell : tria.active_cell_iterators())
+            for (const auto &cell : tria.active_cell_iterators())
               cell->set_coarsen_flag();
             tria.execute_coarsening_and_refinement();
             refinement_cycles--;
@@ -4094,13 +4160,12 @@ namespace GridTools
       }
 
     // add the cells that were not marked as skipped
-    for (auto cell : tria.active_cell_iterators())
+    for (const auto &cell : tria.active_cell_iterators())
       {
         if (cells_to_remove[cell->active_cell_index()] == false)
           {
             CellData<dim> c;
-            for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell;
-                 ++v)
+            for (const unsigned int v : cell->vertex_indices())
               c.vertices[v] = cell->vertex_index(v);
             c.manifold_id = cell->manifold_id();
             c.material_id = cell->material_id();
@@ -4117,23 +4182,19 @@ namespace GridTools
            face->manifold_id() != numbers::flat_manifold_id) &&
           faces_to_remove[face->index()] == false)
         {
-          for (unsigned int l = 0; l < GeometryInfo<dim>::lines_per_face; ++l)
+          for (unsigned int l = 0; l < face->n_lines(); ++l)
             {
               CellData<1> line;
               if (dim == 2)
                 {
-                  for (unsigned int v = 0;
-                       v < GeometryInfo<1>::vertices_per_cell;
-                       ++v)
+                  for (const unsigned int v : face->vertex_indices())
                     line.vertices[v] = face->vertex_index(v);
                   line.boundary_id = face->boundary_id();
                   line.manifold_id = face->manifold_id();
                 }
               else
                 {
-                  for (unsigned int v = 0;
-                       v < GeometryInfo<1>::vertices_per_cell;
-                       ++v)
+                  for (const unsigned int v : face->line(l)->vertex_indices())
                     line.vertices[v] = face->line(l)->vertex_index(v);
                   line.boundary_id = face->line(l)->boundary_id();
                   line.manifold_id = face->line(l)->manifold_id();
@@ -4143,8 +4204,7 @@ namespace GridTools
           if (dim == 3)
             {
               CellData<2> quad;
-              for (unsigned int v = 0; v < GeometryInfo<2>::vertices_per_cell;
-                   ++v)
+              for (const unsigned int v : face->vertex_indices())
                 quad.vertices[v] = face->vertex_index(v);
               quad.boundary_id = face->boundary_id();
               quad.manifold_id = face->manifold_id();
@@ -4161,7 +4221,7 @@ namespace GridTools
     std::map<types::manifold_id, std::unique_ptr<Manifold<dim, spacedim>>>
       manifolds;
     // Set manifolds in new Triangulation
-    for (auto manifold_id : manifold_ids)
+    for (const auto manifold_id : manifold_ids)
       if (manifold_id != numbers::flat_manifold_id)
         manifolds[manifold_id] = tria.get_manifold(manifold_id).clone();
 
@@ -4170,7 +4230,7 @@ namespace GridTools
     tria.create_triangulation(vertices, cells_to_add, subcelldata_to_add);
 
     // Restore manifolds
-    for (auto manifold_id : manifold_ids)
+    for (const auto manifold_id : manifold_ids)
       if (manifold_id != numbers::flat_manifold_id)
         tria.set_manifold(manifold_id, *manifolds[manifold_id]);
   }
@@ -4192,131 +4252,371 @@ namespace GridTools
     const typename Triangulation<dim, spacedim>::active_cell_iterator
       &cell_hint)
   {
+    const auto cqmp = compute_point_locations_try_all(cache, points, cell_hint);
+    // Splitting the tuple's components
+    auto &cells          = std::get<0>(cqmp);
+    auto &qpoints        = std::get<1>(cqmp);
+    auto &maps           = std::get<2>(cqmp);
+    auto &missing_points = std::get<3>(cqmp);
+    // If a point was not found, throwing an error, as the old
+    // implementation of compute_point_locations would have done
+    AssertThrow(std::get<3>(cqmp).size() == 0,
+                ExcPointNotFound<spacedim>(points[missing_points[0]]));
+
+    (void)missing_points;
+
+    return std::make_tuple(std::move(cells),
+                           std::move(qpoints),
+                           std::move(maps));
+  }
+
+
+
+  template <int dim, int spacedim>
+#ifndef DOXYGEN
+  std::tuple<
+    std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>,
+    std::vector<std::vector<Point<dim>>>,
+    std::vector<std::vector<unsigned int>>,
+    std::vector<unsigned int>>
+#else
+  return_type
+#endif
+  compute_point_locations_try_all(
+    const Cache<dim, spacedim> &        cache,
+    const std::vector<Point<spacedim>> &points,
+    const typename Triangulation<dim, spacedim>::active_cell_iterator
+      &cell_hint)
+  {
     // How many points are here?
     const unsigned int np = points.size();
 
-    std::tuple<
-      std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>,
-      std::vector<std::vector<Point<dim>>>,
-      std::vector<std::vector<unsigned int>>>
-      cell_qpoint_map;
+    std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>
+                                           cells_out;
+    std::vector<std::vector<Point<dim>>>   qpoints_out;
+    std::vector<std::vector<unsigned int>> maps_out;
+    std::vector<unsigned int>              missing_points_out;
 
     // Now the easy case.
     if (np == 0)
-      return cell_qpoint_map;
+      return std::make_tuple(std::move(cells_out),
+                             std::move(qpoints_out),
+                             std::move(maps_out),
+                             std::move(missing_points_out));
+
+    // For the search we shall use the following tree
+    const auto &b_tree = cache.get_cell_bounding_boxes_rtree();
 
     // We begin by finding the cell/transform of the first point
     std::pair<typename Triangulation<dim, spacedim>::active_cell_iterator,
               Point<dim>>
       my_pair;
-    if (cell_hint.state() == IteratorState::valid)
-      my_pair =
-        GridTools::find_active_cell_around_point(cache, points[0], cell_hint);
-    else
-      my_pair = GridTools::find_active_cell_around_point(cache, points[0]);
 
-    std::get<0>(cell_qpoint_map).emplace_back(my_pair.first);
-    std::get<1>(cell_qpoint_map).emplace_back(1, my_pair.second);
-    std::get<2>(cell_qpoint_map).emplace_back(1, 0);
+    bool         found          = false;
+    unsigned int points_checked = 0;
+
+    // If a hint cell was given, use it
+    if (cell_hint.state() == IteratorState::valid)
+      {
+        try
+          {
+            my_pair = GridTools::find_active_cell_around_point(cache,
+                                                               points[0],
+                                                               cell_hint);
+            found   = true;
+          }
+        catch (const GridTools::ExcPointNotFound<dim> &)
+          {
+            missing_points_out.emplace_back(0);
+          }
+        ++points_checked;
+      }
+
+    // The tree search returns
+    // - a bounding box covering the cell
+    // - the active cell iterator
+    std::vector<
+      std::pair<BoundingBox<spacedim>,
+                typename Triangulation<dim, spacedim>::active_cell_iterator>>
+      box_cell;
+
+    // This is used as an index for box_cell
+    int cell_candidate_idx = -1;
+    // If any of the cells in box_cell is a ghost cell,
+    // an artificial cell or at the boundary,
+    // we want to use try/catch
+    bool use_try = false;
+
+    while (!found && points_checked < np)
+      {
+        box_cell.clear();
+        b_tree.query(boost::geometry::index::intersects(points[points_checked]),
+                     std::back_inserter(box_cell));
+
+        // Checking box_cell result for a suitable candidate
+        cell_candidate_idx = -1;
+        for (unsigned int i = 0; i < box_cell.size(); ++i)
+          {
+            // As a candidate we don't want artificial cells
+            if (!box_cell[i].second->is_artificial())
+              cell_candidate_idx = i;
+
+            // If the cell is not locally owned or at boundary
+            // we check for exceptions
+            if (cell_candidate_idx != -1 &&
+                (!box_cell[i].second->is_locally_owned() ||
+                 box_cell[i].second->at_boundary()))
+              use_try = true;
+
+
+            if (cell_candidate_idx != -1)
+              break;
+          }
+
+        // If a suitable cell was found, use it as hint
+        if (cell_candidate_idx != -1)
+          {
+            if (use_try)
+              {
+                try
+                  {
+                    my_pair = GridTools::find_active_cell_around_point(
+                      cache,
+                      points[points_checked],
+                      box_cell[cell_candidate_idx].second);
+                    found = true;
+                  }
+                catch (const GridTools::ExcPointNotFound<dim> &)
+                  {
+                    missing_points_out.emplace_back(points_checked);
+                  }
+              }
+            else
+              {
+                my_pair = GridTools::find_active_cell_around_point(
+                  cache,
+                  points[points_checked],
+                  box_cell[cell_candidate_idx].second);
+                found = true;
+              }
+          }
+        else
+          {
+            try
+              {
+                my_pair = GridTools::find_active_cell_around_point(
+                  cache, points[points_checked]);
+                // If we arrive here the cell was not among
+                // the candidates returned by the tree, so we're adding it
+                // by hand
+                found              = true;
+                cell_candidate_idx = box_cell.size();
+                box_cell.push_back(
+                  std::make_pair(my_pair.first->bounding_box(), my_pair.first));
+              }
+            catch (const GridTools::ExcPointNotFound<dim> &)
+              {
+                missing_points_out.emplace_back(points_checked);
+              }
+          }
+
+        // Updating the position of the analyzed points
+        ++points_checked;
+      }
+
+    // If the point has been found in a cell, adding it
+    if (found)
+      {
+        cells_out.emplace_back(my_pair.first);
+        qpoints_out.emplace_back(1, my_pair.second);
+        maps_out.emplace_back(1, points_checked - 1);
+      }
 
     // Now the second easy case.
-    if (np == 1)
-      return cell_qpoint_map;
-    // Computing the cell center and diameter
-    Point<spacedim> cell_center = std::get<0>(cell_qpoint_map)[0]->center();
-    double cell_diameter        = std::get<0>(cell_qpoint_map)[0]->diameter() *
-                           (0.5 + std::numeric_limits<double>::epsilon());
+    if (np == qpoints_out.size())
+      return std::make_tuple(std::move(cells_out),
+                             std::move(qpoints_out),
+                             std::move(maps_out),
+                             std::move(missing_points_out));
 
     // Cycle over all points left
-    for (unsigned int p = 1; p < np; ++p)
+    for (unsigned int p = points_checked; p < np; ++p)
       {
-        // Checking if the point is close to the cell center, in which
-        // case calling find active cell with a cell hint
-        if (cell_center.distance(points[p]) < cell_diameter)
-          my_pair = GridTools::find_active_cell_around_point(
-            cache, points[p], std::get<0>(cell_qpoint_map).back());
-        else
-          my_pair = GridTools::find_active_cell_around_point(cache, points[p]);
+        // We assume the last used cell contains the point: checking it
+        if (cell_candidate_idx != -1)
+          if (!box_cell[cell_candidate_idx].first.point_inside(points[p]))
+            // Point outside candidate cell: we have no candidate
+            cell_candidate_idx = -1;
 
-        // Assuming the cell is probably the last cell added
-        if (my_pair.first == std::get<0>(cell_qpoint_map).back())
+        // If there's no candidate, run a tree search
+        if (cell_candidate_idx == -1)
+          {
+            // Using the b_tree to find new candidates
+            box_cell.clear();
+            b_tree.query(boost::geometry::index::intersects(points[p]),
+                         std::back_inserter(box_cell));
+            // Checking the returned bounding boxes/cells
+            use_try            = false;
+            cell_candidate_idx = -1;
+            for (unsigned int i = 0; i < box_cell.size(); ++i)
+              {
+                // As a candidate we don't want artificial cells
+                if (!box_cell[i].second->is_artificial())
+                  cell_candidate_idx = i;
+
+                // If the cell is not locally owned or at boundary
+                // we check for exceptions
+                if (cell_candidate_idx != -1 &&
+                    (!box_cell[i].second->is_locally_owned() ||
+                     box_cell[i].second->at_boundary()))
+                  use_try = true;
+
+                // If a cell candidate was found we can stop
+                if (cell_candidate_idx != -1)
+                  break;
+              }
+          }
+
+        if (cell_candidate_idx == -1)
+          {
+            // No candidate cell, but the cell might
+            // still be inside the mesh, this is our final check:
+            try
+              {
+                my_pair =
+                  GridTools::find_active_cell_around_point(cache, points[p]);
+                // If we arrive here the cell was not among
+                // the candidates returned by the tree, so we're adding it
+                // by hand
+                cell_candidate_idx = box_cell.size();
+                box_cell.push_back(
+                  std::make_pair(my_pair.first->bounding_box(), my_pair.first));
+              }
+            catch (const GridTools::ExcPointNotFound<dim> &)
+              {
+                missing_points_out.emplace_back(p);
+                continue;
+              }
+          }
+        else
+          {
+            // We have a candidate cell
+            if (use_try)
+              {
+                try
+                  {
+                    my_pair = GridTools::find_active_cell_around_point(
+                      cache, points[p], box_cell[cell_candidate_idx].second);
+                  }
+                catch (const GridTools::ExcPointNotFound<dim> &)
+                  {
+                    missing_points_out.push_back(p);
+                    continue;
+                  }
+              }
+            else
+              {
+                my_pair = GridTools::find_active_cell_around_point(
+                  cache, points[p], box_cell[cell_candidate_idx].second);
+              }
+
+            // If the point was found in another cell,
+            // updating cell_candidate_idx
+            if (my_pair.first != box_cell[cell_candidate_idx].second)
+              {
+                for (unsigned int i = 0; i < box_cell.size(); ++i)
+                  {
+                    if (my_pair.first == box_cell[i].second)
+                      {
+                        cell_candidate_idx = i;
+                        break;
+                      }
+                  }
+
+                if (my_pair.first != box_cell[cell_candidate_idx].second)
+                  {
+                    // The cell was not among the candidates returned by the
+                    // tree
+                    cell_candidate_idx = box_cell.size();
+                    box_cell.push_back(
+                      std::make_pair(my_pair.first->bounding_box(),
+                                     my_pair.first));
+                  }
+              }
+          }
+
+
+        // Assuming the point is more likely to be in the last
+        // used cell
+        if (my_pair.first == cells_out.back())
           {
             // Found in the last cell: adding the data
-            std::get<1>(cell_qpoint_map).back().emplace_back(my_pair.second);
-            std::get<2>(cell_qpoint_map).back().emplace_back(p);
+            qpoints_out.back().emplace_back(my_pair.second);
+            maps_out.back().emplace_back(p);
           }
         else
           {
             // Check if it is in another cell already found
             typename std::vector<typename Triangulation<dim, spacedim>::
                                    active_cell_iterator>::iterator cells_it =
-              std::find(std::get<0>(cell_qpoint_map).begin(),
-                        std::get<0>(cell_qpoint_map).end() - 1,
-                        my_pair.first);
+              std::find(cells_out.begin(), cells_out.end() - 1, my_pair.first);
 
-            if (cells_it == std::get<0>(cell_qpoint_map).end() - 1)
+            if (cells_it == cells_out.end() - 1)
               {
                 // Cell not found: adding a new cell
-                std::get<0>(cell_qpoint_map).emplace_back(my_pair.first);
-                std::get<1>(cell_qpoint_map).emplace_back(1, my_pair.second);
-                std::get<2>(cell_qpoint_map).emplace_back(1, p);
-                // Updating center and radius of the cell
-                cell_center = std::get<0>(cell_qpoint_map).back()->center();
-                cell_diameter =
-                  std::get<0>(cell_qpoint_map).back()->diameter() *
-                  (0.5 + std::numeric_limits<double>::epsilon());
+                cells_out.emplace_back(my_pair.first);
+                qpoints_out.emplace_back(1, my_pair.second);
+                maps_out.emplace_back(1, p);
               }
             else
               {
-                unsigned int current_cell =
-                  cells_it - std::get<0>(cell_qpoint_map).begin();
                 // Cell found: just adding the point index and qpoint to the
                 // list
-                std::get<1>(cell_qpoint_map)[current_cell].emplace_back(
-                  my_pair.second);
-                std::get<2>(cell_qpoint_map)[current_cell].emplace_back(p);
+                unsigned int current_cell = cells_it - cells_out.begin();
+                qpoints_out[current_cell].emplace_back(my_pair.second);
+                maps_out[current_cell].emplace_back(p);
               }
           }
       }
 
     // Debug Checking
-    Assert(std::get<0>(cell_qpoint_map).size() ==
-             std::get<2>(cell_qpoint_map).size(),
-           ExcDimensionMismatch(std::get<0>(cell_qpoint_map).size(),
-                                std::get<2>(cell_qpoint_map).size()));
+    Assert(cells_out.size() == maps_out.size(),
+           ExcDimensionMismatch(cells_out.size(), maps_out.size()));
 
-    Assert(std::get<0>(cell_qpoint_map).size() ==
-             std::get<1>(cell_qpoint_map).size(),
-           ExcDimensionMismatch(std::get<0>(cell_qpoint_map).size(),
-                                std::get<1>(cell_qpoint_map).size()));
+    Assert(cells_out.size() == qpoints_out.size(),
+           ExcDimensionMismatch(cells_out.size(), qpoints_out.size()));
 
 #ifdef DEBUG
-    unsigned int c   = std::get<0>(cell_qpoint_map).size();
+    unsigned int c   = cells_out.size();
     unsigned int qps = 0;
     // The number of points in all
     // the cells must be the same as
     // the number of points we
-    // started off from.
+    // started off from,
+    // plus the points which were ignored
     for (unsigned int n = 0; n < c; ++n)
       {
-        Assert(std::get<1>(cell_qpoint_map)[n].size() ==
-                 std::get<2>(cell_qpoint_map)[n].size(),
-               ExcDimensionMismatch(std::get<1>(cell_qpoint_map)[n].size(),
-                                    std::get<2>(cell_qpoint_map)[n].size()));
-        qps += std::get<1>(cell_qpoint_map)[n].size();
+        Assert(qpoints_out[n].size() == maps_out[n].size(),
+               ExcDimensionMismatch(qpoints_out[n].size(), maps_out[n].size()));
+        qps += qpoints_out[n].size();
       }
-    Assert(qps == np, ExcDimensionMismatch(qps, np));
+
+    Assert(qps + missing_points_out.size() == np,
+           ExcDimensionMismatch(qps + missing_points_out.size(), np));
 #endif
 
-    return cell_qpoint_map;
+    return std::make_tuple(std::move(cells_out),
+                           std::move(qpoints_out),
+                           std::move(maps_out),
+                           std::move(missing_points_out));
   }
 
 
 
   namespace internal
   {
-    // Functions are needed for distributed compute point locations
-    namespace distributed_cptloc
+    // Functions used for distributed compute point locations
+    namespace DistributedComputePointLocations
     {
       // Hash function for cells; needed for unordered maps/multimaps
       template <int dim, int spacedim>
@@ -4335,18 +4635,17 @@ namespace GridTools
 
 
       // Compute point locations; internal version which returns an unordered
-      // map The algorithm is the same as GridTools::compute_point_locations
+      // map. The algorithm is the same as for
+      // GridTools::compute_point_locations.
       template <int dim, int spacedim>
       std::unordered_map<
         typename Triangulation<dim, spacedim>::active_cell_iterator,
         std::pair<std::vector<Point<dim>>, std::vector<unsigned int>>,
         cell_hash<dim, spacedim>>
-      compute_point_locations_unmap(
-        const GridTools::Cache<dim, spacedim> &cache,
-        const std::vector<Point<spacedim>> &   points)
+      compute_point_locations(const GridTools::Cache<dim, spacedim> &cache,
+                              const std::vector<Point<spacedim>> &   points)
       {
-        // How many points are here?
-        const unsigned int np = points.size();
+        const unsigned int n_points = points.size();
         // Creating the output tuple
         std::unordered_map<
           typename Triangulation<dim, spacedim>::active_cell_iterator,
@@ -4355,143 +4654,183 @@ namespace GridTools
           cell_qpoint_map;
 
         // Now the easy case.
-        if (np == 0)
+        if (n_points == 0)
           return cell_qpoint_map;
-        // We begin by finding the cell/transform of the first point
-        auto my_pair =
-          GridTools::find_active_cell_around_point(cache, points[0]);
 
-        auto last_cell = cell_qpoint_map.emplace(
-          std::make_pair(my_pair.first,
-                         std::make_pair(std::vector<Point<dim>>{my_pair.second},
-                                        std::vector<unsigned int>{0})));
+        // We begin by finding the cell/transform of the first point
+        std::pair<typename Triangulation<dim, spacedim>::active_cell_iterator,
+                  Point<dim>>
+          point_and_reference_location;
+
+        unsigned int counter = 0;
+
+        while (counter < n_points)
+          try
+            {
+              unsigned int i = counter;
+              ++counter;
+
+              point_and_reference_location =
+                GridTools::find_active_cell_around_point(cache, points[i]);
+              break;
+            }
+          catch (...)
+            {
+              if (counter == n_points)
+                return cell_qpoint_map;
+            }
+
+        auto last_cell = cell_qpoint_map.emplace(std::make_pair(
+          point_and_reference_location.first,
+          std::make_pair(
+            std::vector<Point<dim>>{point_and_reference_location.second},
+            std::vector<unsigned int>{counter - 1})));
+
         // Now the second easy case.
-        if (np == 1)
+        if (n_points == 1)
           return cell_qpoint_map;
-        // Computing the cell center and diameter
-        Point<spacedim> cell_center   = my_pair.first->center();
-        double          cell_diameter = my_pair.first->diameter() *
+
+        Point<spacedim> cell_center =
+          point_and_reference_location.first->center();
+        double cell_diameter = point_and_reference_location.first->diameter() *
                                (0.5 + std::numeric_limits<double>::epsilon());
 
         // Cycle over all points left
-        for (unsigned int p = 1; p < np; ++p)
+        for (unsigned int p = counter; p < n_points; ++p)
           {
             // Checking if the point is close to the cell center, in which
             // case calling find active cell with a cell hint
             if (cell_center.distance(points[p]) < cell_diameter)
-              my_pair = GridTools::find_active_cell_around_point(
-                cache, points[p], last_cell.first->first);
+              try
+                {
+                  point_and_reference_location =
+                    GridTools::find_active_cell_around_point(
+                      cache, points[p], last_cell.first->first);
+                }
+              catch (...)
+                {
+                  continue;
+                }
             else
-              my_pair =
-                GridTools::find_active_cell_around_point(cache, points[p]);
+              try
+                {
+                  point_and_reference_location =
+                    GridTools::find_active_cell_around_point(cache, points[p]);
+                }
+              catch (...)
+                {
+                  continue;
+                }
 
-            if (last_cell.first->first == my_pair.first)
+            if (last_cell.first->first == point_and_reference_location.first)
               {
-                last_cell.first->second.first.emplace_back(my_pair.second);
+                last_cell.first->second.first.emplace_back(
+                  point_and_reference_location.second);
                 last_cell.first->second.second.emplace_back(p);
               }
             else
               {
                 // Check if it is in another cell already found
-                last_cell = cell_qpoint_map.emplace(std::make_pair(
-                  my_pair.first,
-                  std::make_pair(std::vector<Point<dim>>{my_pair.second},
-                                 std::vector<unsigned int>{p})));
+                last_cell = cell_qpoint_map.emplace(
+                  std::make_pair(point_and_reference_location.first,
+                                 std::make_pair(
+                                   std::vector<Point<dim>>{
+                                     point_and_reference_location.second},
+                                   std::vector<unsigned int>{p})));
 
                 if (last_cell.second == false)
                   {
                     // Cell already present: adding the new point
-                    last_cell.first->second.first.emplace_back(my_pair.second);
+                    last_cell.first->second.first.emplace_back(
+                      point_and_reference_location.second);
                     last_cell.first->second.second.emplace_back(p);
                   }
                 else
                   {
                     // New cell was added, updating center and diameter
-                    cell_center = my_pair.first->center();
+                    cell_center = point_and_reference_location.first->center();
                     cell_diameter =
-                      my_pair.first->diameter() *
+                      point_and_reference_location.first->diameter() *
                       (0.5 + std::numeric_limits<double>::epsilon());
                   }
               }
           }
 
 #ifdef DEBUG
-        unsigned int qps = 0;
+        unsigned int inserted_points = 0;
         // The number of points in all
         // the cells must be the same as
         // the number of points we
         // started off from.
-        for (const auto &m : cell_qpoint_map)
+        for (const auto &map_entry : cell_qpoint_map)
           {
-            Assert(m.second.second.size() == m.second.first.size(),
-                   ExcDimensionMismatch(m.second.second.size(),
-                                        m.second.first.size()));
-            qps += m.second.second.size();
+            Assert(map_entry.second.second.size() ==
+                     map_entry.second.first.size(),
+                   ExcDimensionMismatch(map_entry.second.second.size(),
+                                        map_entry.second.first.size()));
+            inserted_points += map_entry.second.second.size();
           }
-        Assert(qps == np, ExcDimensionMismatch(qps, np));
 #endif
         return cell_qpoint_map;
       }
 
 
 
-      // Merging the output means to add data to a previous output, here
-      // contained in output unmap: if the cell is already present: add
-      // information about new points if the cell is not present: add the cell
-      // with all information
+      // Merge the input data to the existing map point_locations. If the cell
+      // is already present in the map add information about the new points.
+      // If the cell is not present add the cell with all information.
       //
       // Notice we call "information" the data associated with a point of the
-      // sort: cell containing it, transformed point on reference cell, index,
+      // sort: containing cell, coordinates on reference cell, index,
       // rank of the owner etc.
       template <int dim, int spacedim>
       void
-      merge_cptloc_outputs(
+      merge_into_point_locations(
+        const std::vector<
+          typename Triangulation<dim, spacedim>::active_cell_iterator> &cells,
+        const std::vector<std::vector<Point<dim>>> &                    qpoints,
+        const std::vector<std::vector<unsigned int>> &                  maps,
+        const std::vector<std::vector<Point<spacedim>>> &               points,
+        const unsigned int                                              rank,
         std::unordered_map<
           typename Triangulation<dim, spacedim>::active_cell_iterator,
           std::tuple<std::vector<Point<dim>>,
                      std::vector<unsigned int>,
                      std::vector<Point<spacedim>>,
                      std::vector<unsigned int>>,
-          cell_hash<dim, spacedim>> &output_unmap,
-        const std::vector<
-          typename Triangulation<dim, spacedim>::active_cell_iterator>
-          &                                              in_cells,
-        const std::vector<std::vector<Point<dim>>> &     in_qpoints,
-        const std::vector<std::vector<unsigned int>> &   in_maps,
-        const std::vector<std::vector<Point<spacedim>>> &in_points,
-        const unsigned int                               in_rank)
+          cell_hash<dim, spacedim>> &point_locations)
       {
-        // Adding cells, one by one
-        for (unsigned int c = 0; c < in_cells.size(); ++c)
+        // Adding cells
+        for (unsigned int c = 0; c < cells.size(); ++c)
           {
             // Attempt to add a new cell with its relative data
-            auto current_c = output_unmap.emplace(
-              std::make_pair(in_cells[c],
-                             std::make_tuple(in_qpoints[c],
-                                             in_maps[c],
-                                             in_points[c],
+            auto current_c = point_locations.emplace(
+              std::make_pair(cells[c],
+                             std::make_tuple(qpoints[c],
+                                             maps[c],
+                                             points[c],
                                              std::vector<unsigned int>(
-                                               in_points[c].size(), in_rank))));
-            // If the flag is false no new cell was added:
+                                               points[c].size(), rank))));
+
+            // If the flag is false the cell already existed
             if (current_c.second == false)
               {
-                // Cell in output map at current_c.first:
-                // Adding the information to it
+                // Add the information to the cell at current_c.first:
                 auto &cell_qpts  = std::get<0>(current_c.first->second);
                 auto &cell_maps  = std::get<1>(current_c.first->second);
                 auto &cell_pts   = std::get<2>(current_c.first->second);
                 auto &cell_ranks = std::get<3>(current_c.first->second);
+
                 cell_qpts.insert(cell_qpts.end(),
-                                 in_qpoints[c].begin(),
-                                 in_qpoints[c].end());
+                                 qpoints[c].begin(),
+                                 qpoints[c].end());
                 cell_maps.insert(cell_maps.end(),
-                                 in_maps[c].begin(),
-                                 in_maps[c].end());
+                                 maps[c].begin(),
+                                 maps[c].end());
                 cell_pts.insert(cell_pts.end(),
-                                in_points[c].begin(),
-                                in_points[c].end());
-                std::vector<unsigned int> ranks_tmp(in_points[c].size(),
-                                                    in_rank);
+                                points[c].begin(),
+                                points[c].end());
+                std::vector<unsigned int> ranks_tmp(points[c].size(), rank);
                 cell_ranks.insert(cell_ranks.end(),
                                   ranks_tmp.begin(),
                                   ranks_tmp.end());
@@ -4501,15 +4840,18 @@ namespace GridTools
 
 
 
-      // This function initializes the output by calling compute point locations
-      // on local points; vector containing points which are probably local.
-      // Its output is then sorted in the following manner:
-      // - output unmap: points, with relative information, inside locally onwed
-      // cells,
-      // - ghost loc pts: points, with relative information, inside ghost cells,
-      // - classified pts: vector of all points returned in output map and ghost
-      // loc pts
-      //   (these are stored as indices)
+      // This function calls compute point locations for all local_points
+      // and sorts them in those which are probably locally owned, this which
+      // are probably in ghost cells, and dismisses those in artificial cells
+      // Output quantities are:
+      // - locally_owned_locations: points, with relative information, inside
+      // locally owned
+      //   cells
+      // - ghost_cell_locations: points, with relative information, inside ghost
+      // cells
+      // - classified pts: indices of all points returned in
+      // locally_owned_locations and
+      //   ghost_cell_locations (dropping those that were not found)
       template <int dim, int spacedim>
       void
       compute_and_classify_points(
@@ -4522,27 +4864,30 @@ namespace GridTools
                      std::vector<unsigned int>,
                      std::vector<Point<spacedim>>,
                      std::vector<unsigned int>>,
-          cell_hash<dim, spacedim>> &output_unmap,
+          cell_hash<dim, spacedim>> &locally_owned_locations,
         std::map<unsigned int,
                  std::tuple<std::vector<CellId>,
                             std::vector<std::vector<Point<dim>>>,
                             std::vector<std::vector<unsigned int>>,
                             std::vector<std::vector<Point<spacedim>>>>>
-          &                        ghost_loc_pts,
-        std::vector<unsigned int> &classified_pts)
+          &                        ghost_cell_locations,
+        std::vector<unsigned int> &found_location_indices)
       {
-        auto cpt_loc_pts = compute_point_locations_unmap(cache, local_points);
+        auto point_location_data =
+          internal::DistributedComputePointLocations::compute_point_locations(
+            cache, local_points);
 
-        // Alayzing the output discarding artificial cell
-        // and storing in the proper container locally owned and ghost cells
-        for (auto const &cell_tuples : cpt_loc_pts)
+        // Sort output into locally owned cells, ghost cells, and artificial
+        // cells.
+        for (const auto &cell_tuples : point_location_data)
           {
-            auto &cell_loc    = cell_tuples.first;
+            auto &cell        = cell_tuples.first;
             auto &q_loc       = std::get<0>(cell_tuples.second);
             auto &indices_loc = std::get<1>(cell_tuples.second);
-            if (cell_loc->is_locally_owned())
+
+            // Store the data for points in locally owned cells
+            if (cell->is_locally_owned())
               {
-                // Point inside locally owned cell: storing all its data
                 std::vector<Point<spacedim>> cell_points(indices_loc.size());
                 std::vector<unsigned int> cell_points_idx(indices_loc.size());
                 for (unsigned int i = 0; i < indices_loc.size(); ++i)
@@ -4554,38 +4899,38 @@ namespace GridTools
                     // points vector, but we need to return the index with
                     // respect of the points owned by the current process
                     cell_points_idx[i] = local_points_idx[indices_loc[i]];
-                    classified_pts.emplace_back(
+                    found_location_indices.emplace_back(
                       local_points_idx[indices_loc[i]]);
                   }
-                output_unmap.emplace(
-                  std::make_pair(cell_loc,
+                locally_owned_locations.emplace(
+                  std::make_pair(cell,
                                  std::make_tuple(q_loc,
                                                  cell_points_idx,
                                                  cell_points,
                                                  std::vector<unsigned int>(
                                                    indices_loc.size(),
-                                                   cell_loc->subdomain_id()))));
+                                                   cell->subdomain_id()))));
               }
-            else if (cell_loc->is_ghost())
+            // Store the data for points in ghost cells and prepare transfer
+            else if (cell->is_ghost())
               {
-                // Point inside ghost cell: storing all its information and
-                // preparing it to be sent
                 std::vector<Point<spacedim>> cell_points(indices_loc.size());
                 std::vector<unsigned int> cell_points_idx(indices_loc.size());
                 for (unsigned int i = 0; i < indices_loc.size(); ++i)
                   {
                     cell_points[i]     = local_points[indices_loc[i]];
                     cell_points_idx[i] = local_points_idx[indices_loc[i]];
-                    classified_pts.emplace_back(
+                    found_location_indices.emplace_back(
                       local_points_idx[indices_loc[i]]);
                   }
-                // Each key of the following map represent a process,
+                // Each key of the following map represents a process,
                 // each mapped value is a tuple containing the information to be
                 // sent: preparing the output for the owner, which has rank
                 // subdomain id
-                auto &map_tuple_owner = ghost_loc_pts[cell_loc->subdomain_id()];
+                auto &map_tuple_owner =
+                  ghost_cell_locations[cell->subdomain_id()];
                 // To identify the cell on the other process we use the cell id
-                std::get<0>(map_tuple_owner).emplace_back(cell_loc->id());
+                std::get<0>(map_tuple_owner).emplace_back(cell->id());
                 std::get<1>(map_tuple_owner).emplace_back(q_loc);
                 std::get<2>(map_tuple_owner).emplace_back(cell_points_idx);
                 std::get<3>(map_tuple_owner).emplace_back(cell_points);
@@ -4596,32 +4941,32 @@ namespace GridTools
 
 
 
-      // Given the map obtained from a communication, where the key is rank and
-      // the mapped value is a pair of (points,indices), calls compute point
-      // locations; its output is then merged with output tuple if check_owned
-      // is set to true only points lying inside locally onwed cells shall be
-      // merged, otherwise all points shall be merged.
+      // Given the map received_point_locations obtained from a communication,
+      // where the key is rank and the mapped value is a pair of
+      // (points,indices), calls compute_point_locations; its output is then
+      // merged with output tuple. If check_owned is set to true only points
+      // lying inside locally owned cells are merged, otherwise all points are
+      // merged into point_locations.
       template <int dim, int spacedim>
       void
-      compute_and_merge_from_map(
-        const GridTools::Cache<dim, spacedim> &               cache,
-        const std::map<unsigned int,
-                       std::pair<std::vector<Point<spacedim>>,
-                                 std::vector<unsigned int>>> &map_pts,
+      merge_received_point_locations(
+        const GridTools::Cache<dim, spacedim> &cache,
+        const std::map<
+          unsigned int,
+          std::pair<std::vector<Point<spacedim>>, std::vector<unsigned int>>>
+          &received_point_locations,
         std::unordered_map<
           typename Triangulation<dim, spacedim>::active_cell_iterator,
           std::tuple<std::vector<Point<dim>>,
                      std::vector<unsigned int>,
                      std::vector<Point<spacedim>>,
                      std::vector<unsigned int>>,
-          cell_hash<dim, spacedim>> &output_unmap,
+          cell_hash<dim, spacedim>> &point_locations,
         const bool                   check_owned)
       {
-        bool no_check = !check_owned;
-
         // rank and points is a pair: first rank, then a pair of vectors
         // (points, indices)
-        for (auto const &rank_and_points : map_pts)
+        for (const auto &rank_and_points : received_point_locations)
           {
             // Rewriting the contents of the map in human readable format
             const auto &received_process = rank_and_points.first;
@@ -4637,19 +4982,19 @@ namespace GridTools
             std::vector<std::vector<unsigned int>>    in_maps;
             std::vector<std::vector<Point<spacedim>>> in_points;
 
-            auto cpt_loc_pts =
-              compute_point_locations_unmap(cache,
-                                            rank_and_points.second.first);
-            for (const auto &map_c_pt_idx : cpt_loc_pts)
+            const auto computed_point_locations =
+              internal::DistributedComputePointLocations::
+                compute_point_locations(cache, rank_and_points.second.first);
+            for (const auto &map_c_pt_idx : computed_point_locations)
               {
                 // Human-readable variables:
                 const auto &proc_cell    = map_c_pt_idx.first;
                 const auto &proc_qpoints = map_c_pt_idx.second.first;
                 const auto &proc_maps    = map_c_pt_idx.second.second;
 
-                // This is stored either if we're not checking if the cell is
+                // store either if we're not checking if the cell is
                 // owned or if the cell is locally owned
-                if (no_check || proc_cell->is_locally_owned())
+                if (check_owned == false || proc_cell->is_locally_owned())
                   {
                     in_cell.emplace_back(proc_cell);
                     in_qpoints.emplace_back(proc_qpoints);
@@ -4668,16 +5013,16 @@ namespace GridTools
               }
 
             // Merge everything from the current process
-            internal::distributed_cptloc::merge_cptloc_outputs(
-              output_unmap,
-              in_cell,
-              in_qpoints,
-              in_maps,
-              in_points,
-              received_process);
+            internal::DistributedComputePointLocations::
+              merge_into_point_locations(in_cell,
+                                         in_qpoints,
+                                         in_maps,
+                                         in_points,
+                                         received_process,
+                                         point_locations);
           }
       }
-    } // namespace distributed_cptloc
+    } // namespace DistributedComputePointLocations
   }   // namespace internal
 
 
@@ -4716,7 +5061,7 @@ namespace GridTools
 #else
     // Recovering the mpi communicator used to create the triangulation
     const auto &tria_mpi =
-      dynamic_cast<const parallel::Triangulation<dim, spacedim> *>(
+      dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
         &cache.get_triangulation());
     // If the dynamic cast failed we can't recover the mpi communicator:
     // throwing an assertion error
@@ -4734,19 +5079,20 @@ namespace GridTools
       std::vector<std::vector<unsigned int>>>
       output_tuple;
 
-    // Preparing the temporary unordered map
+    // Preparing the map that will be filled with found points
     std::unordered_map<
       typename Triangulation<dim, spacedim>::active_cell_iterator,
       std::tuple<std::vector<Point<dim>>,
                  std::vector<unsigned int>,
                  std::vector<Point<spacedim>>,
                  std::vector<unsigned int>>,
-      internal::distributed_cptloc::cell_hash<dim, spacedim>>
-      temporary_unmap;
+      internal::DistributedComputePointLocations::cell_hash<dim, spacedim>>
+      found_points;
 
     // Step 1 (part 1): Using the bounding boxes to guess the owner of each
-    // points in local_points
-    unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+    // point in local_points
+    const unsigned int my_rank =
+      Utilities::MPI::this_mpi_process(mpi_communicator);
 
     // Using global bounding boxes to guess/find owner/s of each point
     std::tuple<std::vector<std::vector<unsigned int>>,
@@ -4755,148 +5101,146 @@ namespace GridTools
       guessed_points;
     guessed_points = GridTools::guess_point_owner(global_bboxes, local_points);
 
-    // Preparing to call compute point locations on points which are/might be
-    // local
+    // Preparing to call compute_point_locations on points which may be local
     const auto &guess_loc_idx = std::get<0>(guessed_points)[my_rank];
     const unsigned int n_local_guess = guess_loc_idx.size();
-    // Vector containing points which are probably local
-    std::vector<Point<spacedim>> guess_local_pts(n_local_guess);
-    for (unsigned int i = 0; i < n_local_guess; ++i)
-      guess_local_pts[i] = local_points[guess_loc_idx[i]];
 
-    // Preparing the map with data on points lying on locally owned cells
+    // Vector containing points which are probably local
+    std::vector<Point<spacedim>> guess_local_points(n_local_guess);
+    for (unsigned int i = 0; i < n_local_guess; ++i)
+      guess_local_points[i] = local_points[guess_loc_idx[i]];
+
+    // Preparing the map with data on points lying on ghost cells
     std::map<unsigned int,
              std::tuple<std::vector<CellId>,
                         std::vector<std::vector<Point<dim>>>,
                         std::vector<std::vector<unsigned int>>,
                         std::vector<std::vector<Point<spacedim>>>>>
-      ghost_loc_pts;
+      found_ghost_points;
+
     // Vector containing indices of points lying either on locally owned
     // cells or ghost cells, to avoid computing them more than once
-    std::vector<unsigned int> classified_pts;
+    std::vector<unsigned int> found_point_indices;
 
     // Thread used to call compute point locations on guess local pts
-    Threads::Task<void> cpt_loc_tsk = Threads::new_task(
-      &internal::distributed_cptloc::compute_and_classify_points<dim, spacedim>,
-      cache,
-      guess_local_pts,
-      guess_loc_idx,
-      temporary_unmap,
-      ghost_loc_pts,
-      classified_pts);
+    Threads::Task<void> compute_locations_task =
+      Threads::new_task(&internal::DistributedComputePointLocations::
+                          compute_and_classify_points<dim, spacedim>,
+                        cache,
+                        guess_local_points,
+                        guess_loc_idx,
+                        found_points,
+                        found_ghost_points,
+                        found_point_indices);
 
-    // Step 1 (part 2): communicate point which are owned by a certain process
+    // Step 1 (part 2): communicate points which are owned by a certain process
     // Preparing the map with points whose owner is known with certainty:
-    const auto &other_owned_idx = std::get<1>(guessed_points);
+    const auto &not_locally_owned_idx = std::get<1>(guessed_points);
     std::map<unsigned int,
              std::pair<std::vector<Point<spacedim>>, std::vector<unsigned int>>>
-      other_owned_pts;
+      not_locally_owned_points;
 
-    for (const auto &indices : other_owned_idx)
+    for (const auto &indices : not_locally_owned_idx)
       if (indices.second != my_rank)
         {
-          // Finding/adding in the map the current process
-          auto &current_pts = other_owned_pts[indices.second];
+          // Finding the list of points to be sent to this rank
+          auto &points_to_send = not_locally_owned_points[indices.second];
           // Indices.first is the index of the considered point in local points
-          current_pts.first.emplace_back(local_points[indices.first]);
-          current_pts.second.emplace_back(indices.first);
+          points_to_send.first.emplace_back(local_points[indices.first]);
+          points_to_send.second.emplace_back(indices.first);
         }
 
     // Communicating the points whose owner is sure
-    auto owned_rank_pts =
-      Utilities::MPI::some_to_some(mpi_communicator, other_owned_pts);
+    auto received_points =
+      Utilities::MPI::some_to_some(mpi_communicator, not_locally_owned_points);
     // Waiting for part 1 to finish to avoid concurrency problems
-    cpt_loc_tsk.join();
+    compute_locations_task.join();
 
-    // Step 2 (part 1): compute received points which are owned
-    Threads::Task<void> owned_pts_tsk = Threads::new_task(
-      &internal::distributed_cptloc::compute_and_merge_from_map<dim, spacedim>,
-      cache,
-      owned_rank_pts,
-      temporary_unmap,
-      false);
+    // Step 2 (part 1): merge received points which are owned by us
+    Threads::Task<void> merge_locally_owned_points_task =
+      Threads::new_task(&internal::DistributedComputePointLocations::
+                          merge_received_point_locations<dim, spacedim>,
+                        cache,
+                        received_points,
+                        found_points,
+                        false);
 
     // Step 2 (part 2): communicate info on points lying on ghost cells
-    auto cpt_ghost =
-      Utilities::MPI::some_to_some(mpi_communicator, ghost_loc_pts);
+    auto received_ghost_points =
+      Utilities::MPI::some_to_some(mpi_communicator, found_ghost_points);
 
-    // Step 3: construct vectors containing uncertain points i.e. those whose
-    // owner is known among few guesses The maps goes from rank of the probable
+    // Step 3: construct vectors containing points with uncertain owner i.e.
+    // those which have multiple guesses. The map goes from rank of the probable
     // owner to a pair of vectors: the first containing the points, the second
     // containing the ranks in the current process
     std::map<unsigned int,
              std::pair<std::vector<Point<spacedim>>, std::vector<unsigned int>>>
-      other_check_pts;
+      uncertain_points;
 
     // This map goes from the point index to a vector of
-    // ranks probable owners
-    const std::map<unsigned int, std::vector<unsigned int>> &other_check_idx =
-      std::get<2>(guessed_points);
+    // ranks of probable owners
+    const std::map<unsigned int, std::vector<unsigned int>>
+      &points_to_probable_owners = std::get<2>(guessed_points);
 
-    // Points in classified pts need not to be communicated;
+    // Points in found_point_indices need not to be communicated;
     // sorting the array classified pts in order to use
     // binary search when checking if the points needs to be
     // communicated
-    // Notice classified pts is a vector of integer indexes
-    std::sort(classified_pts.begin(), classified_pts.end());
+    // Note that found_point_indices is a vector of integer indexes
+    std::sort(found_point_indices.begin(), found_point_indices.end());
 
-    for (const auto &pt_to_guesses : other_check_idx)
+    for (const auto &probable_owners : points_to_probable_owners)
       {
-        const auto &point_idx = pt_to_guesses.first;
-        const auto &probable_owners_rks = pt_to_guesses.second;
-        if (!std::binary_search(classified_pts.begin(),
-                                classified_pts.end(),
+        const auto &point_idx = probable_owners.first;
+        const auto &probable_owner_ranks = probable_owners.second;
+        if (!std::binary_search(found_point_indices.begin(),
+                                found_point_indices.end(),
                                 point_idx))
-          // The point wasn't found in ghost or locally owned cells: adding it
-          // to the map
-          for (unsigned int i = 0; i < probable_owners_rks.size(); ++i)
-            if (probable_owners_rks[i] != my_rank)
+          // The point wasn't found in ghost or locally owned cells: send it
+          for (const unsigned int probable_owner_rank : probable_owner_ranks)
+            if (probable_owner_rank != my_rank)
               {
-                // add to the data for process probable_owners_rks[i]
-                auto &current_pts = other_check_pts[probable_owners_rks[i]];
-                // The point local_points[point_idx]
-                current_pts.first.emplace_back(local_points[point_idx]);
-                // and its index in the current process
-                current_pts.second.emplace_back(point_idx);
+                // add to the data for probable_owner_rank
+                auto &points_to_send = uncertain_points[probable_owner_rank];
+                points_to_send.first.emplace_back(local_points[point_idx]);
+                points_to_send.second.emplace_back(point_idx);
               }
       }
 
     // Step 4: send around uncertain points
-    auto check_pts =
-      Utilities::MPI::some_to_some(mpi_communicator, other_check_pts);
+    const auto received_uncertain_points =
+      Utilities::MPI::some_to_some(mpi_communicator, uncertain_points);
     // Before proceeding, merging threads to avoid concurrency problems
-    owned_pts_tsk.join();
+    merge_locally_owned_points_task.join();
 
     // Step 5: add the received ghost cell data to output
-    for (const auto &rank_vals : cpt_ghost)
+    for (const auto &received_ghost_point : received_ghost_points)
       {
         // Transforming CellsIds into Tria iterators
-        const auto &cell_ids = std::get<0>(rank_vals.second);
-        unsigned int n_cells = cell_ids.size();
+        const auto &cell_ids = std::get<0>(received_ghost_point.second);
+        const unsigned int n_cells = cell_ids.size();
         std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>
           cell_iter(n_cells);
         for (unsigned int c = 0; c < n_cells; ++c)
           cell_iter[c] = cell_ids[c].to_cell(cache.get_triangulation());
 
-        internal::distributed_cptloc::merge_cptloc_outputs(
-          temporary_unmap,
+        internal::DistributedComputePointLocations::merge_into_point_locations(
           cell_iter,
-          std::get<1>(rank_vals.second),
-          std::get<2>(rank_vals.second),
-          std::get<3>(rank_vals.second),
-          rank_vals.first);
+          std::get<1>(received_ghost_point.second),
+          std::get<2>(received_ghost_point.second),
+          std::get<3>(received_ghost_point.second),
+          received_ghost_point.first,
+          found_points);
       }
 
     // Step 6: use compute point locations on the uncertain points and
     // merge output
-    internal::distributed_cptloc::compute_and_merge_from_map(cache,
-                                                             check_pts,
-                                                             temporary_unmap,
-                                                             true);
+    internal::DistributedComputePointLocations::merge_received_point_locations(
+      cache, received_uncertain_points, found_points, true);
 
     // Copying data from the unordered map to the tuple
     // and returning output
-    unsigned int size_output = temporary_unmap.size();
+    const unsigned int size_output = found_points.size();
     auto &out_cells = std::get<0>(output_tuple);
     auto &out_qpoints = std::get<1>(output_tuple);
     auto &out_maps = std::get<2>(output_tuple);
@@ -4910,13 +5254,13 @@ namespace GridTools
     out_ranks.resize(size_output);
 
     unsigned int c = 0;
-    for (const auto &rank_and_tuple : temporary_unmap)
+    for (const auto &cell_and_data : found_points)
       {
-        out_cells[c] = rank_and_tuple.first;
-        out_qpoints[c] = std::get<0>(rank_and_tuple.second);
-        out_maps[c] = std::get<1>(rank_and_tuple.second);
-        out_points[c] = std::get<2>(rank_and_tuple.second);
-        out_ranks[c] = std::get<3>(rank_and_tuple.second);
+        out_cells[c] = cell_and_data.first;
+        out_qpoints[c] = std::get<0>(cell_and_data.second);
+        out_maps[c] = std::get<1>(cell_and_data.second);
+        out_points[c] = std::get<2>(cell_and_data.second);
+        out_ranks[c] = std::get<3>(cell_and_data.second);
         ++c;
       }
 
@@ -4968,7 +5312,8 @@ namespace GridTools
     const Point<spacedim> &     p,
     const typename Triangulation<dim, spacedim>::active_cell_iterator
       &                      cell_hint,
-    const std::vector<bool> &marked_vertices)
+    const std::vector<bool> &marked_vertices,
+    const double             tolerance)
   {
     const auto &mesh            = cache.get_triangulation();
     const auto &mapping         = cache.get_mapping();
@@ -4984,14 +5329,15 @@ namespace GridTools
                                          vertex_to_cell_centers,
                                          cell_hint,
                                          marked_vertices,
-                                         used_vertices_rtree);
+                                         used_vertices_rtree,
+                                         tolerance);
   }
 
   template <int spacedim>
   std::vector<std::vector<BoundingBox<spacedim>>>
   exchange_local_bounding_boxes(
     const std::vector<BoundingBox<spacedim>> &local_bboxes,
-    MPI_Comm                                  mpi_communicator)
+    const MPI_Comm &                          mpi_communicator)
   {
 #ifndef DEAL_II_WITH_MPI
     (void)local_bboxes;
@@ -5027,7 +5373,7 @@ namespace GridTools
     int ierr = MPI_Allgather(&n_local_data,
                              1,
                              MPI_INT,
-                             &(size_all_data[0]),
+                             size_all_data.data(),
                              1,
                              MPI_INT,
                              mpi_communicator);
@@ -5044,12 +5390,12 @@ namespace GridTools
     // Allocating a vector to contain all the received data
     std::vector<double> data_array(rdispls.back() + size_all_data.back());
 
-    ierr = MPI_Allgatherv(&(loc_data_array[0]),
+    ierr = MPI_Allgatherv(loc_data_array.data(),
                           n_local_data,
                           MPI_DOUBLE,
-                          &(data_array[0]),
-                          &(size_all_data[0]),
-                          &(rdispls[0]),
+                          data_array.data(),
+                          size_all_data.data(),
+                          rdispls.data(),
                           MPI_DOUBLE,
                           mpi_communicator);
     AssertThrowMPI(ierr);
@@ -5087,15 +5433,17 @@ namespace GridTools
   RTree<std::pair<BoundingBox<spacedim>, unsigned int>>
   build_global_description_tree(
     const std::vector<BoundingBox<spacedim>> &local_description,
-    MPI_Comm                                  mpi_communicator)
+    const MPI_Comm &                          mpi_communicator)
   {
 #ifndef DEAL_II_WITH_MPI
-    (void)local_description;
     (void)mpi_communicator;
-    Assert(false,
-           ExcMessage(
-             "GridTools::build_global_description_tree() requires MPI."));
-    return RTree<std::pair<BoundingBox<spacedim>, unsigned int>>{};
+    // Building a tree with the only boxes available without MPI
+    std::vector<std::pair<BoundingBox<spacedim>, unsigned int>> boxes_index(
+      local_description.size());
+    // Adding to each box the rank of the process owning it
+    for (unsigned int i = 0; i < local_description.size(); ++i)
+      boxes_index[i] = std::make_pair(local_description[i], 0u);
+    return pack_rtree(boxes_index);
 #else
     // Exchanging local bounding boxes
     const std::vector<std::vector<BoundingBox<spacedim>>> global_bboxes =
@@ -5143,6 +5491,186 @@ namespace GridTools
   }
 
 
+
+  template <int dim, int spacedim>
+  void
+  collect_coinciding_vertices(
+    const Triangulation<dim, spacedim> &               tria,
+    std::map<unsigned int, std::vector<unsigned int>> &coinciding_vertex_groups,
+    std::map<unsigned int, unsigned int> &vertex_to_coinciding_vertex_group)
+  {
+    // 1) determine for each vertex a vertex it concides with and
+    //    put it into a map
+    {
+      static const int lookup_table_2d[2][2] =
+        //           flip:
+        {
+          {0, 1}, // false
+          {1, 0}  // true
+        };
+
+      static const int lookup_table_3d[2][2][2][4] =
+        //                   orientation flip  rotation
+        {{{
+            {0, 2, 1, 3}, // false       false false
+            {2, 3, 0, 1}  // false       false true
+          },
+          {
+            {3, 1, 2, 0}, // false       true  false
+            {1, 0, 3, 2}  // false       true  true
+          }},
+         {{
+            {0, 1, 2, 3}, // true        false false
+            {1, 3, 0, 2}  // true        false true
+          },
+          {
+            {3, 2, 1, 0}, // true        true  false
+            {2, 0, 3, 1}  // true        true  true
+          }}};
+
+      // loop over all periodic face pairs
+      for (const auto &pair : tria.get_periodic_face_map())
+        {
+          if (pair.first.first->level() != pair.second.first.first->level())
+            continue;
+
+          const auto face_a = pair.first.first->face(pair.first.second);
+          const auto face_b =
+            pair.second.first.first->face(pair.second.first.second);
+          const auto mask = pair.second.second;
+
+          AssertDimension(face_a->n_vertices(), face_b->n_vertices());
+
+          // loop over all vertices on face
+          for (unsigned int i = 0; i < face_a->n_vertices(); ++i)
+            {
+              const bool face_orientation = mask[0];
+              const bool face_flip        = mask[1];
+              const bool face_rotation    = mask[2];
+
+              // find the right local vertex index for the second face
+              unsigned int j = 0;
+              switch (dim)
+                {
+                  case 1:
+                    j = i;
+                    break;
+                  case 2:
+                    j = lookup_table_2d[face_flip][i];
+                    break;
+                  case 3:
+                    j = lookup_table_3d[face_orientation][face_flip]
+                                       [face_rotation][i];
+                    break;
+                  default:
+                    AssertThrow(false, ExcNotImplemented());
+                }
+
+              // get vertex indices and store in map
+              const auto   vertex_a = face_a->vertex_index(i);
+              const auto   vertex_b = face_b->vertex_index(j);
+              unsigned int temp     = std::min(vertex_a, vertex_b);
+
+              auto it_a = vertex_to_coinciding_vertex_group.find(vertex_a);
+              if (it_a != vertex_to_coinciding_vertex_group.end())
+                temp = std::min(temp, it_a->second);
+
+              auto it_b = vertex_to_coinciding_vertex_group.find(vertex_b);
+              if (it_b != vertex_to_coinciding_vertex_group.end())
+                temp = std::min(temp, it_b->second);
+
+              if (it_a != vertex_to_coinciding_vertex_group.end())
+                it_a->second = temp;
+              else
+                vertex_to_coinciding_vertex_group[vertex_a] = temp;
+
+              if (it_b != vertex_to_coinciding_vertex_group.end())
+                it_b->second = temp;
+              else
+                vertex_to_coinciding_vertex_group[vertex_b] = temp;
+            }
+        }
+
+      // 2) compress map: let vertices point to the coinciding vertex with
+      //    the smallest index
+      for (auto &p : vertex_to_coinciding_vertex_group)
+        {
+          if (p.first == p.second)
+            continue;
+          unsigned int temp = p.second;
+          while (temp != vertex_to_coinciding_vertex_group[temp])
+            temp = vertex_to_coinciding_vertex_group[temp];
+          p.second = temp;
+        }
+
+      // 3) create a map: smallest index of coinciding index -> all
+      //    coinciding indices
+      for (auto p : vertex_to_coinciding_vertex_group)
+        coinciding_vertex_groups[p.second] = {};
+
+      for (auto p : vertex_to_coinciding_vertex_group)
+        coinciding_vertex_groups[p.second].push_back(p.first);
+    }
+  }
+
+
+
+  template <int dim, int spacedim>
+  std::map<unsigned int, std::set<dealii::types::subdomain_id>>
+  compute_vertices_with_ghost_neighbors(
+    const Triangulation<dim, spacedim> &tria)
+  {
+    if (dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
+          &tria) == nullptr) // nothing to do for a serial triangulation
+      return {};
+
+    // 1) collect for each vertex on periodic faces all vertices it coincides
+    //    with
+    std::map<unsigned int, std::vector<unsigned int>> coinciding_vertex_groups;
+    std::map<unsigned int, unsigned int> vertex_to_coinciding_vertex_group;
+
+    GridTools::collect_coinciding_vertices(tria,
+                                           coinciding_vertex_groups,
+                                           vertex_to_coinciding_vertex_group);
+
+    // 2) collect vertices belonging to local cells
+    std::vector<bool> vertex_of_own_cell(tria.n_vertices(), false);
+    for (const auto &cell : tria.active_cell_iterators())
+      if (cell->is_locally_owned())
+        for (const unsigned int v : cell->vertex_indices())
+          vertex_of_own_cell[cell->vertex_index(v)] = true;
+
+    // 3) for each vertex belonging to a locally owned cell all ghost
+    //    neighbors (including the periodic own)
+    std::map<unsigned int, std::set<types::subdomain_id>> result;
+
+    // loop over all active ghost cells
+    for (const auto &cell : tria.active_cell_iterators())
+      if (cell->is_ghost())
+        {
+          const types::subdomain_id owner = cell->subdomain_id();
+
+          // loop over all its vertices
+          for (const unsigned int v : cell->vertex_indices())
+            {
+              // set owner if vertex belongs to a local cell
+              if (vertex_of_own_cell[cell->vertex_index(v)])
+                result[cell->vertex_index(v)].insert(owner);
+
+              // mark also nodes coinciding due to periodicity
+              auto coinciding_vertex_group =
+                vertex_to_coinciding_vertex_group.find(cell->vertex_index(v));
+              if (coinciding_vertex_group !=
+                  vertex_to_coinciding_vertex_group.end())
+                for (auto coinciding_vertex :
+                     coinciding_vertex_groups[coinciding_vertex_group->second])
+                  if (vertex_of_own_cell[coinciding_vertex])
+                    result[coinciding_vertex].insert(owner);
+            }
+        }
+
+    return result;
+  }
 
 } /* namespace GridTools */
 

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2010 - 2017 by the deal.II authors
+// Copyright (C) 2010 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -46,8 +46,6 @@ namespace LocalIntegrators
    * function.
    *
    * @ingroup Integrators
-   * @author Guido Kanschat
-   * @date 2012
    */
   namespace Advection
   {
@@ -71,18 +69,14 @@ namespace LocalIntegrators
      * in which case a constant velocity is assumed, or a vector with as many
      * entries as quadrature points if the velocity is not constant.
      * @param factor is an optional multiplication factor for the result.
-     *
-     * @author Guido Kanschat
-     * @date 2012
      */
     template <int dim>
     void
-    cell_matrix(
-      FullMatrix<double> &                                       M,
-      const FEValuesBase<dim> &                                  fe,
-      const FEValuesBase<dim> &                                  fetest,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      const double                                               factor = 1.)
+    cell_matrix(FullMatrix<double> &                        M,
+                const FEValuesBase<dim> &                   fe,
+                const FEValuesBase<dim> &                   fetest,
+                const ArrayView<const std::vector<double>> &velocity,
+                const double                                factor = 1.)
     {
       const unsigned int n_dofs       = fe.dofs_per_cell;
       const unsigned int t_dofs       = fetest.dofs_per_cell;
@@ -134,12 +128,11 @@ namespace LocalIntegrators
      */
     template <int dim>
     inline void
-    cell_residual(
-      Vector<double> &                                           result,
-      const FEValuesBase<dim> &                                  fe,
-      const std::vector<Tensor<1, dim>> &                        input,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    cell_residual(Vector<double> &                            result,
+                  const FEValuesBase<dim> &                   fe,
+                  const std::vector<Tensor<1, dim>> &         input,
+                  const ArrayView<const std::vector<double>> &velocity,
+                  double                                      factor = 1.)
     {
       const unsigned int nq     = fe.n_quadrature_points;
       const unsigned int n_dofs = fe.dofs_per_cell;
@@ -178,12 +171,11 @@ namespace LocalIntegrators
      */
     template <int dim>
     inline void
-    cell_residual(
-      Vector<double> &                                                   result,
-      const FEValuesBase<dim> &                                          fe,
-      const VectorSlice<const std::vector<std::vector<Tensor<1, dim>>>> &input,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    cell_residual(Vector<double> &                                    result,
+                  const FEValuesBase<dim> &                           fe,
+                  const ArrayView<const std::vector<Tensor<1, dim>>> &input,
+                  const ArrayView<const std::vector<double>> &        velocity,
+                  double factor = 1.)
     {
       const unsigned int nq     = fe.n_quadrature_points;
       const unsigned int n_dofs = fe.dofs_per_cell;
@@ -221,12 +213,11 @@ namespace LocalIntegrators
      */
     template <int dim>
     inline void
-    cell_residual(
-      Vector<double> &                                           result,
-      const FEValuesBase<dim> &                                  fe,
-      const std::vector<double> &                                input,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    cell_residual(Vector<double> &                            result,
+                  const FEValuesBase<dim> &                   fe,
+                  const std::vector<double> &                 input,
+                  const ArrayView<const std::vector<double>> &velocity,
+                  double                                      factor = 1.)
     {
       const unsigned int nq     = fe.n_quadrature_points;
       const unsigned int n_dofs = fe.dofs_per_cell;
@@ -262,12 +253,11 @@ namespace LocalIntegrators
      */
     template <int dim>
     inline void
-    cell_residual(
-      Vector<double> &                                           result,
-      const FEValuesBase<dim> &                                  fe,
-      const VectorSlice<const std::vector<std::vector<double>>> &input,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    cell_residual(Vector<double> &                            result,
+                  const FEValuesBase<dim> &                   fe,
+                  const ArrayView<const std::vector<double>> &input,
+                  const ArrayView<const std::vector<double>> &velocity,
+                  double                                      factor = 1.)
     {
       const unsigned int nq     = fe.n_quadrature_points;
       const unsigned int n_dofs = fe.dofs_per_cell;
@@ -307,7 +297,7 @@ namespace LocalIntegrators
      * u_i v_j \, ds
      * @f]
      *
-     * The <tt>velocity</tt> is provided as a VectorSlice, having <tt>dim</tt>
+     * The <tt>velocity</tt> is provided as an ArrayView, having <tt>dim</tt>
      * vectors, one for each velocity component. Each of the vectors must
      * either have only a single entry, if the advection velocity is constant,
      * or have an entry for each quadrature point.
@@ -317,12 +307,11 @@ namespace LocalIntegrators
      */
     template <int dim>
     void
-    upwind_value_matrix(
-      FullMatrix<double> &                                       M,
-      const FEValuesBase<dim> &                                  fe,
-      const FEValuesBase<dim> &                                  fetest,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    upwind_value_matrix(FullMatrix<double> &                        M,
+                        const FEValuesBase<dim> &                   fe,
+                        const FEValuesBase<dim> &                   fetest,
+                        const ArrayView<const std::vector<double>> &velocity,
+                        double                                      factor = 1.)
     {
       const unsigned int n_dofs       = fe.dofs_per_cell;
       const unsigned int t_dofs       = fetest.dofs_per_cell;
@@ -379,9 +368,9 @@ namespace LocalIntegrators
      * Here, the numerical flux $\widehat u$ is the upwind value at the face,
      * namely the finite element function whose values are given in the
      * argument `input` on the outflow boundary. On the inflow boundary, it is
-     * the inhomogenous boundary value in the argument `data`.
+     * the inhomogeneous boundary value in the argument `data`.
      *
-     * The <tt>velocity</tt> is provided as a VectorSlice, having <tt>dim</tt>
+     * The <tt>velocity</tt> is provided as an ArrayView, having <tt>dim</tt>
      * vectors, one for each velocity component. Each of the vectors must
      * either have only a single entry, if the advection velocity is constant,
      * or have an entry for each quadrature point.
@@ -391,13 +380,12 @@ namespace LocalIntegrators
      */
     template <int dim>
     inline void
-    upwind_value_residual(
-      Vector<double> &                                           result,
-      const FEValuesBase<dim> &                                  fe,
-      const std::vector<double> &                                input,
-      const std::vector<double> &                                data,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    upwind_value_residual(Vector<double> &                            result,
+                          const FEValuesBase<dim> &                   fe,
+                          const std::vector<double> &                 input,
+                          const std::vector<double> &                 data,
+                          const ArrayView<const std::vector<double>> &velocity,
+                          double factor = 1.)
     {
       const unsigned int n_dofs = fe.dofs_per_cell;
 
@@ -447,9 +435,9 @@ namespace LocalIntegrators
      * Here, the numerical flux $\widehat u$ is the upwind value at the face,
      * namely the finite element function whose values are given in the
      * argument `input` on the outflow boundary. On the inflow boundary, it is
-     * the inhomogenous boundary value in the argument `data`.
+     * the inhomogeneous boundary value in the argument `data`.
      *
-     * The <tt>velocity</tt> is provided as a VectorSlice, having <tt>dim</tt>
+     * The <tt>velocity</tt> is provided as an ArrayView, having <tt>dim</tt>
      * vectors, one for each velocity component. Each of the vectors must
      * either have only a single entry, if the advection velocity is constant,
      * or have an entry for each quadrature point.
@@ -459,13 +447,12 @@ namespace LocalIntegrators
      */
     template <int dim>
     inline void
-    upwind_value_residual(
-      Vector<double> &                                           result,
-      const FEValuesBase<dim> &                                  fe,
-      const VectorSlice<const std::vector<std::vector<double>>> &input,
-      const VectorSlice<const std::vector<std::vector<double>>> &data,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      double                                                     factor = 1.)
+    upwind_value_residual(Vector<double> &                            result,
+                          const FEValuesBase<dim> &                   fe,
+                          const ArrayView<const std::vector<double>> &input,
+                          const ArrayView<const std::vector<double>> &data,
+                          const ArrayView<const std::vector<double>> &velocity,
+                          double factor = 1.)
     {
       const unsigned int n_dofs = fe.dofs_per_cell;
       const unsigned int n_comp = fe.get_fe().n_components();
@@ -517,7 +504,7 @@ namespace LocalIntegrators
      * \,ds
      * @f]
      *
-     * The <tt>velocity</tt> is provided as a VectorSlice, having <tt>dim</tt>
+     * The <tt>velocity</tt> is provided as an ArrayView, having <tt>dim</tt>
      * vectors, one for each velocity component. Each of the vectors must
      * either have only a single entry, if the advection velocity is constant,
      * or have an entry for each quadrature point.
@@ -527,17 +514,16 @@ namespace LocalIntegrators
      */
     template <int dim>
     void
-    upwind_value_matrix(
-      FullMatrix<double> &                                       M11,
-      FullMatrix<double> &                                       M12,
-      FullMatrix<double> &                                       M21,
-      FullMatrix<double> &                                       M22,
-      const FEValuesBase<dim> &                                  fe1,
-      const FEValuesBase<dim> &                                  fe2,
-      const FEValuesBase<dim> &                                  fetest1,
-      const FEValuesBase<dim> &                                  fetest2,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      const double                                               factor = 1.)
+    upwind_value_matrix(FullMatrix<double> &                        M11,
+                        FullMatrix<double> &                        M12,
+                        FullMatrix<double> &                        M21,
+                        FullMatrix<double> &                        M22,
+                        const FEValuesBase<dim> &                   fe1,
+                        const FEValuesBase<dim> &                   fe2,
+                        const FEValuesBase<dim> &                   fetest1,
+                        const FEValuesBase<dim> &                   fetest2,
+                        const ArrayView<const std::vector<double>> &velocity,
+                        const double                                factor = 1.)
     {
       const unsigned int n1 = fe1.dofs_per_cell;
       // Multiply the quadrature point
@@ -603,7 +589,7 @@ namespace LocalIntegrators
      * \,ds
      * @f]
      *
-     * The <tt>velocity</tt> is provided as a VectorSlice, having <tt>dim</tt>
+     * The <tt>velocity</tt> is provided as an ArrayView, having <tt>dim</tt>
      * vectors, one for each velocity component. Each of the vectors must
      * either have only a single entry, if the advection velocity is constant,
      * or have an entry for each quadrature point.
@@ -613,15 +599,14 @@ namespace LocalIntegrators
      */
     template <int dim>
     void
-    upwind_face_residual(
-      Vector<double> &                                           result1,
-      Vector<double> &                                           result2,
-      const FEValuesBase<dim> &                                  fe1,
-      const FEValuesBase<dim> &                                  fe2,
-      const std::vector<double> &                                input1,
-      const std::vector<double> &                                input2,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      const double                                               factor = 1.)
+    upwind_face_residual(Vector<double> &                            result1,
+                         Vector<double> &                            result2,
+                         const FEValuesBase<dim> &                   fe1,
+                         const FEValuesBase<dim> &                   fe2,
+                         const std::vector<double> &                 input1,
+                         const std::vector<double> &                 input2,
+                         const ArrayView<const std::vector<double>> &velocity,
+                         const double factor = 1.)
     {
       Assert(fe1.get_fe().n_components() == 1,
              ExcDimensionMismatch(fe1.get_fe().n_components(), 1));
@@ -681,7 +666,7 @@ namespace LocalIntegrators
      * \,ds
      * @f]
      *
-     * The <tt>velocity</tt> is provided as a VectorSlice, having <tt>dim</tt>
+     * The <tt>velocity</tt> is provided as an ArrayView, having <tt>dim</tt>
      * vectors, one for each velocity component. Each of the vectors must
      * either have only a single entry, if the advection velocity is constant,
      * or have an entry for each quadrature point.
@@ -691,15 +676,14 @@ namespace LocalIntegrators
      */
     template <int dim>
     void
-    upwind_face_residual(
-      Vector<double> &                                           result1,
-      Vector<double> &                                           result2,
-      const FEValuesBase<dim> &                                  fe1,
-      const FEValuesBase<dim> &                                  fe2,
-      const VectorSlice<const std::vector<std::vector<double>>> &input1,
-      const VectorSlice<const std::vector<std::vector<double>>> &input2,
-      const VectorSlice<const std::vector<std::vector<double>>> &velocity,
-      const double                                               factor = 1.)
+    upwind_face_residual(Vector<double> &                            result1,
+                         Vector<double> &                            result2,
+                         const FEValuesBase<dim> &                   fe1,
+                         const FEValuesBase<dim> &                   fe2,
+                         const ArrayView<const std::vector<double>> &input1,
+                         const ArrayView<const std::vector<double>> &input2,
+                         const ArrayView<const std::vector<double>> &velocity,
+                         const double factor = 1.)
     {
       const unsigned int n_comp = fe1.get_fe().n_components();
       const unsigned int n1     = fe1.dofs_per_cell;

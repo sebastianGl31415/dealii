@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2018 by the deal.II authors
+// Copyright (C) 2004 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -20,6 +20,7 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/cuda.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/job_identifier.h>
@@ -63,6 +64,13 @@ struct DisableWindowsDebugRuntimeDialog
   }
 } deal_II_windows_crt_dialog;
 #endif
+
+// Redefine Assert as AssertThrow to make sure that the code is tested similarly
+// in Release mode and in Debug mode. clang-format makes sure that this file is
+// included after all regular header files but before all the other local header
+// files.
+#undef Assert
+#define Assert AssertThrow
 
 // implicitly use the deal.II namespace everywhere, without us having to say
 // so in each and every testcase
@@ -257,6 +265,20 @@ random_point(const double &min = 0.0, const double &max = 1.0)
   for (unsigned int i = 0; i < dim; ++i)
     p[i] = random_value(min, max);
   return p;
+}
+
+
+
+// Construct a uniformly distributed random box, with each coordinate
+// between min and max
+template <int dim>
+inline BoundingBox<dim>
+random_box(const double &min = 0.0, const double &max = 1.0)
+{
+  Assert(max >= min, ExcMessage("Make sure max>=min"));
+  std::vector<Point<dim>> p = {random_point<dim>(min, max),
+                               random_point<dim>(min, max)};
+  return BoundingBox<dim>(p);
 }
 
 
@@ -527,6 +549,9 @@ struct MPILogInitAll
   {
 #ifdef DEAL_II_WITH_MPI
     const unsigned int myid = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+#else
+    constexpr unsigned int myid = 0;
+#endif
     if (myid == 0)
       {
         if (!deallog.has_file())
@@ -545,21 +570,16 @@ struct MPILogInitAll
     deallog.depth_console(console ? 10 : 0);
 
     deallog.push(Utilities::int_to_string(myid));
-#else
-    (void)console;
-    // can't use this function if not using MPI
-    Assert(false, ExcInternalError());
-#endif
   }
 
   ~MPILogInitAll()
   {
+    // pop the prefix for the MPI rank of the current process
+    deallog.pop();
+
 #ifdef DEAL_II_WITH_MPI
     const unsigned int myid  = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
     const unsigned int nproc = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
-
-    // pop the prefix for the MPI rank of the current process
-    deallog.pop();
 
     if (myid != 0)
       {
@@ -583,10 +603,6 @@ struct MPILogInitAll
           }
       }
     MPI_Barrier(MPI_COMM_WORLD);
-
-#else
-    // can't use this function if not using MPI
-    Assert(false, ExcInternalError());
 #endif
   }
 };
@@ -596,7 +612,7 @@ struct MPILogInitAll
 // By default, all the ranks will try to access the device 0.
 // If we are running with MPI support it is better to address different graphic
 // cards for different processes even if only one node is used. The choice below
-// is based on the MPI proccess id.
+// is based on the MPI process id.
 // MPI needs to be initialized before using this function.
 void
 init_cuda(const bool use_mpi = false)
@@ -756,35 +772,13 @@ struct SetGrainSizes
 
 DEAL_II_NAMESPACE_CLOSE
 
-/*
- * Do not use a template here to work around an overload resolution issue with
- * clang and enabled  C++11 mode.
- *
- * - Maier 2013
- */
+template <class T>
 LogStream &
-operator<<(LogStream &out, const std::vector<unsigned int> &v)
+operator<<(LogStream &out, const std::vector<T> &v)
 {
-  for (unsigned int i = 0; i < v.size(); ++i)
+  for (std::size_t i = 0; i < v.size(); ++i)
     out << v[i] << (i == v.size() - 1 ? "" : " ");
   return out;
 }
-
-LogStream &
-operator<<(LogStream &out, const std::vector<long long unsigned int> &v)
-{
-  for (unsigned int i = 0; i < v.size(); ++i)
-    out << v[i] << (i == v.size() - 1 ? "" : " ");
-  return out;
-}
-
-LogStream &
-operator<<(LogStream &out, const std::vector<double> &v)
-{
-  for (unsigned int i = 0; i < v.size(); ++i)
-    out << v[i] << (i == v.size() - 1 ? "" : " ");
-  return out;
-}
-
 
 #endif // dealii_tests_h

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2017 by the deal.II authors
+// Copyright (C) 2016 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -23,6 +23,7 @@
  * results in the correct constraints despite the bug.
  */
 
+#include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_tools.h>
 
@@ -36,7 +37,6 @@
 #include <deal.II/grid/grid_refinement.h>
 #include <deal.II/grid/grid_tools.h>
 
-#include <deal.II/hp/dof_handler.h>
 #include <deal.II/hp/fe_collection.h>
 
 #include <deal.II/numerics/data_out.h>
@@ -52,7 +52,7 @@
 // used only for debugging
 template <int dim>
 void
-plot_shape_function(hp::DoFHandler<dim> &dof_handler, unsigned int patches = 5)
+plot_shape_function(DoFHandler<dim> &dof_handler, unsigned int patches = 5)
 {
   deallog << "...start plotting shape function" << std::endl;
   deallog << "Patches for output: " << patches << std::endl;
@@ -64,7 +64,7 @@ plot_shape_function(hp::DoFHandler<dim> &dof_handler, unsigned int patches = 5)
 
   // find set of dofs which belong to enriched cells
   std::set<unsigned int> enriched_cell_dofs;
-  for (auto cell : dof_handler.active_cell_iterators())
+  for (auto &cell : dof_handler.active_cell_iterators())
     if (cell->active_fe_index() != 0)
       {
         unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
@@ -141,12 +141,12 @@ plot_shape_function(hp::DoFHandler<dim> &dof_handler, unsigned int patches = 5)
       deallog << "...finished printing support points" << std::endl;
     }
 
-  DataOut<dim, hp::DoFHandler<dim>> data_out;
+  DataOut<dim, DoFHandler<dim>> data_out;
   data_out.attach_dof_handler(dof_handler);
 
   // get material ids:
   Vector<float> fe_index(dof_handler.get_triangulation().n_active_cells());
-  for (auto cell : dof_handler.active_cell_iterators())
+  for (auto &cell : dof_handler.active_cell_iterators())
     {
       fe_index[cell->active_cell_index()] = cell->active_fe_index();
     }
@@ -222,10 +222,10 @@ main(int argc, char **argv)
   MPILogInitAll                    all;
 
   // Make basic grid
-  const unsigned int  dim = 2;
-  Triangulation<dim>  triangulation;
-  hp::DoFHandler<dim> dof_handler(triangulation);
-  Point<dim>          p1(0, 0), p2(3, 1);
+  const unsigned int dim = 2;
+  Triangulation<dim> triangulation;
+  DoFHandler<dim>    dof_handler(triangulation);
+  Point<dim>         p1(0, 0), p2(3, 1);
   GridGenerator::subdivided_hyper_rectangle(triangulation, {3, 1}, p1, p2);
 
   // Make predicates resulting in three adjacent domains
@@ -242,11 +242,12 @@ main(int argc, char **argv)
   for (unsigned int i = 0; i < vec_predicates.size(); ++i)
     {
       // constant function.
-      ConstantFunction<dim> func(10 + i); // constant function
-      vec_enrichments.push_back(std::make_shared<ConstantFunction<dim>>(func));
+      Functions::ConstantFunction<dim> func(10 + i); // constant function
+      vec_enrichments.push_back(
+        std::make_shared<Functions::ConstantFunction<dim>>(func));
     }
 
-  // Construct helper class to construct fe collection
+  // Construct helper class to construct FE collection
   FE_Q<dim> fe_base(2);
   FE_Q<dim> fe_enriched(1);
 
@@ -269,8 +270,7 @@ main(int argc, char **argv)
     }
 
   deallog << "Face dominating set for 1 and 2: "
-          << fe_collection.find_least_dominating_fe_in_collection({1, 2},
-                                                                  /*codim=*/1)
+          << fe_collection.find_dominating_fe_extended({1, 2}, /*codim=*/1)
           << std::endl;
 
   dof_handler.distribute_dofs(fe_collection);

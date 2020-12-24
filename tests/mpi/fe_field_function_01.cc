@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2009 - 2017 by the deal.II authors
+// Copyright (C) 2009 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -103,7 +103,7 @@ test()
                    1e-8 * std::fabs(value + (p[0] + 2)),
                  ExcInternalError());
         }
-      catch (typename VectorTools::ExcPointNotAvailableHere &)
+      catch (...)
         {
           point_found = false;
         }

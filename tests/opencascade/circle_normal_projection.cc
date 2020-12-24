@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2014 - 2018 by the deal.II authors
+// Copyright (C) 2014 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -44,8 +44,7 @@ using namespace OpenCASCADE;
 int
 main()
 {
-  std::ofstream logfile("output");
-  deallog.attach(logfile);
+  initlog();
 
   // The circle passing through the
   // vertices of the unit square
@@ -73,12 +72,13 @@ main()
   GridGenerator::hyper_cube(tria);
 
   // Set the exterior boundary
+  tria.set_all_manifold_ids(0);
   tria.set_manifold(0, boundary_line);
 
   // This is here to ignore the
   // points created in the interior
   // of the face.
-  tria.begin()->set_material_id(1);
+  tria.begin()->set_manifold_id(1);
 
   // We refine twice, and expect the
   // outer points to end up on the
@@ -89,7 +89,7 @@ main()
   // You can open the generated file
   // with paraview.
   GridOut gridout;
-  gridout.write_ucd(tria, logfile);
+  gridout.write_ucd(tria, deallog.get_file_stream());
 
   return 0;
 }

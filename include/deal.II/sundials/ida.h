@@ -1,6 +1,6 @@
 //-----------------------------------------------------------
 //
-//    Copyright (C) 2017 - 2018 by the deal.II authors
+//    Copyright (C) 2017 - 2020 by the deal.II authors
 //
 //    This file is part of the deal.II library.
 //
@@ -24,7 +24,6 @@
 #  include <deal.II/base/conditional_ostream.h>
 #  include <deal.II/base/exceptions.h>
 #  include <deal.II/base/logstream.h>
-#  include <deal.II/base/mpi.h>
 #  include <deal.II/base/parameter_handler.h>
 #  ifdef DEAL_II_WITH_PETSC
 #    include <deal.II/lac/petsc_block_vector.h>
@@ -98,11 +97,11 @@ namespace SUNDIALS
    *   \end{cases}
    * \f]
    *
-   * where $y,\dot y$ are vectors in $\R^n$, $t$ is often the time (but can
-   * also be a parametric quantity), and
-   * $F:\R\times\R^n\times\R^n\rightarrow\R^n$. Such problem is solved
-   * using Newton iteration augmented with a line search global
-   * strategy. The integration method used in IDA is the variable-order,
+   * where $y,\dot y$ are vectors in $\mathbb{R}^n$, $t$ is often the time (but
+   * can also be a parametric quantity), and
+   * $F:\mathbb{R}\times\mathbb{R}^n\times \mathbb{R}^n\rightarrow\mathbb{R}^n$.
+   * Such problem is solved using Newton iteration augmented with a line search
+   * global strategy. The integration method used in IDA is the variable-order,
    * variable-coefficient BDF (Backward Differentiation Formula), in
    * fixed-leading-coefficient. The method order ranges from 1 to 5, with
    * the BDF of order $q$ given by the multistep formula
@@ -229,8 +228,6 @@ namespace SUNDIALS
    * y_dot[0] = kappa;
    * time_stepper.solve_dae(y,y_dot);
    * @endcode
-   *
-   * @author Luca Heltai, Alberto Sartori, 2017.
    */
   template <typename VectorType = Vector<double>>
   class IDA
@@ -373,7 +370,7 @@ namespace SUNDIALS
        * a parameter file using `prm`. The values of the parameter will be
        * updated whenever the content of `prm` is updated.
        *
-       * Make sure that this class lives longer than `prm`. Undefined behaviour
+       * Make sure that this class lives longer than `prm`. Undefined behavior
        * will occur if you destroy this class, and then parse a parameter file
        * using `prm`.
        */
@@ -583,7 +580,7 @@ namespace SUNDIALS
      * @param mpi_comm MPI communicator
      */
     IDA(const AdditionalData &data     = AdditionalData(),
-        const MPI_Comm        mpi_comm = MPI_COMM_WORLD);
+        const MPI_Comm &      mpi_comm = MPI_COMM_WORLD);
 
     /**
      * Destructor.

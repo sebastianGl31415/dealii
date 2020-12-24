@@ -177,7 +177,6 @@ and could be smoothed on a continuous grid for the post-processing purposes.
 
 
 <table align="center" class="tutorial" cellspacing="3" cellpadding="3">
-
   <tr>
     <td align="center">
         <img src="https://www.dealii.org/images/steps/developer/step-44.Q2-P1_gr_3_p_ratio_80-displacement.png" alt="">
@@ -241,7 +240,6 @@ displacement field, although qualitatively similar, is different to that of the 
 
 
 <table align="center" class="tutorial" cellspacing="3" cellpadding="3">
-
   <tr>
     <td align="center">
         <img src="https://www.dealii.org/images/steps/developer/step-44.2d-gr_2.png" alt="">
@@ -300,9 +298,9 @@ There are a number of obvious extensions for this work:
   (detection and stress calculations) itself. An alternative to
   additional penalty terms in the free-energy functional would be to
   use active set methods such as the one used in step-41.
-- The complete condensation procedure using LinearOperators has been 
-  coded into the linear solver routine. This could also have been 
-  achieved through the application of the schur_complement() 
+- The complete condensation procedure using LinearOperators has been
+  coded into the linear solver routine. This could also have been
+  achieved through the application of the schur_complement()
   operator to condense out one or more of the fields in a more
   automated manner.
 - Finally, adaptive mesh refinement, as demonstrated in step-6 and

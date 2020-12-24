@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2018 by the deal.II authors
+// Copyright (C) 1999 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -19,9 +19,9 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/aligned_vector.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/index_set.h>
-#include <deal.II/base/logstream.h>
 #include <deal.II/base/subscriptor.h>
 
 #include <deal.II/differentiation/ad/ad_number_traits.h>
@@ -29,32 +29,27 @@
 #include <deal.II/lac/vector_operation.h>
 #include <deal.II/lac/vector_type_traits.h>
 
-// boost::serialization::make_array used to be in array.hpp, but was
-// moved to a different file in BOOST 1.64
-#include <boost/version.hpp>
-#if BOOST_VERSION >= 106400
-#  include <boost/serialization/array_wrapper.hpp>
-#else
-#  include <boost/serialization/array.hpp>
-#endif
 #include <boost/serialization/split_member.hpp>
 
-#include <cstdio>
-#include <cstring>
-#include <iostream>
+#include <algorithm>
+#include <initializer_list>
+#include <iosfwd>
+#include <iterator>
 #include <vector>
 
 DEAL_II_NAMESPACE_OPEN
 
 
-#ifdef DEAL_II_WITH_PETSC
+// Forward declarations
+#ifndef DOXYGEN
+#  ifdef DEAL_II_WITH_PETSC
 namespace PETScWrappers
 {
   class VectorBase;
 }
-#endif
+#  endif
 
-#ifdef DEAL_II_WITH_TRILINOS
+#  ifdef DEAL_II_WITH_TRILINOS
 namespace TrilinosWrappers
 {
   namespace MPI
@@ -62,16 +57,13 @@ namespace TrilinosWrappers
     class Vector;
   }
 } // namespace TrilinosWrappers
-#endif
+#  endif
 
 template <typename number>
 class LAPACKFullMatrix;
 
 template <typename>
 class BlockVector;
-
-template <typename>
-class VectorView;
 
 namespace parallel
 {
@@ -80,7 +72,7 @@ namespace parallel
     class TBBPartitioner;
   }
 } // namespace parallel
-
+#endif
 
 
 /*! @addtogroup Vectors
@@ -88,23 +80,30 @@ namespace parallel
  */
 
 /**
- * Numerical vector of data.  For this class there are different types of
- * functions available. The first type of function initializes the vector,
- * changes its size, or computes the norm of the vector in order to measure
- * its length in a suitable norm. The second type helps us to manipulate the
- * components of the vector. The third type defines the algebraic operations
- * for vectors, while the last type defines a few input and output functions.
- * As opposed to the array of the C++ standard library called @p vector (with
- * a lowercase "v"), this class implements an element of a vector space
- * suitable for numerical computations.
+ * A class that represents a vector of numerical elements. As for the
+ * other classes, in the
+ * @ref Vectors
+ * group, this class has a substantial
+ * number of member functions. These include:
+ * - functions that initialize the vector or change its size;
+ * - functions that compute properties of the vector, such as a variety of
+ *   norms;
+ * - functions that allow reading from or writing to individual elements of the
+ *   vector;
+ * - functions that implement algebraic operations for vectors, such as
+ *   addition of vectors; and
+ * - functions that allow inputting and outputting the data stored by vectors.
+ *
+ * In contrast to the C++ standard library class `std::vector`, this class
+ * intends to implement not simply an array that allows access to its elements,
+ * but indeed a vector that is a member of the mathematical concept of a
+ * "vector space" suitable for numerical computations.
  *
  * @note Instantiations for this template are provided for <tt>@<float@>,
  * @<double@>, @<std::complex@<float@>@>, @<std::complex@<double@>@></tt>;
  * others can be generated in application programs (see the section on
  * @ref Instantiations
  * in the manual).
- *
- * @author Guido Kanschat, Franz-Theo Suttmeier, Wolfgang Bangerth
  */
 template <typename Number>
 class Vector : public Subscriptor
@@ -140,7 +139,6 @@ public:
    */
   using real_type = typename numbers::NumberTraits<Number>::real_type;
 
-public:
   /**
    * @name Basic object handling
    */
@@ -156,6 +154,8 @@ public:
    *
    * We would like to make this constructor explicit, but standard containers
    * insist on using it implicitly.
+   *
+   * @dealiiOperationIsMultithreaded
    */
   Vector(const Vector<Number> &v);
 
@@ -163,22 +163,36 @@ public:
    * Move constructor. Creates a new vector by stealing the internal data of
    * the vector @p v.
    */
-  Vector(Vector<Number> &&v) noexcept;
+  Vector(Vector<Number> &&v) noexcept = default;
 
   /**
-   * Copy constructor taking a vector of another data type. This will fail if
-   * there is no conversion path from @p OtherNumber to @p Number. Note that
-   * you may lose accuracy when copying to a vector with data elements with
-   * less accuracy.
+   * Copy constructor taking a vector of another data type.
    *
-   * Older versions of gcc did not honor the @p explicit keyword on template
-   * constructors. In such cases, it is easy to accidentally write code that
-   * can be very inefficient, since the compiler starts performing hidden
-   * conversions. To avoid this, this function is disabled if we have detected
-   * a broken compiler during configuration.
+   * This constructor will fail to compile if
+   * there is no conversion path from @p OtherNumber to @p Number. You may
+   * lose accuracy when copying to a vector with data elements with
+   * less accuracy.
    */
   template <typename OtherNumber>
   explicit Vector(const Vector<OtherNumber> &v);
+
+  /**
+   * Copy constructor taking an object of type `std::initializer_list`. This
+   * constructor can be used to initialize a vector using a brace-enclosed
+   * list of numbers, such as in the following example:
+   * @code
+   *   Vector<double> v({1,2,3});
+   * @endcode
+   * This creates a vector of size 3, whose (double precision) elements have
+   * values 1.0, 2.0, and 3.0.
+   *
+   * This constructor will fail to compile if
+   * there is no conversion path from @p OtherNumber to @p Number. You may
+   * lose accuracy when copying to a vector with data elements with
+   * less accuracy.
+   */
+  template <typename OtherNumber>
+  explicit Vector(const std::initializer_list<OtherNumber> &v);
 
 #ifdef DEAL_II_WITH_PETSC
   /**
@@ -260,7 +274,7 @@ public:
    * waste some memory, so keep this in mind.  However, if <tt>N==0</tt> all
    * memory is freed, i.e. if you want to resize the vector and release the
    * memory not needed, you have to first call <tt>reinit(0)</tt> and then
-   * <tt>reinit(N)</tt>. This cited behaviour is analogous to that of the
+   * <tt>reinit(N)</tt>. This cited behavior is analogous to that of the
    * standard library containers.
    *
    * If @p omit_zeroing_entries is false, the vector is filled by zeros.
@@ -340,10 +354,7 @@ public:
   swap(Vector<Number> &v);
 
   /**
-   * Set all components of the vector to the given number @p s. Simply pass
-   * this down to the individual block objects, but we still need to declare
-   * this function to make the example given in the discussion about making
-   * the constructor explicit work.
+   * Set all components of the vector to the given number @p s.
    *
    * Since the semantics of assigning a scalar to a vector are not immediately
    * clear, this operator should really only be used if you want to set the
@@ -369,7 +380,7 @@ public:
    * have after being newly default-constructed.
    */
   Vector<Number> &
-  operator=(Vector<Number> &&v) noexcept;
+  operator=(Vector<Number> &&v) noexcept = default;
 
   /**
    * Copy the given vector. Resize the present vector if necessary.
@@ -559,6 +570,18 @@ public:
   //@{
 
   /**
+   * Return a pointer to the underlying data buffer.
+   */
+  pointer
+  data();
+
+  /**
+   * Return a const pointer to the underlying data buffer.
+   */
+  const_pointer
+  data() const;
+
+  /**
    * Make the @p Vector class a bit like the <tt>vector<></tt> class of the
    * C++ standard library by returning iterators to the start and end of the
    * elements of this vector.
@@ -620,7 +643,7 @@ public:
    * If the current vector is called @p v, then this function is the equivalent
    * to the code
    * @code
-   *   for (unsigned int i=0; i<indices.size(); ++i)
+   *   for (unsigned int i = 0; i < indices.size(); ++i)
    *     values[i] = v[indices[i]];
    * @endcode
    *
@@ -647,11 +670,11 @@ public:
    *   ForwardIterator indices_p = indices_begin;
    *   OutputIterator  values_p  = values_begin;
    *   while (indices_p != indices_end)
-   *   {
-   *     *values_p = v[*indices_p];
-   *     ++indices_p;
-   *     ++values_p;
-   *   }
+   *     {
+   *       *values_p = v[*indices_p];
+   *       ++indices_p;
+   *       ++values_p;
+   *     }
    * @endcode
    *
    * @pre It must be possible to write into as many memory locations
@@ -810,22 +833,6 @@ public:
   equ(const Number a, const Vector<Number2> &u);
 
   /**
-   * Compute the elementwise ratio of the two given vectors, that is let
-   * <tt>this[i] = a[i]/b[i]</tt>. This is useful for example if you want to
-   * compute the cellwise ratio of true to estimated error.
-   *
-   * This vector is appropriately scaled to hold the result.
-   *
-   * If any of the <tt>b[i]</tt> is zero, the result is undefined. No attempt
-   * is made to catch such situations.
-   *
-   * @dealiiOperationIsMultithreaded
-   */
-  DEAL_II_DEPRECATED
-  void
-  ratio(const Vector<Number> &a, const Vector<Number> &b);
-
-  /**
    * This function does nothing but exists for compatibility with the @p
    * parallel vector classes (e.g., LinearAlgebra::distributed::Vector class).
    */
@@ -839,16 +846,6 @@ public:
    */
   //@{
   /**
-   * Output of vector in user-defined format. For complex-valued vectors, the
-   * format should include specifiers for both the real and imaginary parts.
-   *
-   * This function is deprecated.
-   */
-  DEAL_II_DEPRECATED
-  void
-  print(const char *format = nullptr) const;
-
-  /**
    * Print to a stream. @p precision denotes the desired precision with which
    * values shall be printed, @p scientific whether scientific notation shall
    * be used. If @p across is @p true then the vector is printed in a line,
@@ -859,20 +856,6 @@ public:
         const unsigned int precision  = 3,
         const bool         scientific = true,
         const bool         across     = true) const;
-
-  /**
-   * Print to a LogStream. <tt>width</tt> is used as argument to the std::setw
-   * manipulator, if printing across.  If @p across is @p true then the vector
-   * is printed in a line, while if @p false then the elements are printed on
-   * a separate line each.
-   *
-   * This function is deprecated.
-   */
-  DEAL_II_DEPRECATED
-  void
-  print(LogStream &        out,
-        const unsigned int width  = 6,
-        const bool         across = true) const;
 
   /**
    * Write the vector en bloc to a file. This is done in a binary mode, so the
@@ -912,7 +895,19 @@ public:
   void
   load(Archive &ar, const unsigned int version);
 
+#ifdef DOXYGEN
+  /**
+   * Write and read the data of this object from a stream for the purpose
+   * of serialization.
+   */
+  template <class Archive>
+  void
+  serialize(Archive &archive, const unsigned int version);
+#else
+  // This macro defines the serialize() method that is compatible with
+  // the templated save() and load() method that have been implemented.
   BOOST_SERIALIZATION_SPLIT_MEMBER()
+#endif
 
   /**
    * @}
@@ -981,31 +976,37 @@ public:
    */
   std::size_t
   memory_consumption() const;
+
+  /**
+   * This function exists for compatibility with the @p
+   * parallel vector classes (e.g., LinearAlgebra::distributed::Vector class).
+   * Always returns false since this implementation is serial.
+   */
+  bool
+  has_ghost_elements() const;
   //@}
 
-protected:
+private:
   /**
-   * Dimension. Actual number of components contained in the vector.  Get this
-   * number by calling <tt>size()</tt>.
+   * Array of elements owned by this vector.
    */
-  size_type vec_size;
+  AlignedVector<Number> values;
 
   /**
-   * Amount of memory actually reserved for this vector. This number may be
-   * greater than @p vec_size if a @p reinit was called with less memory
-   * requirements than the vector needed last time. At present @p reinit does
-   * not free memory when the number of needed elements is reduced.
+   * Convenience function used at the end of initialization or
+   * reinitialization. Resets (if necessary) the loop partitioner to the
+   * correct state, based on its current state and the length of the vector.
    */
-  size_type max_vec_size;
+  void
+  maybe_reset_thread_partitioner();
 
   /**
-   * Pointer to the array of elements of this vector.
-   *
-   * Because we allocate these arrays via Utilities::System::posix_memalign,
-   * we need to use a custom deleter for this object that does not call
-   * <code>delete[]</code>, but instead calls @p free().
+   * Actual implementation of the reinit functions.
    */
-  std::unique_ptr<Number[], decltype(&free)> values;
+  void
+  do_reinit(const size_type new_size,
+            const bool      omit_zeroing_entries,
+            const bool      reset_partitioner);
 
   /**
    * For parallel loops with TBB, this member variable stores the affinity
@@ -1014,31 +1015,9 @@ protected:
   mutable std::shared_ptr<parallel::internal::TBBPartitioner>
     thread_loop_partitioner;
 
-  /**
-   * Make all other vector types friends.
-   */
+  // Make all other vector types friends.
   template <typename Number2>
   friend class Vector;
-
-  /**
-   * LAPACK matrices need access to the data.
-   */
-  template <typename Number2>
-  friend class LAPACKFullMatrix;
-
-  /**
-   * VectorView will access the pointer.
-   */
-  friend class VectorView<Number>;
-
-private:
-  /**
-   * Allocate and align @p values along 64-byte boundaries. The size of the
-   * allocated memory is determined by @p max_vec_size . Copy first
-   * @p copy_n_el from the old values.
-   */
-  void
-  allocate(const size_type copy_n_el = 0);
 };
 
 /*@}*/
@@ -1058,9 +1037,6 @@ Vector<int>::lp_norm(const real_type) const;
 
 template <typename Number>
 inline Vector<Number>::Vector()
-  : vec_size(0)
-  , max_vec_size(0)
-  , values(nullptr, &free)
 {
   // virtual functions called in constructors and destructors never use the
   // override in a derived class
@@ -1071,11 +1047,16 @@ inline Vector<Number>::Vector()
 
 
 template <typename Number>
+template <typename OtherNumber>
+Vector<Number>::Vector(const std::initializer_list<OtherNumber> &v)
+  : Vector(v.begin(), v.end())
+{}
+
+
+
+template <typename Number>
 template <typename InputIterator>
 Vector<Number>::Vector(const InputIterator first, const InputIterator last)
-  : vec_size(0)
-  , max_vec_size(0)
-  , values(nullptr, &free)
 {
   // allocate memory. do not initialize it, as we will copy over to it in a
   // second
@@ -1087,9 +1068,6 @@ Vector<Number>::Vector(const InputIterator first, const InputIterator last)
 
 template <typename Number>
 inline Vector<Number>::Vector(const size_type n)
-  : vec_size(0)
-  , max_vec_size(0)
-  , values(nullptr, &free)
 {
   // virtual functions called in constructors and destructors never use the
   // override in a derived class
@@ -1103,7 +1081,7 @@ template <typename Number>
 inline typename Vector<Number>::size_type
 Vector<Number>::size() const
 {
-  return vec_size;
+  return values.size();
 }
 
 
@@ -1117,10 +1095,28 @@ Vector<Number>::in_local_range(const size_type) const
 
 
 template <typename Number>
+inline typename Vector<Number>::pointer
+Vector<Number>::data()
+{
+  return values.data();
+}
+
+
+
+template <typename Number>
+inline typename Vector<Number>::const_pointer
+Vector<Number>::data() const
+{
+  return values.data();
+}
+
+
+
+template <typename Number>
 inline typename Vector<Number>::iterator
 Vector<Number>::begin()
 {
-  return values.get();
+  return values.begin();
 }
 
 
@@ -1129,7 +1125,7 @@ template <typename Number>
 inline typename Vector<Number>::const_iterator
 Vector<Number>::begin() const
 {
-  return values.get();
+  return values.begin();
 }
 
 
@@ -1138,7 +1134,7 @@ template <typename Number>
 inline typename Vector<Number>::iterator
 Vector<Number>::end()
 {
-  return values.get() + vec_size;
+  return values.end();
 }
 
 
@@ -1147,7 +1143,7 @@ template <typename Number>
 inline typename Vector<Number>::const_iterator
 Vector<Number>::end() const
 {
-  return values.get() + vec_size;
+  return values.end();
 }
 
 
@@ -1156,7 +1152,7 @@ template <typename Number>
 inline Number
 Vector<Number>::operator()(const size_type i) const
 {
-  Assert(i < vec_size, ExcIndexRange(i, 0, vec_size));
+  AssertIndexRange(i, size());
   return values[i];
 }
 
@@ -1166,7 +1162,7 @@ template <typename Number>
 inline Number &
 Vector<Number>::operator()(const size_type i)
 {
-  Assert(i < vec_size, ExcIndexRangeType<size_type>(i, 0, vec_size));
+  AssertIndexRange(i, size());
   return values[i];
 }
 
@@ -1251,7 +1247,7 @@ Vector<Number>::add(const std::vector<size_type> &indices,
 {
   Assert(indices.size() == values.size(),
          ExcDimensionMismatch(indices.size(), values.size()));
-  add(indices.size(), indices.data(), values.values.get());
+  add(indices.size(), indices.data(), values.values.begin());
 }
 
 
@@ -1265,7 +1261,7 @@ Vector<Number>::add(const size_type    n_indices,
 {
   for (size_type i = 0; i < n_indices; ++i)
     {
-      Assert(indices[i] < vec_size, ExcIndexRange(indices[i], 0, vec_size));
+      AssertIndexRange(indices[i], size());
       Assert(
         numbers::is_finite(values[i]),
         ExcMessage(
@@ -1292,6 +1288,12 @@ inline void Vector<Number>::compress(::dealii::VectorOperation::values) const
 {}
 
 
+template <typename Number>
+inline bool
+Vector<Number>::has_ghost_elements() const
+{
+  return false;
+}
 
 template <typename Number>
 inline void
@@ -1307,9 +1309,8 @@ template <typename Number>
 inline void
 Vector<Number>::swap(Vector<Number> &v)
 {
-  std::swap(vec_size, v.vec_size);
-  std::swap(max_vec_size, v.max_vec_size);
-  std::swap(values, v.values);
+  values.swap(v.values);
+  std::swap(thread_loop_partitioner, v.thread_loop_partitioner);
 }
 
 
@@ -1321,9 +1322,7 @@ Vector<Number>::save(Archive &ar, const unsigned int) const
 {
   // forward to serialization function in the base class.
   ar &static_cast<const Subscriptor &>(*this);
-
-  ar &vec_size &max_vec_size;
-  ar &          boost::serialization::make_array(values.get(), max_vec_size);
+  ar &values;
 }
 
 
@@ -1333,15 +1332,10 @@ template <class Archive>
 inline void
 Vector<Number>::load(Archive &ar, const unsigned int)
 {
-  // get rid of previous content
-  values.reset();
-
   // the load stuff again from the archive
   ar &static_cast<Subscriptor &>(*this);
-  ar &vec_size &max_vec_size;
-
-  allocate();
-  ar &boost::serialization::make_array(values.get(), max_vec_size);
+  ar &values;
+  maybe_reset_thread_partitioner();
 }
 
 #endif
@@ -1358,7 +1352,6 @@ Vector<Number>::load(Archive &ar, const unsigned int)
  * exchanges the data of the two vectors.
  *
  * @relatesalso Vector
- * @author Wolfgang Bangerth, 2000
  */
 template <typename Number>
 inline void
@@ -1369,25 +1362,26 @@ swap(Vector<Number> &u, Vector<Number> &v)
 
 
 /**
- * Output operator writing a vector to a stream.
+ * Output operator writing a vector to a stream. This operator outputs the
+ * elements of the vector one by one, with a space between entries. Each entry
+ * is formatted according to the flags set on the output stream.
+ *
+ * @relatesalso Vector
  */
 template <typename number>
 inline std::ostream &
-operator<<(std::ostream &os, const Vector<number> &v)
+operator<<(std::ostream &out, const Vector<number> &v)
 {
-  v.print(os);
-  return os;
-}
+  Assert(v.size() != 0, ExcEmptyObject());
+  AssertThrow(out, ExcIO());
 
-/**
- * Output operator writing a vector to a LogStream.
- */
-template <typename number>
-inline LogStream &
-operator<<(LogStream &os, const Vector<number> &v)
-{
-  v.print(os);
-  return os;
+  for (typename Vector<number>::size_type i = 0; i < v.size() - 1; ++i)
+    out << v(i) << ' ';
+  out << v(v.size() - 1);
+
+  AssertThrow(out, ExcIO());
+
+  return out;
 }
 
 /*@}*/
@@ -1396,7 +1390,7 @@ operator<<(LogStream &os, const Vector<number> &v)
 /**
  * Declare dealii::Vector< Number > as serial vector.
  *
- * @author Uwe Koecher, 2017
+ * @relatesalso Vector
  */
 template <typename Number>
 struct is_serial_vector<Vector<Number>> : std::true_type

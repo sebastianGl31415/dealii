@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2018 by the deal.II authors
+// Copyright (C) 2004 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -32,10 +32,11 @@ DEAL_II_NAMESPACE_OPEN
 namespace PETScWrappers
 {
   // forward declarations
+#    ifndef DOXYGEN
   class MatrixBase;
   class VectorBase;
   class SolverBase;
-
+#    endif
 
   /**
    * Base class for preconditioner classes using the PETSc functionality. The
@@ -51,7 +52,6 @@ namespace PETScWrappers
    * work for parallel jobs, such as for example the ILU preconditioner.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionerBase
   {
@@ -78,6 +78,12 @@ namespace PETScWrappers
      */
     void
     vmult(VectorBase &dst, const VectorBase &src) const;
+
+    /**
+     * Apply the transpose preconditioner once to the given src vector.
+     */
+    void
+    Tvmult(VectorBase &dst, const VectorBase &src) const;
 
 
     /**
@@ -111,10 +117,8 @@ namespace PETScWrappers
      */
     operator Mat() const;
 
-    /**
-     * Make the solver class a friend, since it needs to call the conversion
-     * operator.
-     */
+    // Make the solver class a friend, since it needs to call the conversion
+    // operator.
     friend class SolverBase;
   };
 
@@ -129,7 +133,6 @@ namespace PETScWrappers
    * for when this preconditioner may or may not work.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionJacobi : public PreconditionerBase
   {
@@ -161,7 +164,7 @@ namespace PETScWrappers
      * Intended to be used with SLEPc objects.
      */
     PreconditionJacobi(
-      const MPI_Comm        communicator,
+      const MPI_Comm &      communicator,
       const AdditionalData &additional_data = AdditionalData());
 
     /**
@@ -213,7 +216,6 @@ namespace PETScWrappers
    * for when this preconditioner may or may not work.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionBlockJacobi : public PreconditionerBase
   {
@@ -244,7 +246,7 @@ namespace PETScWrappers
      * Intended to be used with SLEPc objects.
      */
     PreconditionBlockJacobi(
-      const MPI_Comm        communicator,
+      const MPI_Comm &      communicator,
       const AdditionalData &additional_data = AdditionalData());
 
 
@@ -282,7 +284,6 @@ namespace PETScWrappers
    * @note Only works in serial with a PETScWrappers::SparseMatrix.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionSOR : public PreconditionerBase
   {
@@ -343,7 +344,6 @@ namespace PETScWrappers
    * @note Only works in serial with a PETScWrappers::SparseMatrix.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionSSOR : public PreconditionerBase
   {
@@ -407,7 +407,6 @@ namespace PETScWrappers
    * for when this preconditioner may or may not work.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionEisenstat : public PreconditionerBase
   {
@@ -469,7 +468,6 @@ namespace PETScWrappers
    * @note Only works in serial with a PETScWrappers::SparseMatrix.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionICC : public PreconditionerBase
   {
@@ -530,7 +528,6 @@ namespace PETScWrappers
    * @note Only works in serial with a PETScWrappers::SparseMatrix.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, Timo Heister, 2004, 2011
    */
   class PreconditionILU : public PreconditionerBase
   {
@@ -596,7 +593,6 @@ namespace PETScWrappers
    * computations with a single processor.
    *
    * @ingroup PETScWrappers
-   * @author Oliver Kayser-Herold, 2004
    */
   class PreconditionLU : public PreconditionerBase
   {
@@ -670,13 +666,12 @@ namespace PETScWrappers
   /**
    * A class that implements the interface to use the BoomerAMG algebraic
    * multigrid preconditioner from the HYPRE suite. Note that PETSc has to be
-   * configured with HYPRE (e.g. with --download-hypre=1).
+   * configured with HYPRE (e.g. with \--download-hypre=1).
    *
    * The preconditioner does support parallel distributed computations. See
    * step-40 for an example.
    *
    * @ingroup PETScWrappers
-   * @author Timo Heister, 2010
    */
   class PreconditionBoomerAMG : public PreconditionerBase
   {
@@ -758,7 +753,7 @@ namespace PETScWrappers
      * Intended to be used with SLEPc objects.
      */
     PreconditionBoomerAMG(
-      const MPI_Comm        communicator,
+      const MPI_Comm &      communicator,
       const AdditionalData &additional_data = AdditionalData());
 
 
@@ -792,7 +787,7 @@ namespace PETScWrappers
   /**
    * A class that implements the interface to use the ParaSails sparse
    * approximate inverse preconditioner from the HYPRE suite. Note that PETSc
-   * has to be configured with HYPRE (e.g. with --download-hypre=1).
+   * has to be configured with HYPRE (e.g. with \--download-hypre=1).
    *
    * ParaSails uses least-squares minimization to compute a sparse approximate
    * inverse. The sparsity pattern used is the pattern of a power of a
@@ -807,7 +802,6 @@ namespace PETScWrappers
    * The preconditioner does support parallel distributed computations.
    *
    * @ingroup PETScWrappers
-   * @author Martin Steigemann, 2012
    */
   class PreconditionParaSails : public PreconditionerBase
   {
@@ -918,7 +912,6 @@ namespace PETScWrappers
    * A class that implements a non-preconditioned method.
    *
    * @ingroup PETScWrappers
-   * @author Martin Steigemann, 2012
    */
   class PreconditionNone : public PreconditionerBase
   {

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2018 by the deal.II authors
+// Copyright (C) 1999 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -80,12 +80,10 @@ DEAL_II_NAMESPACE_OPEN
  *
  *
  * If at some time there exists a new solver "xyz" then the user does not need
- * to change his program. Only in the implementation of the @p SolverSelector
+ * to change their program. Only in the implementation of the @p SolverSelector
  * the calling of this solver has to be added and each user with program lines
- * quoted above only needs to 'set solver = xyz' in his parameter file to get
+ * quoted above only needs to 'set solver = xyz' in their parameter file to get
  * access to that new solver.
- *
- * @author Ralf Hartmann, 1999
  */
 template <typename VectorType = Vector<double>>
 class SolverSelector : public Subscriptor
@@ -110,12 +108,11 @@ public:
   /**
    * Destructor
    */
-  ~SolverSelector() override;
+  virtual ~SolverSelector() override = default;
 
   /**
    * Solver procedure. Calls the @p solve function of the @p solver whose @p
    * SolverName was specified in the constructor.
-   *
    */
   template <class Matrix, class Preconditioner>
   void
@@ -252,12 +249,6 @@ SolverSelector<VectorType>::SolverSelector(const std::string &name,
                                            SolverControl &    solver_control)
   : solver_name(name)
   , control(&solver_control)
-{}
-
-
-
-template <typename VectorType>
-SolverSelector<VectorType>::~SolverSelector()
 {}
 
 

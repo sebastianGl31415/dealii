@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -64,7 +64,7 @@ helmholtz_operator(
       fe_eval.reinit(cell);
 
       fe_eval.read_dof_values(src);
-      fe_eval.evaluate(true, true, false);
+      fe_eval.evaluate(EvaluationFlags::values | EvaluationFlags::gradients);
       for (unsigned int q = 0; q < n_q_points; ++q)
         {
           fe_eval.submit_value(make_vectorized_array(Number(10)) *
@@ -72,7 +72,7 @@ helmholtz_operator(
                                q);
           fe_eval.submit_gradient(fe_eval.get_gradient(q), q);
         }
-      fe_eval.integrate(true, true);
+      fe_eval.integrate(EvaluationFlags::values | EvaluationFlags::gradients);
       fe_eval.distribute_local_to_global(dst);
     }
 }
@@ -84,8 +84,7 @@ class MatrixFreeTest
 {
 public:
   typedef VectorizedArray<Number> vector_t;
-  static const std::size_t        n_vectors =
-    VectorizedArray<Number>::n_array_elements;
+  static const std::size_t        n_vectors = VectorizedArray<Number>::size();
 
   MatrixFreeTest(const MatrixFree<dim, Number> &data_in)
     : data(data_in){};

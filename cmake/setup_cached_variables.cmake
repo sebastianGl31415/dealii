@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2012 - 2017 by the deal.II authors
+## Copyright (C) 2012 - 2019 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -365,18 +365,18 @@ UNSET(ENV{NVCCFLAGS})
 #                                                                      #
 ########################################################################
 
- OPTION(DEAL_II_WITH_CUDA_AWARE_MPI
-   "If set to ON, then we assume that the MPI implementation used is CUDA-aware."
-   OFF
-   )
- LIST(APPEND DEAL_II_FEATURES CUDA_AWARE_MPI)
-
 
 OPTION(DEAL_II_WITH_64BIT_INDICES
   "If set to ON, then use 64-bit data types to represent global degree of freedom indices. The default is to OFF. You only want to set this to ON if you will solve problems with more than 2^31 (approximately 2 billion) unknowns. If set to ON, you also need to ensure that both Trilinos and/or PETSc support 64-bit indices."
   OFF
   )
 LIST(APPEND DEAL_II_FEATURES 64BIT_INDICES)
+
+OPTION(DEAL_II_WITH_SIMPLEX_SUPPORT
+  "If set to ON, triangulations with triangle and tetrahedron cells are supported in addition to quadrilateral- and hexahedra-only triangulations."
+  OFF
+  )
+LIST(APPEND DEAL_II_FEATURES SIMPLEX_SUPPORT)
 
 OPTION(DEAL_II_WITH_COMPLEX_VALUES
   "If set to OFF, the classes that take a number type are not explicitly instantiated for std::complex<float> and std::complex<double>. This effectively disables the support for computing with complex values. If PETSc is built with complex scalar type, this option must be ON."

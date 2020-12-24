@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2006 - 2014 by the deal.II authors
+// Copyright (C) 2006 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -40,9 +40,6 @@
  * usual cells meet in one vertex and local refinement exceeds one
  * level</td></tr>
  * </table>
- *
- * @author Guido Kanschat
- * @date 2006, 2010
  */
 namespace TestGrids
 {

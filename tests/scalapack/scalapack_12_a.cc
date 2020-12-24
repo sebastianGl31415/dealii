@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,8 +13,9 @@
 //
 // ---------------------------------------------------------------------
 
-#include "../lapack/create_matrix.h"
 #include "../tests.h"
+
+#include "../lapack/create_matrix.h"
 
 // test multiplication of distributed ScaLAPACKMatrices: C = b A*B + c C
 
@@ -44,8 +45,10 @@ test()
   std::cout << std::setprecision(10);
   ConditionalOStream pcout(std::cout, (this_mpi_process == 0));
 
-  const unsigned int proc_rows    = std::floor(std::sqrt(n_mpi_processes));
-  const unsigned int proc_columns = std::floor(n_mpi_processes / proc_rows);
+  const auto proc_rows =
+    static_cast<unsigned int>(std::floor(std::sqrt(n_mpi_processes)));
+  const auto proc_columns =
+    static_cast<unsigned int>(std::floor(n_mpi_processes / proc_rows));
   // create 2d process grid
   std::shared_ptr<Utilities::MPI::ProcessGrid> grid =
     std::make_shared<Utilities::MPI::ProcessGrid>(mpi_communicator,

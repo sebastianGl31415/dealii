@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -13,8 +13,9 @@
 //
 // ---------------------------------------------------------------------
 
-#include "../lapack/create_matrix.h"
 #include "../tests.h"
+
+#include "../lapack/create_matrix.h"
 
 // test eigenpairs_symmetric_by_index(const std::pair<unsigned int,unsigned int>
 // &, const bool) for all eigenvalues with eigenvectors
@@ -104,7 +105,7 @@ test(const unsigned int size,
          &*work.begin(),
          &lwork,
          &info);
-    lwork = work[0];
+    lwork = static_cast<int>(work[0]);
     work.resize(lwork);
     syev(&jobz,
          &uplo,

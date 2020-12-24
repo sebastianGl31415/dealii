@@ -14,18 +14,20 @@
 // ---------------------------------------------------------------------
 
 
-#include <deal.II/base/std_cxx14/memory.h>
-
 #include <deal.II/fe/fe_nothing.h>
+
+#include <memory>
 
 DEAL_II_NAMESPACE_OPEN
 
 
 template <int dim, int spacedim>
-FE_Nothing<dim, spacedim>::FE_Nothing(const unsigned int n_components,
-                                      const bool         dominate)
+FE_Nothing<dim, spacedim>::FE_Nothing(const ReferenceCell::Type &type,
+                                      const unsigned int         n_components,
+                                      const bool                 dominate)
   : FiniteElement<dim, spacedim>(
       FiniteElementData<dim>(std::vector<unsigned>(dim + 1, 0),
+                             type,
                              n_components,
                              0,
                              FiniteElementData<dim>::unknown),
@@ -41,11 +43,22 @@ FE_Nothing<dim, spacedim>::FE_Nothing(const unsigned int n_components,
 }
 
 
+
+template <int dim, int spacedim>
+FE_Nothing<dim, spacedim>::FE_Nothing(const unsigned int n_components,
+                                      const bool         dominate)
+  : FE_Nothing<dim, spacedim>(ReferenceCell::get_hypercube(dim),
+                              n_components,
+                              dominate)
+{}
+
+
+
 template <int dim, int spacedim>
 std::unique_ptr<FiniteElement<dim, spacedim>>
 FE_Nothing<dim, spacedim>::clone() const
 {
-  return std_cxx14::make_unique<FE_Nothing<dim, spacedim>>(*this);
+  return std::make_unique<FE_Nothing<dim, spacedim>>(*this);
 }
 
 
@@ -103,7 +116,7 @@ FE_Nothing<dim, spacedim>::get_data(
   // Create a default data object.  Normally we would then
   // need to resize things to hold the appropriate numbers
   // of dofs, but in this case all data fields are empty.
-  return std_cxx14::make_unique<
+  return std::make_unique<
     typename FiniteElement<dim, spacedim>::InternalDataBase>();
 }
 
@@ -135,7 +148,7 @@ void
 FE_Nothing<dim, spacedim>::fill_fe_face_values(
   const typename Triangulation<dim, spacedim>::cell_iterator &,
   const unsigned int,
-  const Quadrature<dim - 1> &,
+  const hp::QCollection<dim - 1> &,
   const Mapping<dim, spacedim> &,
   const typename Mapping<dim, spacedim>::InternalDataBase &,
   const dealii::internal::FEValuesImplementation::MappingRelatedData<dim,
@@ -194,10 +207,11 @@ operator==(const FiniteElement<dim, spacedim> &f) const
   // Then make sure the other object is really of type FE_Nothing,
   // and compare the data that has been passed to both objects'
   // constructors.
-  if (const FE_Nothing<dim, spacedim> *f_nothing =
+  if (const FE_Nothing<dim, spacedim> *fe_nothing =
         dynamic_cast<const FE_Nothing<dim, spacedim> *>(&f))
-    return ((dominate == f_nothing->dominate) &&
-            (this->components == f_nothing->components));
+    return ((dominate == fe_nothing->dominate) &&
+            (this->components == fe_nothing->components) &&
+            (this->reference_cell_type() == fe_nothing->reference_cell_type()));
   else
     return false;
 }
@@ -220,7 +234,7 @@ FE_Nothing<dim, spacedim>::compare_for_domination(
     // if it does and the other is FE_Nothing, either can dominate
     return FiniteElementDomination::either_element_can_dominate;
   else
-    // otherwise we dominate whatever fe is provided
+    // otherwise we dominate whatever FE is provided
     return FiniteElementDomination::this_element_dominates;
 }
 
@@ -254,7 +268,8 @@ FE_Nothing<dim, spacedim>::hp_line_dof_identities(
 template <int dim, int spacedim>
 std::vector<std::pair<unsigned int, unsigned int>>
 FE_Nothing<dim, spacedim>::hp_quad_dof_identities(
-  const FiniteElement<dim, spacedim> & /*fe_other*/) const
+  const FiniteElement<dim, spacedim> & /*fe_other*/,
+  const unsigned int) const
 {
   // the FE_Nothing has no
   // degrees of freedom, so there
@@ -295,7 +310,8 @@ template <int dim, int spacedim>
 void
 FE_Nothing<dim, spacedim>::get_face_interpolation_matrix(
   const FiniteElement<dim, spacedim> & /*source_fe*/,
-  FullMatrix<double> &interpolation_matrix) const
+  FullMatrix<double> &interpolation_matrix,
+  const unsigned int) const
 {
   // since this element has no face dofs, the
   // interpolation matrix is necessarily empty
@@ -313,7 +329,8 @@ void
 FE_Nothing<dim, spacedim>::get_subface_interpolation_matrix(
   const FiniteElement<dim, spacedim> & /*source_fe*/,
   const unsigned int /*index*/,
-  FullMatrix<double> &interpolation_matrix) const
+  FullMatrix<double> &interpolation_matrix,
+  const unsigned int) const
 {
   // since this element has no face dofs, the
   // interpolation matrix is necessarily empty

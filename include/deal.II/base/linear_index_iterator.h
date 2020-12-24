@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2018 by the deal.II authors
+// Copyright (C) 2018 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -31,7 +31,7 @@ DEAL_II_NAMESPACE_OPEN
  * for SparseMatrix the mapping from buffer location to matrix entry
  * $\mathbf{A}(i, j)$ is more complicated. In any case, however, the
  * contiguous arrangements of elements enables random access iteration.
-
+ *
  * LinearIndexIterator provides most of the functionality needed to write
  * iterators for these classes. LinearIndexIterator is essentially a
  * simplified version of <code>boost::iterator_facade</code> that assumes
@@ -134,8 +134,6 @@ DEAL_II_NAMESPACE_OPEN
  * <code>size_type</code> type.
  *
  * @note TransposeTable uses this template to implement its iterators.
- *
- * @author David Wells, 2018
  */
 template <class DerivedIterator, class AccessorType>
 class LinearIndexIterator
@@ -249,14 +247,27 @@ public:
    * Comparison operator. Returns <code>true</code> if both iterators point to
    * the same entry in the same container.
    */
-  bool
-  operator==(const DerivedIterator &) const;
+  template <typename OtherIterator>
+  friend typename std::enable_if<
+    std::is_convertible<OtherIterator, DerivedIterator>::value,
+    bool>::type
+  operator==(const LinearIndexIterator &left, const OtherIterator &right)
+  {
+    const auto &right_2 = static_cast<const DerivedIterator &>(right);
+    return left.accessor == right_2.accessor;
+  }
 
   /**
-   * Inverse of operator==().
+   * Opposite of operator==().
    */
-  bool
-  operator!=(const DerivedIterator &) const;
+  template <typename OtherIterator>
+  friend typename std::enable_if<
+    std::is_convertible<OtherIterator, DerivedIterator>::value,
+    bool>::type
+  operator!=(const LinearIndexIterator &left, const OtherIterator &right)
+  {
+    return !(left == right);
+  }
 
   /**
    * Comparison operator: uses the same ordering as operator<(), but also
@@ -296,10 +307,10 @@ public:
   operator>(const DerivedIterator &) const;
 
 protected:
-  /**
+  /*
    * The inheriting class should have a default constructor.
    */
-  LinearIndexIterator() = default;
+  LinearIndexIterator() = default; // NOLINT
 
   /**
    * Constructor that copies an accessor.
@@ -440,28 +451,6 @@ inline typename LinearIndexIterator<DerivedIterator, AccessorType>::pointer
   LinearIndexIterator<DerivedIterator, AccessorType>::operator->() const
 {
   return &accessor;
-}
-
-
-
-template <class DerivedIterator, class AccessorType>
-inline bool
-LinearIndexIterator<DerivedIterator, AccessorType>::
-operator==(const DerivedIterator &other) const
-{
-  const auto &other_2 = static_cast<decltype(*this) &>(other);
-  return accessor.container == other_2.accessor.container &&
-         accessor.linear_index == other_2.accessor.linear_index;
-}
-
-
-
-template <class DerivedIterator, class AccessorType>
-inline bool
-LinearIndexIterator<DerivedIterator, AccessorType>::
-operator!=(const DerivedIterator &other) const
-{
-  return !(*this == other);
 }
 
 

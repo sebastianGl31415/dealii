@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -24,7 +24,6 @@
 
 #include "../tests.h"
 
-using namespace dealii;
 
 int
 main()
@@ -40,8 +39,8 @@ main()
   tria.set_all_manifold_ids(0);
   tria.set_manifold(0, spherical);
 
-  for (auto cell : tria.active_cell_iterators())
-    for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+  for (auto &cell : tria.active_cell_iterators())
+    for (const unsigned int f : GeometryInfo<dim>::face_indices())
       if (cell->at_boundary(f))
         {
           if (std::abs(cell->face(f)->vertex(1).norm() - 1.) < 1e-1)
@@ -79,8 +78,8 @@ main()
                 << std::endl;
             }
         }
-  for (auto cell : tria.active_cell_iterators())
-    for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+  for (auto &cell : tria.active_cell_iterators())
+    for (const unsigned int f : GeometryInfo<dim>::face_indices())
       if (cell->at_boundary(f))
         {
           // the first choice will contain perturbations in the normal because

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2010 - 2017 by the deal.II authors
+// Copyright (C) 2010 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -38,19 +38,14 @@ namespace LocalIntegrators
    * traces
    *
    * @ingroup Integrators
-   * @author Guido Kanschat, Timo Heister
-   * @date 2016
    */
   namespace GradDiv
   {
     /**
      * The weak form of the grad-div operator penalizing volume changes
      * @f[
-     *  \int_Z \nabla\!\cdot\!u \nabla\!\cdot\!v \,dx
+     *  \int_Z \nabla\cdot u \nabla \cdot v \,dx
      * @f]
-     *
-     * @author Guido Kanschat
-     * @date 2011
      */
     template <int dim>
     void
@@ -85,17 +80,13 @@ namespace LocalIntegrators
      * @f[
      *  \int_Z \nabla\cdot u \nabla \cdot v \,dx
      * @f]
-     *
-     * @author Guido Kanschat
-     * @date 2014
      */
     template <int dim, typename number>
     void
-    cell_residual(
-      Vector<number> &                                                   result,
-      const FEValuesBase<dim> &                                          fetest,
-      const VectorSlice<const std::vector<std::vector<Tensor<1, dim>>>> &input,
-      const double factor = 1.)
+    cell_residual(Vector<number> &                                    result,
+                  const FEValuesBase<dim> &                           fetest,
+                  const ArrayView<const std::vector<Tensor<1, dim>>> &input,
+                  const double factor = 1.)
     {
       const unsigned int n_dofs = fetest.dofs_per_cell;
 
@@ -177,20 +168,16 @@ namespace LocalIntegrators
      * are given in the arguments <tt>input</tt> and <tt>Dinput</tt>,
      * respectively. <i>g</i> is the inhomogeneous boundary value in the
      * argument <tt>data</tt>. $\gamma$ is the usual penalty parameter.
-     *
-     * @author Guido Kanschat
-     * @date 2008, 2009, 2010
      */
     template <int dim>
     void
-    nitsche_residual(
-      Vector<double> &                                                   result,
-      const FEValuesBase<dim> &                                          fe,
-      const VectorSlice<const std::vector<std::vector<double>>> &        input,
-      const VectorSlice<const std::vector<std::vector<Tensor<1, dim>>>> &Dinput,
-      const VectorSlice<const std::vector<std::vector<double>>> &        data,
-      double penalty,
-      double factor = 1.)
+    nitsche_residual(Vector<double> &                                    result,
+                     const FEValuesBase<dim> &                           fe,
+                     const ArrayView<const std::vector<double>> &        input,
+                     const ArrayView<const std::vector<Tensor<1, dim>>> &Dinput,
+                     const ArrayView<const std::vector<double>> &        data,
+                     double penalty,
+                     double factor = 1.)
     {
       const unsigned int n_dofs = fe.dofs_per_cell;
       AssertDimension(fe.get_fe().n_components(), dim)
@@ -228,9 +215,6 @@ namespace LocalIntegrators
     /**
      * The interior penalty flux for the grad-div operator. See
      * ip_residual() for details.
-     *
-     * @author Guido Kanschat
-     * @date 2016
      */
 
     template <int dim>
@@ -312,26 +296,20 @@ namespace LocalIntegrators
      * @f]
      *
      * See for instance Hansbo and Larson, 2002
-     *
-     * @author Guido Kanschat
-     * @date 2016
      */
     template <int dim>
     void
-    ip_residual(
-      Vector<double> &                                           result1,
-      Vector<double> &                                           result2,
-      const FEValuesBase<dim> &                                  fe1,
-      const FEValuesBase<dim> &                                  fe2,
-      const VectorSlice<const std::vector<std::vector<double>>> &input1,
-      const VectorSlice<const std::vector<std::vector<Tensor<1, dim>>>>
-        &                                                        Dinput1,
-      const VectorSlice<const std::vector<std::vector<double>>> &input2,
-      const VectorSlice<const std::vector<std::vector<Tensor<1, dim>>>>
-        &    Dinput2,
-      double pen,
-      double int_factor = 1.,
-      double ext_factor = -1.)
+    ip_residual(Vector<double> &                                    result1,
+                Vector<double> &                                    result2,
+                const FEValuesBase<dim> &                           fe1,
+                const FEValuesBase<dim> &                           fe2,
+                const ArrayView<const std::vector<double>> &        input1,
+                const ArrayView<const std::vector<Tensor<1, dim>>> &Dinput1,
+                const ArrayView<const std::vector<double>> &        input2,
+                const ArrayView<const std::vector<Tensor<1, dim>>> &Dinput2,
+                double                                              pen,
+                double int_factor = 1.,
+                double ext_factor = -1.)
     {
       const unsigned int n1 = fe1.dofs_per_cell;
 

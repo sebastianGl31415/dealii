@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2004 - 2018 by the deal.II authors
+// Copyright (C) 2004 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -34,20 +34,25 @@
 
 DEAL_II_NAMESPACE_OPEN
 
-#    ifdef DEAL_II_WITH_SLEPC
+// Forward declarations
+#    ifndef DOXYGEN
+#      ifdef DEAL_II_WITH_SLEPC
 namespace SLEPcWrappers
 {
   // forward declarations
   class TransformationBase;
 } // namespace SLEPcWrappers
+#      endif
 #    endif
 
 namespace PETScWrappers
 {
   // forward declarations
+#    ifndef DOXYGEN
   class MatrixBase;
   class VectorBase;
   class PreconditionerBase;
+#    endif
 
 
   /**
@@ -103,7 +108,6 @@ namespace PETScWrappers
    * parallel mode.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverBase
   {
@@ -247,10 +251,8 @@ namespace PETScWrappers
     std::unique_ptr<SolverData> solver_data;
 
 #    ifdef DEAL_II_WITH_SLEPC
-    /**
-     * Make the transformation class a friend, since it needs to set the KSP
-     * solver.
-     */
+    // Make the transformation class a friend, since it needs to set the KSP
+    // solver.
     friend class SLEPcWrappers::TransformationBase;
 #    endif
   };
@@ -262,7 +264,6 @@ namespace PETScWrappers
    * solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverRichardson : public SolverBase
   {
@@ -324,7 +325,6 @@ namespace PETScWrappers
    * prior version 3.3, Chebychev) solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverChebychev : public SolverBase
   {
@@ -375,7 +375,6 @@ namespace PETScWrappers
    * An implementation of the solver interface using the PETSc CG solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverCG : public SolverBase
   {
@@ -426,7 +425,6 @@ namespace PETScWrappers
    * An implementation of the solver interface using the PETSc BiCG solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverBiCG : public SolverBase
   {
@@ -477,7 +475,6 @@ namespace PETScWrappers
    * An implementation of the solver interface using the PETSc GMRES solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverGMRES : public SolverBase
   {
@@ -546,7 +543,6 @@ namespace PETScWrappers
    * solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverBicgstab : public SolverBase
   {
@@ -596,7 +592,6 @@ namespace PETScWrappers
    * solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverCGS : public SolverBase
   {
@@ -647,7 +642,6 @@ namespace PETScWrappers
    * An implementation of the solver interface using the PETSc TFQMR solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverTFQMR : public SolverBase
   {
@@ -703,7 +697,6 @@ namespace PETScWrappers
    * prior. This should be fixed in later versions of PETSc, though.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverTCQMR : public SolverBase
   {
@@ -754,7 +747,6 @@ namespace PETScWrappers
    * An implementation of the solver interface using the PETSc CR solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverCR : public SolverBase
   {
@@ -806,7 +798,6 @@ namespace PETScWrappers
    * solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004
    */
   class SolverLSQR : public SolverBase
   {
@@ -862,7 +853,6 @@ namespace PETScWrappers
    * conjunction with this solver class becomes a direct solver.
    *
    * @ingroup PETScWrappers
-   * @author Wolfgang Bangerth, 2004, Oliver Kayser-Herold, 2004
    */
   class SolverPreOnly : public SolverBase
   {
@@ -929,7 +919,6 @@ namespace PETScWrappers
    * http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MATSOLVERMUMPS.html
    *
    * @ingroup PETScWrappers
-   * @author Daniel Brauss, Alexander Grayver, 2012
    */
   class SparseDirectMUMPS : public SolverBase
   {

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2010 - 2017 by the deal.II authors
+// Copyright (C) 2010 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -37,8 +37,6 @@ namespace LocalIntegrators
    * @brief Local integrators related to <i>L<sup>2</sup></i>-inner products.
    *
    * @ingroup Integrators
-   * @author Guido Kanschat
-   * @date 2010
    */
   namespace L2
   {
@@ -50,8 +48,10 @@ namespace LocalIntegrators
      * integrals \f[ \int_F uv\,ds \quad \text{or} \quad \int_F \mathbf u\cdot
      * \mathbf v\,ds \f]
      *
-     * @author Guido Kanschat
-     * @date 2008, 2009, 2010
+     * @param M The mass matrix obtained as result.
+     * @param fe The FEValues object describing the local trial function
+     * space. #update_values and #update_JxW_values must be set.
+     * @param factor A constant that multiplies the mass matrix.
      */
     template <int dim>
     void
@@ -97,11 +97,12 @@ namespace LocalIntegrators
      * integrals \f[ \int_F \omega(x) uv\,ds \quad \text{or} \quad \int_F
      * \omega(x) \mathbf u\cdot \mathbf v\,ds \f]
      *
-     * The size of the vector <tt>weights</tt> must be equal to the number of
-     * quadrature points in the finite element.
-     *
-     * @author Guido Kanschat
-     * @date 2014
+     * @param M The weighted mass matrix obtained as result.
+     * @param fe The FEValues object describing the local trial function
+     * space. #update_values and #update_JxW_values must be set.
+     * @param weights The weights, $\omega(x)$, evaluated at the quadrature
+     * points in the finite element (size must be equal to the number of
+     * quadrature points in the element).
      */
     template <int dim>
     void
@@ -146,8 +147,13 @@ namespace LocalIntegrators
      *
      * \f[ \int_Z fv\,dx \quad \text{or} \quad \int_F fv\,ds \f]
      *
-     * @author Guido Kanschat
-     * @date 2008, 2009, 2010
+     * @param result The vector obtained as result.
+     * @param fe The FEValues object describing the local trial function
+     * space. #update_values and #update_JxW_values must be set.
+     * @param input The representation of $f$ evaluated at the quadrature
+     * points in the finite element (size must be equal to the number of
+     * quadrature points in the element).
+     * @param factor A constant that multiplies the result.
      */
     template <int dim, typename number>
     void
@@ -171,15 +177,20 @@ namespace LocalIntegrators
      * hand side. \f[ \int_Z \mathbf f\cdot \mathbf v\,dx \quad \text{or}
      * \quad \int_F \mathbf f\cdot \mathbf v\,ds \f]
      *
-     * @author Guido Kanschat
-     * @date 2008, 2009, 2010
+     * @param result The vector obtained as result.
+     * @param fe The FEValues object describing the local trial function
+     * space. #update_values and #update_JxW_values must be set.
+     * @param input The vector valued representation of $\mathbf f$ evaluated
+     * at the quadrature points in the finite element (size of each component
+     * must be equal to the number of quadrature points in the element).
+     * @param factor A constant that multiplies the result.
      */
     template <int dim, typename number>
     void
-    L2(Vector<number> &                                           result,
-       const FEValuesBase<dim> &                                  fe,
-       const VectorSlice<const std::vector<std::vector<double>>> &input,
-       const double                                               factor = 1.)
+    L2(Vector<number> &                            result,
+       const FEValuesBase<dim> &                   fe,
+       const ArrayView<const std::vector<double>> &input,
+       const double                                factor = 1.)
     {
       const unsigned int n_dofs       = fe.dofs_per_cell;
       const unsigned int n_components = input.size();
@@ -203,8 +214,24 @@ namespace LocalIntegrators
      * Using appropriate weights, this term can be used to penalize violation
      * of conformity in <i>H<sup>1</sup></i>.
      *
-     * @author Guido Kanschat
-     * @date 2008, 2009, 2010
+     * Note that for the parameters that follow, the external matrix refers to
+     * the flux between cells, while the internal matrix refers to entries
+     * coupling inside the cell.
+     *
+     * @param M11 The internal matrix for the first cell obtained as result.
+     * @param M12 The external matrix for the first cell obtained as result.
+     * @param M21 The external matrix for the second cell obtained as result.
+     * @param M22 The internal matrix for the second cell obtained as result.
+     * @param fe1 The FEValues object describing the local trial function
+     * space for the first cell. #update_values and #update_JxW_values must be
+     * set.
+     * @param fe2 The FEValues object describing the local trial function
+     * space for the second cell. #update_values and #update_JxW_values must be
+     * set.
+     * @param factor1 A constant that multiplies the shape functions for the
+     * first cell.
+     * @param factor2 A constant that multiplies the shape functions for the
+     * second cell.
      */
     template <int dim>
     void
@@ -217,8 +244,8 @@ namespace LocalIntegrators
                 const double             factor1 = 1.,
                 const double             factor2 = 1.)
     {
-      const unsigned int n1_dofs      = fe1.dofs_per_cell;
-      const unsigned int n2_dofs      = fe2.dofs_per_cell;
+      const unsigned int n1_dofs      = fe1.n_dofs_per_cell();
+      const unsigned int n2_dofs      = fe2.n_dofs_per_cell();
       const unsigned int n_components = fe1.get_fe().n_components();
 
       Assert(n1_dofs == n2_dofs, ExcNotImplemented());

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2000 - 2018 by the deal.II authors
+// Copyright (C) 2000 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -19,11 +19,14 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/array_view.h>
 #include <deal.II/base/derivative_form.h>
 
 #include <deal.II/fe/fe_update_flags.h>
 
 #include <deal.II/grid/tria.h>
+
+#include <deal.II/hp/q_collection.h>
 
 #include <array>
 #include <cmath>
@@ -48,7 +51,7 @@ class FESubfaceValues;
 
 
 /**
- * The transformation type used for the Mapping::transform() functions.
+ * The transformation kind used for the Mapping::transform() functions.
  *
  * Special finite elements may need special Mapping from the reference cell to
  * the actual mesh cell. In order to be most flexible, this enum provides an
@@ -58,7 +61,7 @@ class FESubfaceValues;
  *
  * @ingroup mapping
  */
-enum MappingType
+enum MappingKind
 {
   /**
    * No mapping, i.e., shape functions are not mapped from a reference cell
@@ -106,7 +109,7 @@ enum MappingType
    * The mapping used for Nedelec elements.
    *
    * Curl-conforming elements are mapped as covariant vectors. Nevertheless,
-   * we introduce a separate mapping type, such that we can use the same flag
+   * we introduce a separate mapping kind, such that we can use the same flag
    * for the vector and its gradient (see Mapping::transform() for details).
    */
   mapping_nedelec = 0x0200,
@@ -229,7 +232,7 @@ enum MappingType
  * The differential forms <b>A</b> and <b>B</b> are determined by the kind of
  * object being transformed. These transformations are performed through the
  * transform() functions, and the type of object being transformed is
- * specified by their MappingType argument. See the documentation there for
+ * specified by their MappingKind argument. See the documentation there for
  * possible choices.
  *
  * <h4>Derivatives of the mapping</h4>
@@ -295,7 +298,6 @@ enum MappingType
  * by Ronald H. W. Hoppe, University of Houston, Chapter 7.
  *
  * @ingroup mapping
- * @author Guido Kanschat, Ralf Hartmann 2000, 2001
  */
 template <int dim, int spacedim = dim>
 class Mapping : public Subscriptor
@@ -332,8 +334,57 @@ public:
    * information stored by the triangulation, i.e.,
    * <code>cell-@>vertex(v)</code>.
    */
-  virtual std::array<Point<spacedim>, GeometryInfo<dim>::vertices_per_cell>
+  virtual boost::container::small_vector<Point<spacedim>,
+                                         GeometryInfo<dim>::vertices_per_cell>
   get_vertices(
+    const typename Triangulation<dim, spacedim>::cell_iterator &cell) const;
+
+  /**
+   * Return the mapped center of a cell.
+   *
+   * If you are using a (bi-,tri-)linear mapping that preserves vertex
+   * locations, this function simply returns the value also produced by
+   * `cell->center()`. However, there are also mappings that add displacements
+   * or choose completely different locations, e.g., MappingQEulerian,
+   * MappingQ1Eulerian, or MappingFEField, and mappings based on high order
+   * polynomials, for which the center may not coincide with the average of
+   * the vertex locations.
+   *
+   * By default, this function returns the push forward of the center of the
+   * reference cell. If the parameter
+   * @p map_center_of_reference_cell is set to false, than the return value
+   * will be the average of the vertex locations, as returned by the
+   * get_vertices() method.
+   *
+   * @param[in] cell The cell for which you want to compute the center
+   * @param[in] map_center_of_reference_cell A flag that switches the algorithm
+   * for the computation of the cell center from
+   * transform_unit_to_real_cell() applied to the center of the reference cell
+   * to computing the vertex averages.
+   */
+  virtual Point<spacedim>
+  get_center(const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+             const bool map_center_of_reference_cell = true) const;
+
+  /**
+   * Return the bounding box of a mapped cell.
+   *
+   * If you are using a (bi-,tri-)linear mapping that preserves vertex
+   * locations, this function simply returns the value also produced by
+   * `cell->bounding_box()`. However, there are also mappings that add
+   * displacements or choose completely different locations, e.g.,
+   * MappingQEulerian, MappingQ1Eulerian, or MappingFEField.
+   *
+   * This function returns the bounding box containing all the vertices of the
+   * cell, as returned by the get_vertices() method. Beware of the fact that
+   * for higher order mappings this bounding box is only an approximation of the
+   * true bounding box, since it does not take into account curved faces, and it
+   * may be smaller than the true bounding box.
+   *
+   * @param[in] cell The cell for which you want to compute the bounding box
+   */
+  virtual BoundingBox<spacedim>
+  get_bounding_box(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell) const;
 
   /**
@@ -405,8 +456,26 @@ public:
     const Point<spacedim> &                                     p) const = 0;
 
   /**
+   * Map multiple points from the real point locations to points in reference
+   * locations. The functionality is essentially the same as looping over all
+   * points and calling the Mapping::transform_real_to_unit_cell() function
+   * for each point individually, but it can be much faster for certain
+   * mappings that implement a more specialized version such as
+   * MappingQGeneric. The only difference in behavior is that this function
+   * will never throw an ExcTransformationFailed() exception. If the
+   * transformation fails for `real_points[i]`, the returned `unit_points[i]`
+   * contains std::numeric_limits<double>::infinity() as the first entry.
+   */
+  virtual void
+  transform_points_real_to_unit_cell(
+    const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+    const ArrayView<const Point<spacedim>> &                    real_points,
+    const ArrayView<Point<dim>> &unit_points) const;
+
+  /**
    * Transform the point @p p on the real @p cell to the corresponding point
-   * on the unit cell, and then projects it to a dim-1  point on the face with
+   * on the reference cell, and then project this point to a (dim-1)-dimensional
+   * point in the coordinate system of the face with
    * the given face number @p face_no. Ideally the point @p p is near the face
    * @p face_no, but any point in the cell can technically be projected.
    *
@@ -576,7 +645,7 @@ public:
     UpdateFlags update_each;
 
     /**
-     * Return an estimate (in bytes) or the memory consumption of this object.
+     * Return an estimate (in bytes) for the memory consumption of this object.
      */
     virtual std::size_t
     memory_consumption() const;
@@ -690,8 +759,15 @@ protected:
    * the returned object, knowing its real (derived) type.
    */
   virtual std::unique_ptr<InternalDataBase>
+  get_face_data(const UpdateFlags               update_flags,
+                const hp::QCollection<dim - 1> &quadrature) const;
+
+  /**
+   * @deprecated Use the version taking a hp::QCollection argument.
+   */
+  virtual std::unique_ptr<InternalDataBase>
   get_face_data(const UpdateFlags          update_flags,
-                const Quadrature<dim - 1> &quadrature) const = 0;
+                const Quadrature<dim - 1> &quadrature) const;
 
   /**
    * Like get_data() and get_face_data(), but in preparation for later calls
@@ -845,10 +921,22 @@ protected:
   fill_fe_face_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const unsigned int                                          face_no,
-    const Quadrature<dim - 1> &                                 quadrature,
+    const hp::QCollection<dim - 1> &                            quadrature,
     const typename Mapping<dim, spacedim>::InternalDataBase &   internal_data,
     dealii::internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
-      &output_data) const = 0;
+      &output_data) const;
+
+  /**
+   * @deprecated Use the version taking a hp::QCollection argument.
+   */
+  virtual void
+  fill_fe_face_values(
+    const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+    const unsigned int                                          face_no,
+    const Quadrature<dim - 1> &                                 quadrature,
+    const typename Mapping<dim, spacedim>::InternalDataBase &   internal_data,
+    internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
+      &output_data) const;
 
   /**
    * This function is the equivalent to Mapping::fill_fe_values(), but for
@@ -898,14 +986,14 @@ public:
 
   /**
    * Transform a field of vectors or 1-differential forms according to the
-   * selected MappingType.
+   * selected MappingKind.
    *
    * @note Normally, this function is called by a finite element, filling
    * FEValues objects. For this finite element, there should be an alias
-   * MappingType like @p mapping_bdm, @p mapping_nedelec, etc. This alias
-   * should be preferred to using the types below.
+   * MappingKind like @p mapping_bdm, @p mapping_nedelec, etc. This alias
+   * should be preferred to using the kinds below.
    *
-   * The mapping types currently implemented by derived classes are:
+   * The mapping kinds currently implemented by derived classes are:
    * <ul>
    * <li> @p mapping_contravariant: maps a vector field on the reference cell
    * to the physical cell through the Jacobian:
@@ -946,7 +1034,7 @@ public:
    *
    * @param[in] input An array (or part of an array) of input objects that
    * should be mapped.
-   * @param[in] type The kind of mapping to be applied.
+   * @param[in] kind The kind of mapping to be applied.
    * @param[in] internal A pointer to an object of type
    * Mapping::InternalDataBase that contains information previously stored by
    * the mapping. The object pointed to was created by the get_data(),
@@ -961,7 +1049,7 @@ public:
    */
   virtual void
   transform(const ArrayView<const Tensor<1, dim>> &                  input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<1, spacedim>> &output) const = 0;
 
@@ -969,7 +1057,7 @@ public:
    * Transform a field of differential forms from the reference cell to the
    * physical cell.  It is useful to think of $\mathbf{T} = \nabla \mathbf u$
    * and $\hat{\mathbf  T} = \hat \nabla \hat{\mathbf  u}$, with $\mathbf u$ a
-   * vector field.  The mapping types currently implemented by derived classes
+   * vector field.  The mapping kinds currently implemented by derived classes
    * are:
    * <ul>
    * <li> @p mapping_covariant: maps a field of forms on the reference cell to
@@ -999,7 +1087,7 @@ public:
    *
    * @param[in] input An array (or part of an array) of input objects that
    * should be mapped.
-   * @param[in] type The kind of mapping to be applied.
+   * @param[in] kind The kind of mapping to be applied.
    * @param[in] internal A pointer to an object of type
    * Mapping::InternalDataBase that contains information previously stored by
    * the mapping. The object pointed to was created by the get_data(),
@@ -1014,7 +1102,7 @@ public:
    */
   virtual void
   transform(const ArrayView<const DerivativeForm<1, dim, spacedim>> &input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<2, spacedim>> &output) const = 0;
 
@@ -1022,7 +1110,7 @@ public:
    * Transform a tensor field from the reference cell to the physical cell.
    * These tensors are usually the Jacobians in the reference cell of vector
    * fields that have been pulled back from the physical cell.  The mapping
-   * types currently implemented by derived classes are:
+   * kinds currently implemented by derived classes are:
    * <ul>
    * <li> @p mapping_contravariant_gradient: it assumes $\mathbf u(\mathbf x)
    * = J \hat{\mathbf  u}$ so that
@@ -1057,7 +1145,7 @@ public:
    *
    * @param[in] input An array (or part of an array) of input objects that
    * should be mapped.
-   * @param[in] type The kind of mapping to be applied.
+   * @param[in] kind The kind of mapping to be applied.
    * @param[in] internal A pointer to an object of type
    * Mapping::InternalDataBase that contains information previously stored by
    * the mapping. The object pointed to was created by the get_data(),
@@ -1072,7 +1160,7 @@ public:
    */
   virtual void
   transform(const ArrayView<const Tensor<2, dim>> &                  input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<2, spacedim>> &output) const = 0;
 
@@ -1081,7 +1169,7 @@ public:
    * This tensors are most of times the hessians in the reference cell of
    * vector fields that have been pulled back from the physical cell.
    *
-   * The mapping types currently implemented by derived classes are:
+   * The mapping kinds currently implemented by derived classes are:
    * <ul>
    * <li> @p mapping_covariant_gradient: maps a field of forms on the
    * reference cell to a field of forms on the physical cell. Mathematically,
@@ -1104,7 +1192,7 @@ public:
    *
    * @param[in] input An array (or part of an array) of input objects that
    * should be mapped.
-   * @param[in] type The kind of mapping to be applied.
+   * @param[in] kind The kind of mapping to be applied.
    * @param[in] internal A pointer to an object of type
    * Mapping::InternalDataBase that contains information previously stored by
    * the mapping. The object pointed to was created by the get_data(),
@@ -1119,7 +1207,7 @@ public:
    */
   virtual void
   transform(const ArrayView<const DerivativeForm<2, dim, spacedim>> &input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<3, spacedim>> &output) const = 0;
 
@@ -1129,7 +1217,7 @@ public:
    * \mathbf u_i$ and $\mathbf{\hat T}_{IJK} = \hat D^2_{JK} \mathbf{\hat
    * u}_I$, with $\mathbf u_i$ a vector field.
    *
-   * The mapping types currently implemented by derived classes are:
+   * The mapping kinds currently implemented by derived classes are:
    * <ul>
    * <li> @p mapping_contravariant_hessian: it assumes $\mathbf u_i(\mathbf x)
    * = J_{iI} \hat{\mathbf  u}_I$ so that
@@ -1158,7 +1246,7 @@ public:
    *
    * @param[in] input An array (or part of an array) of input objects that
    * should be mapped.
-   * @param[in] type The kind of mapping to be applied.
+   * @param[in] kind The kind of mapping to be applied.
    * @param[in] internal A pointer to an object of type
    * Mapping::InternalDataBase that contains information previously stored by
    * the mapping. The object pointed to was created by the get_data(),
@@ -1172,7 +1260,7 @@ public:
    */
   virtual void
   transform(const ArrayView<const Tensor<3, dim>> &                  input,
-            const MappingType                                        type,
+            const MappingKind                                        kind,
             const typename Mapping<dim, spacedim>::InternalDataBase &internal,
             const ArrayView<Tensor<3, spacedim>> &output) const = 0;
 
@@ -1181,10 +1269,8 @@ public:
    */
 
 
-  /**
-   * Give class @p FEValues access to the private <tt>get_...data</tt> and
-   * <tt>fill_fe_...values</tt> functions.
-   */
+  // Give class @p FEValues access to the private <tt>get_...data</tt> and
+  // <tt>fill_fe_...values</tt> functions.
   friend class FEValuesBase<dim, spacedim>;
   friend class FEValues<dim, spacedim>;
   friend class FEFaceValues<dim, spacedim>;

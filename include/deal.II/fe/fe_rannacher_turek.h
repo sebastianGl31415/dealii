@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2015 - 2017 by the deal.II authors
+// Copyright (C) 2015 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -16,6 +16,8 @@
 
 #ifndef dealii_fe_rannacher_turek_h
 #define dealii_fe_rannacher_turek_h
+
+#include <deal.II/base/config.h>
 
 #include <deal.II/base/polynomials_rannacher_turek.h>
 
@@ -61,7 +63,9 @@ DEAL_II_NAMESPACE_OPEN
  *
  * <h4>Node values</h4>
  *
- * The @ref GlossNodes "node values" are moments on faces.
+ * The
+ * @ref GlossNodes "node values"
+ * are moments on faces.
  *
  * <h4>Generalized support points</h4>
  *
@@ -73,11 +77,9 @@ DEAL_II_NAMESPACE_OPEN
  * constructor.
  *
  * @ingroup fe
- * @author Patrick Esser
- * @date 2015
  */
 template <int dim>
-class FE_RannacherTurek : public FE_Poly<PolynomialsRannacherTurek<dim>, dim>
+class FE_RannacherTurek : public FE_Poly<dim>
 {
 public:
   /**

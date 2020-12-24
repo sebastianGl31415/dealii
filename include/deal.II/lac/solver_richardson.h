@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2017 by the deal.II authors
+// Copyright (C) 1999 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -55,12 +55,9 @@ DEAL_II_NAMESPACE_OPEN
  * The solve() function of this class uses the mechanism described in the
  * Solver base class to determine convergence. This mechanism can also be used
  * to observe the progress of the iteration.
- *
- *
- * @author Ralf Hartmann
  */
 template <class VectorType = Vector<double>>
-class SolverRichardson : public Solver<VectorType>
+class SolverRichardson : public SolverBase<VectorType>
 {
 public:
   /**
@@ -175,7 +172,7 @@ template <class VectorType>
 SolverRichardson<VectorType>::SolverRichardson(SolverControl &           cn,
                                                VectorMemory<VectorType> &mem,
                                                const AdditionalData &    data)
-  : Solver<VectorType>(cn, mem)
+  : SolverBase<VectorType>(cn, mem)
   , additional_data(data)
 {}
 
@@ -184,7 +181,7 @@ SolverRichardson<VectorType>::SolverRichardson(SolverControl &           cn,
 template <class VectorType>
 SolverRichardson<VectorType>::SolverRichardson(SolverControl &       cn,
                                                const AdditionalData &data)
-  : Solver<VectorType>(cn)
+  : SolverBase<VectorType>(cn)
   , additional_data(data)
 {}
 

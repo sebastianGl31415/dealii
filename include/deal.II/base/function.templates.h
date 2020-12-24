@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2017 by the deal.II authors
+// Copyright (C) 1998 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -16,6 +16,8 @@
 #ifndef dealii_function_templates_h
 #define dealii_function_templates_h
 
+
+#include <deal.II/base/config.h>
 
 #include <deal.II/base/function.h>
 #include <deal.II/base/point.h>
@@ -380,8 +382,7 @@ namespace Functions
     const Point<dim> &,
     const unsigned int component) const
   {
-    Assert(component < this->n_components,
-           ExcIndexRange(component, 0, this->n_components));
+    AssertIndexRange(component, this->n_components);
     return function_value_vector[component];
   }
 
@@ -412,8 +413,7 @@ namespace Functions
   {
     // To avoid warning of unused parameter
     (void)points;
-    Assert(component < this->n_components,
-           ExcIndexRange(component, 0, this->n_components));
+    AssertIndexRange(component, this->n_components);
     Assert(return_values.size() == points.size(),
            ExcDimensionMismatch(return_values.size(), points.size()))
 
@@ -512,6 +512,24 @@ namespace Functions
   }
 
 
+
+  template <int dim, typename RangeNumberType>
+  SymmetricTensor<2, dim, RangeNumberType>
+  ConstantFunction<dim, RangeNumberType>::hessian(const Point<dim> &,
+                                                  const unsigned int) const
+  {
+    return SymmetricTensor<2, dim, RangeNumberType>();
+  }
+
+
+
+  template <int dim, typename RangeNumberType>
+  RangeNumberType
+  ConstantFunction<dim, RangeNumberType>::laplacian(const Point<dim> &,
+                                                    const unsigned int) const
+  {
+    return 0;
+  }
 } // namespace Functions
 
 //---------------------------------------------------------------------------
@@ -521,7 +539,7 @@ ComponentSelectFunction<dim, RangeNumberType>::ComponentSelectFunction(
   const unsigned int    selected,
   const RangeNumberType value,
   const unsigned int    n_components)
-  : ConstantFunction<dim, RangeNumberType>(value, n_components)
+  : Functions::ConstantFunction<dim, RangeNumberType>(value, n_components)
   , selected_components(std::make_pair(selected, selected + 1))
 {}
 
@@ -531,10 +549,10 @@ template <int dim, typename RangeNumberType>
 ComponentSelectFunction<dim, RangeNumberType>::ComponentSelectFunction(
   const unsigned int selected,
   const unsigned int n_components)
-  : ConstantFunction<dim, RangeNumberType>(1., n_components)
+  : Functions::ConstantFunction<dim, RangeNumberType>(1., n_components)
   , selected_components(std::make_pair(selected, selected + 1))
 {
-  Assert(selected < n_components, ExcIndexRange(selected, 0, n_components));
+  AssertIndexRange(selected, n_components);
 }
 
 
@@ -543,7 +561,7 @@ template <int dim, typename RangeNumberType>
 ComponentSelectFunction<dim, RangeNumberType>::ComponentSelectFunction(
   const std::pair<unsigned int, unsigned int> &selected,
   const unsigned int                           n_components)
-  : ConstantFunction<dim, RangeNumberType>(1., n_components)
+  : Functions::ConstantFunction<dim, RangeNumberType>(1., n_components)
   , selected_components(selected)
 {
   Assert(selected_components.first < selected_components.second,
@@ -559,7 +577,7 @@ ComponentSelectFunction<dim, RangeNumberType>::ComponentSelectFunction(
 template <int dim, typename RangeNumberType>
 void
 ComponentSelectFunction<dim, RangeNumberType>::substitute_function_value_with(
-  const ConstantFunction<dim, RangeNumberType> &f)
+  const Functions::ConstantFunction<dim, RangeNumberType> &f)
 {
   Point<dim> p;
   for (unsigned int i = 0; i < this->function_value_vector.size(); ++i)
@@ -608,8 +626,9 @@ ComponentSelectFunction<dim, RangeNumberType>::memory_consumption() const
   // No new complex data structure is introduced here, just evaluate how much
   // more memory is used *inside* the class via sizeof() and add that value to
   // parent class's memory_consumption()
-  return (sizeof(*this) - sizeof(ConstantFunction<dim, RangeNumberType>) +
-          ConstantFunction<dim, RangeNumberType>::memory_consumption());
+  return (
+    sizeof(*this) - sizeof(Functions::ConstantFunction<dim, RangeNumberType>) +
+    Functions::ConstantFunction<dim, RangeNumberType>::memory_consumption());
 }
 
 //---------------------------------------------------------------------------
@@ -648,8 +667,7 @@ VectorFunctionFromScalarFunctionObject<dim, RangeNumberType>::
   , function_object(function_object)
   , selected_component(selected_component)
 {
-  Assert(selected_component < this->n_components,
-         ExcIndexRange(selected_component, 0, this->n_components));
+  AssertIndexRange(selected_component, this->n_components);
 }
 
 
@@ -660,8 +678,7 @@ VectorFunctionFromScalarFunctionObject<dim, RangeNumberType>::value(
   const Point<dim> & p,
   const unsigned int component) const
 {
-  Assert(component < this->n_components,
-         ExcIndexRange(component, 0, this->n_components));
+  AssertIndexRange(component, this->n_components);
 
   if (component == selected_component)
     return function_object(p);
@@ -703,8 +720,7 @@ VectorFunctionFromTensorFunction<dim, RangeNumberType>::
 {
   // Verify that the Tensor<1,dim,RangeNumberType> will fit in the given length
   // selected_components and not hang over the end of the vector.
-  Assert(selected_component + dim - 1 < this->n_components,
-         ExcIndexRange(selected_component, 0, this->n_components));
+  AssertIndexRange(selected_component + dim - 1, this->n_components);
 }
 
 
@@ -715,8 +731,7 @@ VectorFunctionFromTensorFunction<dim, RangeNumberType>::value(
   const Point<dim> & p,
   const unsigned int component) const
 {
-  Assert(component < this->n_components,
-         ExcIndexRange(component, 0, this->n_components));
+  AssertIndexRange(component, this->n_components);
 
   // if the requested component is out of the range selected, then we can
   // return early
@@ -782,6 +797,96 @@ VectorFunctionFromTensorFunction<dim, RangeNumberType>::vector_value_list(
       points[p], value_list[p]);
 }
 
+
+
+template <int dim, typename RangeNumberType>
+FunctionFromFunctionObjects<dim, RangeNumberType>::FunctionFromFunctionObjects(
+  const unsigned int n_components,
+  const double       initial_time)
+  : Function<dim, RangeNumberType>(n_components, initial_time)
+  , function_values(n_components)
+  , function_gradients(n_components)
+{}
+
+
+
+template <int dim, typename RangeNumberType>
+FunctionFromFunctionObjects<dim, RangeNumberType>::FunctionFromFunctionObjects(
+  const std::vector<std::function<RangeNumberType(const Point<dim> &)>> &values,
+  const double initial_time)
+  : Function<dim, RangeNumberType>(values.size(), initial_time)
+  , function_values(values)
+  , function_gradients(values.size())
+{}
+
+
+
+template <int dim, typename RangeNumberType>
+FunctionFromFunctionObjects<dim, RangeNumberType>::FunctionFromFunctionObjects(
+  const std::vector<std::function<RangeNumberType(const Point<dim> &)>> &values,
+  const std::vector<
+    std::function<Tensor<1, dim, RangeNumberType>(const Point<dim> &)>>
+    &          gradients,
+  const double initial_time)
+  : Function<dim, RangeNumberType>(values.size(), initial_time)
+  , function_values(values)
+  , function_gradients(gradients)
+{}
+
+
+
+template <int dim, typename RangeNumberType>
+RangeNumberType
+FunctionFromFunctionObjects<dim, RangeNumberType>::value(
+  const Point<dim> & p,
+  const unsigned int component) const
+{
+  AssertIndexRange(component, this->n_components);
+  Assert(function_values[component],
+         ExcMessage("Accessing value() in FunctionFromFunctionObjects requires "
+                    "setting the std::function objects for the value"));
+  return function_values[component](p);
+}
+
+
+
+template <int dim, typename RangeNumberType>
+Tensor<1, dim, RangeNumberType>
+FunctionFromFunctionObjects<dim, RangeNumberType>::gradient(
+  const Point<dim> & p,
+  const unsigned int component) const
+{
+  AssertIndexRange(component, this->n_components);
+  Assert(function_gradients[component],
+         ExcMessage(
+           "Accessing gradient() in FunctionFromFunctionObjects "
+           "requires setting the std::function objects for the gradient"));
+  return function_gradients[component](p);
+}
+
+
+
+template <int dim, typename RangeNumberType>
+void
+FunctionFromFunctionObjects<dim, RangeNumberType>::set_function_values(
+  const std::vector<std::function<RangeNumberType(const Point<dim> &)>> &values)
+{
+  AssertDimension(this->n_components, values.size());
+  function_values = values;
+}
+
+
+
+template <int dim, typename RangeNumberType>
+void
+FunctionFromFunctionObjects<dim, RangeNumberType>::set_function_gradients(
+  const std::vector<
+    std::function<Tensor<1, dim, RangeNumberType>(const Point<dim> &)>>
+    &gradients)
+{
+  AssertDimension(this->n_components, gradients.size());
+  function_gradients = gradients;
+}
 
 DEAL_II_NAMESPACE_CLOSE
 

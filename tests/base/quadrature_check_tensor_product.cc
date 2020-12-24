@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 by the deal.II authors
+// Copyright (C) 2017 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -170,8 +170,8 @@ fill_quadrature_vector(std::vector<Quadrature<dim>> &quadratures,
   quadratures.push_back(QSimpson<dim>());
   quadrature_names.push_back("QSimpson");
 
-  quadratures.push_back(QTrapez<dim>());
-  quadrature_names.push_back("QTrapez");
+  quadratures.push_back(QTrapezoid<dim>());
+  quadrature_names.push_back("QTrapezoid");
 
   quadratures.push_back(QMilne<dim>());
   quadrature_names.push_back("QMilne");

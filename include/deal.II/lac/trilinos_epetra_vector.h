@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2015 - 2018 by the deal.II authors
+// Copyright (C) 2015 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -46,7 +46,7 @@ namespace LinearAlgebra
    * A namespace for classes that provide wrappers for Trilinos' Epetra vectors.
    *
    * This namespace provides wrappers for the Epetra_FEVector class from the
-   * Epetra package (https://trilinos.org/packages/epetra/) that is part of
+   * Epetra package (https://trilinos.github.io/epetra.html) that is part of
    * Trilinos.
    */
   namespace EpetraWrappers
@@ -55,11 +55,11 @@ namespace LinearAlgebra
      * This class implements a wrapper to the Trilinos distributed vector
      * class Epetra_FEVector. This class is derived from the
      * LinearAlgebra::VectorSpaceVector class. Note however that Epetra only
-     * works with Number = double.
+     * works with Number = double. This class requires Trilinos to be compiled
+     * with MPI support.
      *
      * @ingroup TrilinosWrappers
      * @ingroup Vectors
-     * @author Bruno Turcksin, 2015
      */
     class Vector : public VectorSpaceVector<double>, public Subscriptor
     {
@@ -96,7 +96,7 @@ namespace LinearAlgebra
              const bool      omit_zeroing_entries = false);
 
       /**
-       * Change the dimension to that of the vector V. The elements of V are not
+       * Change the dimension to that of the vector @p V. The elements of @p V are not
        * copied.
        */
       virtual void
@@ -120,8 +120,7 @@ namespace LinearAlgebra
 
       /**
        * Imports all the elements present in the vector's IndexSet from the
-       * input
-       * vector @p V. VectorOperation::values @p operation is used to decide if
+       * input vector @p V. VectorOperation::values @p operation is used to decide if
        * the elements in @p V should be added to the current vector or replace the
        * current elements. The last parameter can be used if the same
        * communication pattern is used multiple times. This can be used to
@@ -335,8 +334,8 @@ namespace LinearAlgebra
       memory_consumption() const override;
 
       /**
-       * The vectors have different partitioning, i.e. they have use different
-       * IndexSet.
+       * The vectors have different partitioning, i.e. their IndexSet objects
+       * don't represent the same indices.
        */
       DeclException0(ExcDifferentParallelPartitioning);
 

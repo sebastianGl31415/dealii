@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2005 - 2018 by the deal.II authors
+// Copyright (C) 2005 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -95,35 +95,6 @@ IndexSet::IndexSet(const Epetra_BlockMap &map)
 
 
 void
-IndexSet::add_range(const size_type begin, const size_type end)
-{
-  Assert((begin < index_space_size) ||
-           ((begin == index_space_size) && (end == index_space_size)),
-         ExcIndexRangeType<size_type>(begin, 0, index_space_size));
-  Assert(end <= index_space_size,
-         ExcIndexRangeType<size_type>(end, 0, index_space_size + 1));
-  Assert(begin <= end, ExcIndexRangeType<size_type>(begin, 0, end));
-
-  if (begin != end)
-    {
-      const Range new_range(begin, end);
-
-      // the new index might be larger than the last index present in the
-      // ranges. Then we can skip the binary search
-      if (ranges.size() == 0 || begin > ranges.back().end)
-        ranges.push_back(new_range);
-      else
-        ranges.insert(Utilities::lower_bound(ranges.begin(),
-                                             ranges.end(),
-                                             new_range),
-                      new_range);
-      is_compressed = false;
-    }
-}
-
-
-
-void
 IndexSet::do_compress() const
 {
   // we will, in the following, modify mutable variables. this can only
@@ -188,6 +159,7 @@ IndexSet::do_compress() const
 
 
 
+#ifndef DOXYGEN
 IndexSet IndexSet::operator&(const IndexSet &is) const
 {
   Assert(size() == is.size(), ExcDimensionMismatch(size(), is.size()));
@@ -231,6 +203,7 @@ IndexSet IndexSet::operator&(const IndexSet &is) const
   result.compress();
   return result;
 }
+#endif
 
 
 
@@ -261,7 +234,25 @@ IndexSet::get_view(const size_type begin, const size_type end) const
   return result;
 }
 
+std::vector<IndexSet>
+IndexSet::split_by_block(
+  const std::vector<types::global_dof_index> &n_indices_per_block) const
+{
+  std::vector<IndexSet> partitioned;
+  const unsigned int    n_blocks = n_indices_per_block.size();
 
+  partitioned.reserve(n_blocks);
+  types::global_dof_index start = 0;
+  types::global_dof_index sum   = 0;
+  for (const auto n_block_indices : n_indices_per_block)
+    {
+      partitioned.push_back(this->get_view(start, start + n_block_indices));
+      start += n_block_indices;
+      sum += partitioned.back().size();
+    }
+  AssertDimension(sum, this->size());
+  return partitioned;
+}
 
 void
 IndexSet::subtract_set(const IndexSet &other)
@@ -335,6 +326,18 @@ IndexSet::subtract_set(const IndexSet &other)
 
 
 
+IndexSet
+IndexSet::tensor_product(const IndexSet &other) const
+{
+  IndexSet set(this->size() * other.size());
+  for (const auto el : *this)
+    set.add_indices(other, el * other.size());
+  set.compress();
+  return set;
+}
+
+
+
 IndexSet::size_type
 IndexSet::pop_back()
 {
@@ -376,16 +379,15 @@ IndexSet::pop_front()
 
 
 void
-IndexSet::add_indices(const IndexSet &other, const unsigned int offset)
+IndexSet::add_indices(const IndexSet &other, const size_type offset)
 {
   if ((this == &other) && (offset == 0))
     return;
 
-  Assert(other.ranges.size() == 0 ||
-           other.ranges.back().end - 1 < index_space_size,
-         ExcIndexRangeType<size_type>(other.ranges.back().end - 1,
-                                      0,
-                                      index_space_size));
+  if (other.ranges.size() != 0)
+    {
+      AssertIndexRange(other.ranges.back().end - 1, index_space_size);
+    }
 
   compress();
   other.compress();
@@ -509,10 +511,9 @@ IndexSet::fill_index_vector(std::vector<size_type> &indices) const
   indices.clear();
   indices.reserve(n_elements());
 
-  for (std::vector<Range>::iterator it = ranges.begin(); it != ranges.end();
-       ++it)
-    for (size_type i = it->begin; i < it->end; ++i)
-      indices.push_back(i);
+  for (const auto &range : ranges)
+    for (size_type entry = range.begin; entry < range.end; ++entry)
+      indices.push_back(entry);
 
   Assert(indices.size() == n_elements(), ExcInternalError());
 }
@@ -520,6 +521,76 @@ IndexSet::fill_index_vector(std::vector<size_type> &indices) const
 
 
 #ifdef DEAL_II_WITH_TRILINOS
+#  ifdef DEAL_II_TRILINOS_WITH_TPETRA
+
+Tpetra::Map<int, types::global_dof_index>
+IndexSet::make_tpetra_map(const MPI_Comm &communicator,
+                          const bool      overlapping) const
+{
+  compress();
+  (void)communicator;
+
+#    ifdef DEBUG
+  if (!overlapping)
+    {
+      const size_type n_global_elements =
+        Utilities::MPI::sum(n_elements(), communicator);
+      Assert(n_global_elements == size(),
+             ExcMessage("You are trying to create an Tpetra::Map object "
+                        "that partitions elements of an index set "
+                        "between processors. However, the union of the "
+                        "index sets on different processors does not "
+                        "contain all indices exactly once: the sum of "
+                        "the number of entries the various processors "
+                        "want to store locally is " +
+                        std::to_string(n_global_elements) +
+                        " whereas the total size of the object to be "
+                        "allocated is " +
+                        std::to_string(size()) +
+                        ". In other words, there are "
+                        "either indices that are not spoken for "
+                        "by any processor, or there are indices that are "
+                        "claimed by multiple processors."));
+    }
+#    endif
+
+  // Find out if the IndexSet is ascending and 1:1. This corresponds to a
+  // linear Tpetra::Map. Overlapping IndexSets are never 1:1.
+  const bool linear =
+    overlapping ? false : is_ascending_and_one_to_one(communicator);
+  if (linear)
+    return Tpetra::Map<int, types::global_dof_index>(
+      size(),
+      n_elements(),
+      0,
+#    ifdef DEAL_II_WITH_MPI
+      Teuchos::rcp(new Teuchos::MpiComm<int>(communicator))
+#    else
+      Teuchos::rcp(new Teuchos::Comm<int>())
+#    endif
+    );
+  else
+    {
+      std::vector<size_type> indices;
+      fill_index_vector(indices);
+      std::vector<types::global_dof_index> int_indices(indices.size());
+      std::copy(indices.begin(), indices.end(), int_indices.begin());
+      const Teuchos::ArrayView<types::global_dof_index> arr_view(int_indices);
+      return Tpetra::Map<int, types::global_dof_index>(
+        size(),
+        arr_view,
+        0,
+#    ifdef DEAL_II_WITH_MPI
+        Teuchos::rcp(new Teuchos::MpiComm<int>(communicator))
+#    else
+        Teuchos::rcp(new Teuchos::Comm<int>())
+#    endif
+      );
+    }
+}
+#  endif
+
+
 
 Epetra_Map
 IndexSet::make_trilinos_map(const MPI_Comm &communicator,
@@ -541,10 +612,10 @@ IndexSet::make_trilinos_map(const MPI_Comm &communicator,
                         "contain all indices exactly once: the sum of "
                         "the number of entries the various processors "
                         "want to store locally is " +
-                        Utilities::to_string(n_global_elements) +
+                        std::to_string(n_global_elements) +
                         " whereas the total size of the object to be "
                         "allocated is " +
-                        Utilities::to_string(size()) +
+                        std::to_string(size()) +
                         ". In other words, there are "
                         "either indices that are not spoken for "
                         "by any processor, or there are indices that are "
@@ -600,6 +671,9 @@ IndexSet::is_ascending_and_one_to_one(const MPI_Comm &communicator) const
     Utilities::MPI::sum(n_elements(), communicator);
   if (n_global_elements != size())
     return false;
+
+  if (n_global_elements == 0)
+    return true;
 
 #ifdef DEAL_II_WITH_MPI
   // Non-contiguous IndexSets can't be linear.

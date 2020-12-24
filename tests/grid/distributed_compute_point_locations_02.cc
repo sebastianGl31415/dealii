@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 - 2018-2018 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -37,7 +37,6 @@
 
 #include "../tests.h"
 
-using namespace dealii;
 
 template <int dim>
 void
@@ -86,7 +85,7 @@ test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
   std::vector<std::vector<unsigned int>> computed_ranks;
 
   unsigned int computed_pts = 0;
-  for (auto cell : sphere.active_cell_iterators())
+  for (auto &cell : sphere.active_cell_iterators())
     {
       // The points we consider are the cell centers
       auto center_pt = cell->center();

@@ -40,6 +40,7 @@
 #include <iostream>
 
 #include "../tests.h"
+
 #include "matrix_vector_mf.h"
 
 
@@ -114,8 +115,7 @@ test()
   additional_data.mapping_update_flags = update_values | update_gradients |
                                          update_JxW_values |
                                          update_quadrature_points;
-  mf_data.reinit(
-    mapping, dof, constraints, quad, MPI_COMM_WORLD, additional_data);
+  mf_data.reinit(mapping, dof, constraints, quad, additional_data);
 
   const unsigned int coef_size =
     tria.n_locally_owned_active_cells() * std::pow(fe_degree + 1, dim);
@@ -123,12 +123,12 @@ test()
                  fe_degree,
                  Number,
                  LinearAlgebra::distributed::Vector<Number, MemorySpace::CUDA>>
-                                                                mf(mf_data, coef_size, false);
-  LinearAlgebra::distributed::Vector<Number, MemorySpace::CUDA> in_dev(
-    owned_set, MPI_COMM_WORLD);
-  LinearAlgebra::distributed::Vector<Number, MemorySpace::CUDA> out_dev(
-    owned_set, MPI_COMM_WORLD);
+    mf(mf_data, coef_size, false);
 
+  LinearAlgebra::distributed::Vector<Number, MemorySpace::CUDA> in_dev;
+  LinearAlgebra::distributed::Vector<Number, MemorySpace::CUDA> out_dev;
+  mf_data.initialize_dof_vector(in_dev);
+  mf_data.initialize_dof_vector(out_dev);
   LinearAlgebra::ReadWriteVector<Number> rw_in(owned_set);
   for (unsigned int i = 0; i < in_dev.local_size(); ++i)
     {

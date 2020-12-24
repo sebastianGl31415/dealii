@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2017 by the deal.II authors
+// Copyright (C) 2017 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -25,8 +25,9 @@
 #include <deal.II/lac/trilinos_vector.h>
 #include <deal.II/lac/vector.h>
 
-#include "../testmatrix.h"
 #include "../tests.h"
+
+#include "../testmatrix.h"
 
 
 
@@ -67,7 +68,7 @@ main(int argc, char **argv)
       cheby_data.preconditioner.reset(
         new TrilinosWrappers::PreconditionJacobi());
       cheby_data.preconditioner->initialize(AA);
-      cheby_data.degree          = 10;
+      cheby_data.degree          = 11;
       cheby_data.smoothing_range = 40;
       cheby.initialize(AA, cheby_data);
 

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2017 by the deal.II authors
+// Copyright (C) 1998 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -82,9 +82,12 @@ TriaRawIterator<Accessor>::operator=(const TriaRawIterator<Accessor> &i)
 
 
 template <typename Accessor>
-inline bool
-TriaRawIterator<Accessor>::
-operator==(const TriaRawIterator<Accessor> &other) const
+template <typename OtherAccessor>
+inline
+  typename std::enable_if<std::is_convertible<OtherAccessor, Accessor>::value,
+                          bool>::type
+  TriaRawIterator<Accessor>::
+  operator==(const TriaRawIterator<OtherAccessor> &other) const
 {
   return accessor == other.accessor;
 }

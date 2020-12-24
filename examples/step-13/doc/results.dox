@@ -64,7 +64,6 @@ first 9 refinement steps of the Kelly refinement indicator:
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-1.png" alt="">
     </td>
   </tr>
-
   <tr>
     <td>
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-2.png" alt="">
@@ -73,7 +72,6 @@ first 9 refinement steps of the Kelly refinement indicator:
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-3.png" alt="">
     </td>
   </tr>
-
   <tr>
     <td>
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-4.png" alt="">
@@ -82,7 +80,6 @@ first 9 refinement steps of the Kelly refinement indicator:
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-5.png" alt="">
     </td>
   </tr>
-
   <tr>
     <td>
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-6.png" alt="">
@@ -91,7 +88,6 @@ first 9 refinement steps of the Kelly refinement indicator:
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-7.png" alt="">
     </td>
   </tr>
-
   <tr>
     <td>
       <img src="https://www.dealii.org/images/steps/developer/step-13.solution-kelly-8.png" alt="">
@@ -166,7 +162,7 @@ profit. Answer 2: this quick hack
 @code
   bool refinement_indicated = false;
   for (const auto &cell : triangulation.active_cell_iterators())
-    for (unsigned int v=0; v<GeometryInfo<dim>::vertices_per_cell; ++v)
+    for (const auto v : cell->vertex_indices())
 	  if (cell->vertex(v) == Point<dim>(.5,.5))
 	    {
 	      cell->clear_coarsen_flag();
@@ -174,7 +170,7 @@ profit. Answer 2: this quick hack
 	    }
   if (refinement_indicated)
     for (const auto &cell : triangulation.active_cell_iterators())
-      for (unsigned int v=0; v<GeometryInfo<dim>::vertices_per_cell; ++v)
+      for (const auto v : cell->vertex_indices())
 	    if (cell->vertex(v) == Point<dim>(.5,.5))
 	      cell->set_refine_flag ();
 @endcode

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2017 by the deal.II authors
+// Copyright (C) 1998 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -30,7 +30,7 @@ void
 fill_vector(std::vector<Quadrature<dim> *> &quadratures)
 {
   quadratures.push_back(new QMidpoint<dim>());
-  quadratures.push_back(new QTrapez<dim>());
+  quadratures.push_back(new QTrapezoid<dim>());
   quadratures.push_back(new QSimpson<dim>());
   quadratures.push_back(new QMilne<dim>());
   quadratures.push_back(new QWeddle<dim>());

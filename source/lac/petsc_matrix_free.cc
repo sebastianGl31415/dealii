@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2012 - 2017 by the deal.II authors
+// Copyright (C) 2012 - 2019 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -240,7 +240,7 @@ namespace PETScWrappers
     ierr = MatShellSetOperation(
       matrix,
       MATOP_MULT,
-      reinterpret_cast<void (*)(void)>(
+      reinterpret_cast<void (*)()>(
         &dealii::PETScWrappers::MatrixFree::matrix_free_mult));
     AssertThrow(ierr == 0, ExcPETScError(ierr));
 

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1999 - 2017 by the deal.II authors
+// Copyright (C) 1999 - 2018 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -106,10 +106,9 @@ DEAL_II_NAMESPACE_OPEN
  *
  * Note that the template parameters to this class have to be given as
  * <tt>InterGridMap<DoFHandler<2> ></tt>, which here is DoFHandler (and could
- * equally well be Triangulation, PersistentTriangulation, or hp::DoFHandler).
+ * equally well be Triangulation or PersistentTriangulation).
  *
  * @ingroup grid
- * @author Wolfgang Bangerth, 1999
  */
 template <class MeshType>
 class InterGridMap : public Subscriptor

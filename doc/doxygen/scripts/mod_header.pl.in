@@ -37,10 +37,15 @@ s/\$projectname// unless (m/<title>/);
 # Finally, define some extra commands for MathJax in every file. These are in an
 # undisplayed div so that the \newcommand text does not pop up and then
 # disappear while MathJax works.
+#
+# Note: If you add an entry here, also put it into ./doc/doxygen/extra.sty
 if (eof)
 {
     print '<!--Extra macros for MathJax:-->', "\n";
     print '<div style="display:none">', "\n";
-    print '\(\newcommand{\dealcoloneq}{\mathrel{\vcenter{:}}=}\)', "\n";
+    print '\(\newcommand{\dealvcentcolon}{\mathrel{\mathop{:}}}\)', "\n";
+    print '\(\newcommand{\dealcoloneq}{\dealvcentcolon\mathrel{\mkern-1.2mu}=}\)', "\n";
+    print '\(\newcommand{\jump}[1]{\left[\!\left[ #1 \right]\!\right]}\)', "\n";
+    print '\(\newcommand{\average}[1]{\left\{\!\left\{ #1 \right\}\!\right\}}\)', "\n";
     print '</div>', "\n";
 }

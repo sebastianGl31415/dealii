@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2016 - 2017 by the deal.II authors
+// Copyright (C) 2016 - 2020 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -22,8 +22,9 @@
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/vector.h>
 
-#include "../testmatrix.h"
 #include "../tests.h"
+
+#include "../testmatrix.h"
 
 
 
@@ -59,7 +60,7 @@ main()
                             SparseILU<double>>::AdditionalData cheby_data;
       cheby_data.preconditioner.reset(new SparseILU<double>());
       cheby_data.preconditioner->initialize(A);
-      cheby_data.degree          = 10;
+      cheby_data.degree          = 11;
       cheby_data.smoothing_range = 40;
       cheby.initialize(A, cheby_data);
 

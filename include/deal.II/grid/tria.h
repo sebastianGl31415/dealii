@@ -196,7 +196,8 @@ namespace internal
 
       /**
        * Read or write the data of this object to or from a stream for the
-       * purpose of serialization
+       * purpose of serialization using the [BOOST serialization
+       * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
        */
       template <class Archive>
       void
@@ -253,7 +254,8 @@ namespace internal
 
       /**
        * Read or write the data of this object to or from a stream for the
-       * purpose of serialization
+       * purpose of serialization using the [BOOST serialization
+       * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
        */
       template <class Archive>
       void
@@ -311,7 +313,8 @@ namespace internal
 
       /**
        * Read or write the data of this object to or from a stream for the
-       * purpose of serialization
+       * purpose of serialization using the [BOOST serialization
+       * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
        */
       template <class Archive>
       void
@@ -1529,7 +1532,7 @@ public:
      * automatically generated destructor would have a different one due to
      * member objects.
      */
-    virtual ~DistortedCellList() noexcept override = default;
+    virtual ~DistortedCellList() noexcept override;
 
     /**
      * A list of those cells among the coarse mesh cells that are deformed or
@@ -1610,6 +1613,13 @@ public:
    */
   virtual void
   clear();
+
+  /**
+   * Return MPI communicator used by this triangulation. In the case of
+   * a serial Triangulation object, MPI_COMM_SELF is returned.
+   */
+  virtual MPI_Comm
+  get_communicator() const;
 
   /**
    * Set the mesh smoothing to @p mesh_smoothing. This overrides the
@@ -1827,7 +1837,9 @@ public:
    * @note This function is used in step-14 and step-19.
    *
    * @note This function triggers the "create" signal after doing its work. See
-   * the section on signals in the general documentation of this class.
+   * the section on signals in the general documentation of this class. For
+   * example as a consequence of this, all DoFHandler objects connected to
+   * this triangulation will be reinitialized via DoFHandler::reinit().
    *
    * @note The check for distorted cells is only done if dim==spacedim, as
    * otherwise cells can legitimately be twisted if the manifold they describe
@@ -1863,6 +1875,7 @@ public:
    * @note This function internally calls create_triangulation and therefore
    * can throw the same exception as the other function.
    */
+  DEAL_II_DEPRECATED_EARLY
   virtual void
   create_triangulation_compatibility(
     const std::vector<Point<spacedim>> &vertices,
@@ -2206,6 +2219,15 @@ public:
      * without a way to distinguish the last signal call.
      */
     boost::signals2::signal<void()> pre_distributed_refinement;
+
+    /**
+     * This signal is triggered during execution of the
+     * parallel::distributed::Triangulation::execute_coarsening_and_refinement()
+     * function. At the time this signal is triggered, the p4est oracle has been
+     * refined and the cell relations have been updated. The triangulation is
+     * unchanged otherwise, and the p4est oracle has not yet been repartitioned.
+     */
+    boost::signals2::signal<void()> post_p4est_refinement;
 
     /**
      * This signal is triggered at the end of execution of the
@@ -3319,7 +3341,8 @@ public:
 
   /**
    * Write the data of this object to a stream for the purpose of
-   * serialization.
+   * serialization using the [BOOST serialization
+   * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
    *
    * @note This function does not save <i>all</i> member variables of the
    * current triangulation. Rather, only certain kinds of information are
@@ -3331,7 +3354,9 @@ public:
 
   /**
    * Read the data of this object from a stream for the purpose of
-   * serialization. Throw away the previous content.
+   * serialization using the [BOOST serialization
+   * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
+   * Throw away the previous content.
    *
    * @note This function does not reset <i>all</i> member variables of the
    * current triangulation to the ones of the triangulation that was
@@ -3380,20 +3405,21 @@ public:
    * Return vector filled with the used reference-cell types of this
    * triangulation.
    */
-  const std::vector<ReferenceCell::Type> &
-  get_reference_cell_types() const;
+  const std::vector<ReferenceCell> &
+  get_reference_cells() const;
 
   /**
    * Indicate if the triangulation only consists of hypercube-like cells, i.e.,
    * lines, quadrilaterals, or hexahedra.
    */
   bool
-  all_reference_cell_types_are_hyper_cube() const;
+  all_reference_cells_are_hyper_cube() const;
 
 #ifdef DOXYGEN
   /**
    * Write and read the data of this object from a stream for the purpose
-   * of serialization.
+   * of serialization. using the [BOOST serialization
+   * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
    */
   template <class Archive>
   void
@@ -3502,7 +3528,7 @@ protected:
    * Vector caching all reference-cell types of the given triangulation
    * (also in the distributed case).
    */
-  std::vector<ReferenceCell::Type> reference_cell_types;
+  std::vector<ReferenceCell> reference_cells;
 
   /**
    * Write a bool vector to the given stream, writing a pre- and a postfix
@@ -3541,10 +3567,10 @@ protected:
   update_periodic_face_map();
 
   /**
-   * Update the internal reference_cell_types vector.
+   * Update the internal reference_cells vector.
    */
   virtual void
-  update_reference_cell_types();
+  update_reference_cells();
 
 
 private:
@@ -3849,6 +3875,12 @@ private:
    */
   void
   clear_despite_subscriptions();
+
+  /**
+   * Reset triangulation policy.
+   */
+  void
+  reset_policy();
 
   /**
    * For all cells, set the active cell indices so that active cells know the
@@ -4218,10 +4250,16 @@ Triangulation<dim, spacedim>::load(Archive &ar, const unsigned int)
   // this here. don't forget to first resize the fields appropriately
   {
     for (auto &level : levels)
-      level->active_cell_indices.resize(level->refine_flags.size());
+      {
+        level->active_cell_indices.resize(level->refine_flags.size());
+        level->global_active_cell_indices.resize(level->refine_flags.size());
+        level->global_level_cell_indices.resize(level->refine_flags.size());
+      }
     reset_active_cell_indices();
+    reset_global_cell_indices();
   }
 
+  reset_policy();
 
   bool my_check_for_distorted_cells;
   ar & my_check_for_distorted_cells;
@@ -4281,13 +4319,35 @@ unsigned int
 Triangulation<2, 2>::n_raw_quads(const unsigned int level) const;
 template <>
 unsigned int
-Triangulation<1, 1>::n_raw_hexs(const unsigned int level) const;
+Triangulation<3, 3>::n_raw_quads(const unsigned int level) const;
+template <>
+unsigned int
+Triangulation<3, 3>::n_raw_quads() const;
 template <>
 unsigned int
 Triangulation<1, 1>::n_active_quads(const unsigned int level) const;
 template <>
 unsigned int
 Triangulation<1, 1>::n_active_quads() const;
+template <>
+unsigned int
+Triangulation<1, 1>::n_raw_hexs(const unsigned int level) const;
+template <>
+unsigned int
+Triangulation<3, 3>::n_raw_hexs(const unsigned int level) const;
+template <>
+unsigned int
+Triangulation<3, 3>::n_hexs() const;
+template <>
+unsigned int
+Triangulation<3, 3>::n_active_hexs() const;
+template <>
+unsigned int
+Triangulation<3, 3>::n_active_hexs(const unsigned int) const;
+template <>
+unsigned int
+Triangulation<3, 3>::n_hexs(const unsigned int level) const;
+
 template <>
 unsigned int
 Triangulation<1, 1>::max_adjacent_cells() const;
@@ -4325,7 +4385,6 @@ Triangulation<1, 2>::max_adjacent_cells() const;
 // -------------------------------------------------------------------
 // -- Explicit specializations for codimension two grids
 
-
 template <>
 unsigned int
 Triangulation<1, 3>::n_quads() const;
@@ -4351,6 +4410,23 @@ template <>
 unsigned int
 Triangulation<1, 3>::max_adjacent_cells() const;
 
+template <>
+bool
+Triangulation<1, 1>::prepare_coarsening_and_refinement();
+template <>
+bool
+Triangulation<1, 2>::prepare_coarsening_and_refinement();
+template <>
+bool
+Triangulation<1, 3>::prepare_coarsening_and_refinement();
+
+
+extern template class Triangulation<1, 1>;
+extern template class Triangulation<1, 2>;
+extern template class Triangulation<1, 3>;
+extern template class Triangulation<2, 2>;
+extern template class Triangulation<2, 3>;
+extern template class Triangulation<3, 3>;
 
 #endif // DOXYGEN
 

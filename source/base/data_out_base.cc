@@ -293,8 +293,7 @@ namespace DataOutBase
                                         (n_data_sets + spacedim) :
                                         n_data_sets,
                                       patch.data.n_rows()));
-          Assert(patch.reference_cell_type !=
-                     ReferenceCell::get_hypercube(dim) ||
+          Assert(patch.reference_cell != ReferenceCells::get_hypercube<dim>() ||
                    (n_data_sets == 0) ||
                    (patch.data.n_cols() ==
                     Utilities::fixed_power<dim>(n_subdivisions + 1)),
@@ -567,25 +566,41 @@ namespace
   const unsigned int tecplot_binary_cell_type[4] = {0, 0, 1, 3};
 #endif
 
-  // NOTE: The dimension of the array is chosen to 5 to allow the choice
-  // DataOutBase<deal_II_dimension,deal_II_dimension+1> in general Wolfgang
-  // supposed that we don't need it in general, but however this choice avoids a
-  // -Warray-bounds check warning
-  const unsigned int vtk_cell_type[5] = {1,  // VTK_VERTEX
-                                         3,  // VTK_LINE
-                                         9,  // VTK_QUAD
-                                         12, // VTK_HEXAHEDRON
-                                         static_cast<unsigned int>(-1)};
+  // Define cell id using VTK nomenclature for linear, quadratic and
+  // high-order Lagrange cells
+  enum vtk_linear_cell_type
+  {
+    VTK_VERTEX     = 1,
+    VTK_LINE       = 3,
+    VTK_TRIANGLE   = 5,
+    VTK_QUAD       = 9,
+    VTK_TETRA      = 10,
+    VTK_HEXAHEDRON = 12,
+    VTK_WEDGE      = 13,
+    VTK_PYRAMID    = 14
+  };
 
-  // VTK cell ids defined in vtk_cell_type are used for linear cells,
-  // the ones defined below are used when Lagrange cells are written.
-  const unsigned int vtk_lagrange_cell_type[5] = {
-    1,  // VTK_VERTEX
-    68, // VTK_LAGRANGE_CURVE
-    70, // VTK_LAGRANGE_QUADRILATERAL
-    72, // VTK_LAGRANGE_HEXAHEDRON
-    static_cast<unsigned int>(-1)};
+  enum vtk_quadratic_cell_type
+  {
+    VTK_QUADRATIC_EDGE       = 21,
+    VTK_QUADRATIC_TRIANGLE   = 22,
+    VTK_QUADRATIC_QUAD       = 23,
+    VTK_QUADRATIC_TETRA      = 24,
+    VTK_QUADRATIC_HEXAHEDRON = 25,
+    VTK_QUADRATIC_WEDGE      = 26,
+    VTK_QUADRATIC_PYRAMID    = 27
+  };
 
+  enum vtk_lagrange_cell_type
+  {
+    VTK_LAGRANGE_CURVE         = 68,
+    VTK_LAGRANGE_TRIANGLE      = 69,
+    VTK_LAGRANGE_QUADRILATERAL = 70,
+    VTK_LAGRANGE_TETRAHEDRON   = 71,
+    VTK_LAGRANGE_HEXAHEDRON    = 72,
+    VTK_LAGRANGE_WEDGE         = 73,
+    VTK_LAGRANGE_PYRAMID       = 74
+  };
 
   /**
    * Return the tuple (vtk cell type, number of cells, number of vertices)
@@ -600,9 +615,19 @@ namespace
 
     if (write_higher_order_cells)
       {
-        if (patch.reference_cell_type == ReferenceCell::get_hypercube(dim))
+        if (patch.reference_cell == ReferenceCells::get_hypercube<dim>())
           {
-            vtk_cell_id[0] = vtk_lagrange_cell_type[dim];
+            const std::array<unsigned int, 4> cell_type_by_dim{
+              {VTK_VERTEX,
+               VTK_LAGRANGE_CURVE,
+               VTK_LAGRANGE_QUADRILATERAL,
+               VTK_LAGRANGE_HEXAHEDRON}};
+            vtk_cell_id[0] = cell_type_by_dim[dim];
+            vtk_cell_id[1] = 1;
+          }
+        else if (patch.reference_cell == ReferenceCells::Triangle)
+          {
+            vtk_cell_id[0] = VTK_LAGRANGE_TRIANGLE;
             vtk_cell_id[1] = 1;
           }
         else
@@ -610,45 +635,47 @@ namespace
             Assert(false, ExcNotImplemented());
           }
       }
-    else if (patch.reference_cell_type == ReferenceCell::Type::Tri &&
+    else if (patch.reference_cell == ReferenceCells::Triangle &&
              patch.data.n_cols() == 3)
       {
-        vtk_cell_id[0] = 5;
+        vtk_cell_id[0] = VTK_TRIANGLE;
         vtk_cell_id[1] = 1;
       }
-    else if (patch.reference_cell_type == ReferenceCell::Type::Tri &&
+    else if (patch.reference_cell == ReferenceCells::Triangle &&
              patch.data.n_cols() == 6)
       {
-        vtk_cell_id[0] = 22;
+        vtk_cell_id[0] = VTK_QUADRATIC_TRIANGLE;
         vtk_cell_id[1] = 1;
       }
-    else if (patch.reference_cell_type == ReferenceCell::Type::Tet &&
+    else if (patch.reference_cell == ReferenceCells::Tetrahedron &&
              patch.data.n_cols() == 4)
       {
-        vtk_cell_id[0] = 10;
+        vtk_cell_id[0] = VTK_TETRA;
         vtk_cell_id[1] = 1;
       }
-    else if (patch.reference_cell_type == ReferenceCell::Type::Tet &&
+    else if (patch.reference_cell == ReferenceCells::Tetrahedron &&
              patch.data.n_cols() == 10)
       {
-        vtk_cell_id[0] = 24;
+        vtk_cell_id[0] = VTK_QUADRATIC_TETRA;
         vtk_cell_id[1] = 1;
       }
-    else if (patch.reference_cell_type == ReferenceCell::Type::Wedge &&
+    else if (patch.reference_cell == ReferenceCells::Wedge &&
              patch.data.n_cols() == 6)
       {
-        vtk_cell_id[0] = 13;
+        vtk_cell_id[0] = VTK_WEDGE;
         vtk_cell_id[1] = 1;
       }
-    else if (patch.reference_cell_type == ReferenceCell::Type::Pyramid &&
+    else if (patch.reference_cell == ReferenceCells::Pyramid &&
              patch.data.n_cols() == 5)
       {
-        vtk_cell_id[0] = 14;
+        vtk_cell_id[0] = VTK_PYRAMID;
         vtk_cell_id[1] = 1;
       }
-    else if (patch.reference_cell_type == ReferenceCell::get_hypercube(dim))
+    else if (patch.reference_cell == ReferenceCells::get_hypercube<dim>())
       {
-        vtk_cell_id[0] = vtk_cell_type[dim];
+        const std::array<unsigned int, 4> cell_type_by_dim{
+          {VTK_VERTEX, VTK_LINE, VTK_QUAD, VTK_HEXAHEDRON}};
+        vtk_cell_id[0] = cell_type_by_dim[dim];
         vtk_cell_id[1] = Utilities::pow(patch.n_subdivisions, dim);
       }
     else
@@ -656,7 +683,7 @@ namespace
         Assert(false, ExcNotImplemented());
       }
 
-    if (patch.reference_cell_type != ReferenceCell::get_hypercube(dim) ||
+    if (patch.reference_cell != ReferenceCells::get_hypercube<dim>() ||
         write_higher_order_cells)
       vtk_cell_id[2] = patch.data.n_cols();
     else
@@ -670,14 +697,14 @@ namespace
   //----------------------------------------------------------------------//
   // For a given patch, compute the node interpolating the corner nodes linearly
   // at the point (xstep, ystep, zstep)*1./n_subdivisions. If the points are
-  // saved in the patch.data member, return the saved point instead
+  // saved in the patch.data member, return the saved point instead.
   template <int dim, int spacedim>
   inline Point<spacedim>
-  compute_node(const DataOutBase::Patch<dim, spacedim> &patch,
-               const unsigned int                       xstep,
-               const unsigned int                       ystep,
-               const unsigned int                       zstep,
-               const unsigned int                       n_subdivisions)
+  compute_hypercube_node(const DataOutBase::Patch<dim, spacedim> &patch,
+                         const unsigned int                       xstep,
+                         const unsigned int                       ystep,
+                         const unsigned int                       zstep,
+                         const unsigned int n_subdivisions)
   {
     Point<spacedim> node;
     if (patch.points_are_available)
@@ -741,6 +768,36 @@ namespace
               }
           }
       }
+    return node;
+  }
+
+  // For a given patch, compute the nodes for arbitrary (non-hypercube) cells.
+  // If the points are saved in the patch.data member, return the saved point
+  // instead.
+  template <int dim, int spacedim>
+  inline Point<spacedim>
+  compute_arbitrary_node(const DataOutBase::Patch<dim, spacedim> &patch,
+                         const unsigned int                       point_no)
+  {
+    Point<spacedim> node;
+
+    if (patch.points_are_available)
+      {
+        for (unsigned int d = 0; d < spacedim; ++d)
+          node[d] = patch.data(patch.data.size(0) - spacedim + d, point_no);
+        return node;
+      }
+    else
+      {
+        AssertDimension(patch.n_subdivisions, 1);
+        Assert(
+          patch.reference_cell != ReferenceCells::Pyramid,
+          ExcMessage(
+            "Pyramids need different ordering of the vertices, which is not implemented yet here."));
+
+        node = patch.vertices[point_no];
+      }
+
     return node;
   }
 
@@ -892,7 +949,7 @@ namespace
     for (const auto &patch : patches)
       {
         // The following formula doesn't hold for non-tensor products.
-        if (patch.reference_cell_type == ReferenceCell::get_hypercube(dim))
+        if (patch.reference_cell == ReferenceCells::get_hypercube<dim>())
           {
             n_nodes += Utilities::fixed_power<dim>(patch.n_subdivisions + 1);
             n_cells += Utilities::fixed_power<dim>(patch.n_subdivisions);
@@ -900,9 +957,7 @@ namespace
         else
           {
             Assert(patch.n_subdivisions == 1, ExcNotImplemented());
-            const auto &info = ReferenceCell::internal::Info::get_cell(
-              patch.reference_cell_type);
-            n_nodes += info.n_vertices();
+            n_nodes += patch.reference_cell.n_vertices();
             n_cells += 1;
           }
       }
@@ -923,7 +978,7 @@ namespace
     for (const auto &patch : patches)
       {
         // The following formulas don't hold for non-tensor products.
-        if (patch.reference_cell_type == ReferenceCell::get_hypercube(dim))
+        if (patch.reference_cell == ReferenceCells::get_hypercube<dim>())
           {
             n_nodes += Utilities::fixed_power<dim>(patch.n_subdivisions + 1);
 
@@ -1839,7 +1894,7 @@ namespace DataOutBase
     : patch_index(no_neighbor)
     , n_subdivisions(1)
     , points_are_available(false)
-    , reference_cell_type(ReferenceCell::get_hypercube(dim))
+    , reference_cell(ReferenceCells::get_hypercube<dim>())
   // all the other data has a constructor of its own, except for the "neighbors"
   // field, which we set to invalid values.
   {
@@ -1917,7 +1972,7 @@ namespace DataOutBase
     std::swap(n_subdivisions, other_patch.n_subdivisions);
     data.swap(other_patch.data);
     std::swap(points_are_available, other_patch.points_are_available);
-    std::swap(reference_cell_type, other_patch.reference_cell_type);
+    std::swap(reference_cell, other_patch.reference_cell);
   }
 
 
@@ -1941,7 +1996,7 @@ namespace DataOutBase
   Patch<0, spacedim>::Patch()
     : patch_index(no_neighbor)
     , points_are_available(false)
-    , reference_cell_type(ReferenceCell::get_hypercube(0))
+    , reference_cell(ReferenceCells::get_hypercube<0>())
   {
     Assert(spacedim <= 3, ExcNotImplemented());
   }
@@ -2601,22 +2656,12 @@ namespace DataOutBase
 
     for (const auto &patch : patches)
       {
-        // special treatment of simplices since they are not subdivided, such
-        // that no new nodes have to be created, but the precomputed ones can be
-        // used
-        if (patch.reference_cell_type != ReferenceCell::get_hypercube(dim))
+        // special treatment of non-hypercube cells
+        if (patch.reference_cell != ReferenceCells::get_hypercube<dim>())
           {
-            Point<spacedim> node;
-
             for (unsigned int point_no = 0; point_no < patch.data.n_cols();
                  ++point_no)
-              {
-                for (unsigned int d = 0; d < spacedim; ++d)
-                  node[d] =
-                    patch.data(patch.data.size(0) - spacedim + d, point_no);
-
-                out.write_point(count++, node);
-              }
+              out.write_point(count++, compute_arbitrary_node(patch, point_no));
           }
         else
           {
@@ -2632,7 +2677,8 @@ namespace DataOutBase
               for (unsigned int i2 = 0; i2 < n2; ++i2)
                 for (unsigned int i1 = 0; i1 < n1; ++i1)
                   out.write_point(
-                    count++, compute_node(patch, i1, i2, i3, n_subdivisions));
+                    count++,
+                    compute_hypercube_node(patch, i1, i2, i3, n_subdivisions));
           }
       }
     out.flush_points();
@@ -2648,7 +2694,7 @@ namespace DataOutBase
     for (const auto &patch : patches)
       {
         // special treatment of simplices since they are not subdivided
-        if (patch.reference_cell_type != ReferenceCell::get_hypercube(dim))
+        if (patch.reference_cell != ReferenceCells::get_hypercube<dim>())
           {
             out.write_cell_single(count++,
                                   first_vertex_of_patch,
@@ -2700,36 +2746,53 @@ namespace DataOutBase
 
     for (const auto &patch : patches)
       {
-        const unsigned int n_subdivisions = patch.n_subdivisions;
-        const unsigned int n              = n_subdivisions + 1;
+        if (patch.reference_cell != ReferenceCells::get_hypercube<dim>())
+          {
+            connectivity.resize(patch.data.n_cols());
 
-        cell_order.fill(n_subdivisions);
-        connectivity.resize(Utilities::fixed_power<dim>(n));
+            for (unsigned int i = 0; i < patch.data.n_cols(); ++i)
+              connectivity[i] = i;
 
-        // Length of loops in all dimensons
-        const unsigned int n1 = (dim > 0) ? n_subdivisions : 0;
-        const unsigned int n2 = (dim > 1) ? n_subdivisions : 0;
-        const unsigned int n3 = (dim > 2) ? n_subdivisions : 0;
-        // Offsets of outer loops
-        const unsigned int d1 = 1;
-        const unsigned int d2 = n;
-        const unsigned int d3 = n * n;
-        for (unsigned int i3 = 0; i3 <= n3; ++i3)
-          for (unsigned int i2 = 0; i2 <= n2; ++i2)
-            for (unsigned int i1 = 0; i1 <= n1; ++i1)
-              {
-                const unsigned int local_index = i3 * d3 + i2 * d2 + i1 * d1;
-                const unsigned int connectivity_index =
-                  vtk_point_index_from_ijk(i1, i2, i3, cell_order);
-                connectivity[connectivity_index] = local_index;
-              }
+            out.template write_high_order_cell<dim>(count++,
+                                                    first_vertex_of_patch,
+                                                    connectivity);
 
-        out.template write_high_order_cell<dim>(count++,
-                                                first_vertex_of_patch,
-                                                connectivity);
+            first_vertex_of_patch += patch.data.n_cols();
+          }
+        else
+          {
+            const unsigned int n_subdivisions = patch.n_subdivisions;
+            const unsigned int n              = n_subdivisions + 1;
 
-        // finally update the number of the first vertex of this patch
-        first_vertex_of_patch += Utilities::fixed_power<dim>(n);
+            cell_order.fill(n_subdivisions);
+            connectivity.resize(Utilities::fixed_power<dim>(n));
+
+            // Length of loops in all dimensons
+            const unsigned int n1 = (dim > 0) ? n_subdivisions : 0;
+            const unsigned int n2 = (dim > 1) ? n_subdivisions : 0;
+            const unsigned int n3 = (dim > 2) ? n_subdivisions : 0;
+            // Offsets of outer loops
+            const unsigned int d1 = 1;
+            const unsigned int d2 = n;
+            const unsigned int d3 = n * n;
+            for (unsigned int i3 = 0; i3 <= n3; ++i3)
+              for (unsigned int i2 = 0; i2 <= n2; ++i2)
+                for (unsigned int i1 = 0; i1 <= n1; ++i1)
+                  {
+                    const unsigned int local_index =
+                      i3 * d3 + i2 * d2 + i1 * d1;
+                    const unsigned int connectivity_index =
+                      vtk_point_index_from_ijk(i1, i2, i3, cell_order);
+                    connectivity[connectivity_index] = local_index;
+                  }
+
+            out.template write_high_order_cell<dim>(count++,
+                                                    first_vertex_of_patch,
+                                                    connectivity);
+
+            // finally update the number of the first vertex of this patch
+            first_vertex_of_patch += Utilities::fixed_power<dim>(n);
+          }
       }
 
     out.flush_cells();
@@ -3543,7 +3606,8 @@ namespace DataOutBase
                 for (unsigned int i1 = 0; i1 < n1; ++i1)
                   {
                     // compute coordinates for this patch point
-                    out << compute_node(patch, i1, i2, 0, n_subdivisions)
+                    out << compute_hypercube_node(
+                             patch, i1, i2, 0, n_subdivisions)
                         << ' ';
 
                     for (unsigned int data_set = 0; data_set < n_data_sets;
@@ -3570,7 +3634,7 @@ namespace DataOutBase
                   {
                     // compute coordinates for this patch point
                     this_point =
-                      compute_node(patch, i1, i2, i3, n_subdivisions);
+                      compute_hypercube_node(patch, i1, i2, i3, n_subdivisions);
                     // line into positive x-direction if possible
                     if (i1 < n_subdivisions)
                       {
@@ -3584,7 +3648,7 @@ namespace DataOutBase
                         out << '\n';
 
                         // write point there and its data
-                        out << compute_node(
+                        out << compute_hypercube_node(
                           patch, i1 + 1, i2, i3, n_subdivisions);
 
                         for (unsigned int data_set = 0; data_set < n_data_sets;
@@ -3611,7 +3675,7 @@ namespace DataOutBase
                         out << '\n';
 
                         // write point there and its data
-                        out << compute_node(
+                        out << compute_hypercube_node(
                           patch, i1, i2 + 1, i3, n_subdivisions);
 
                         for (unsigned int data_set = 0; data_set < n_data_sets;
@@ -3638,7 +3702,7 @@ namespace DataOutBase
                         out << '\n';
 
                         // write point there and its data
-                        out << compute_node(
+                        out << compute_hypercube_node(
                           patch, i1, i2, i3 + 1, n_subdivisions);
 
                         for (unsigned int data_set = 0; data_set < n_data_sets;
@@ -3824,7 +3888,7 @@ namespace DataOutBase
             {
               // compute coordinates for this patch point, storing in ver
               ver[i1 * d1 + i2 * d2] =
-                compute_node(patch, i1, i2, 0, n_subdivisions);
+                compute_hypercube_node(patch, i1, i2, 0, n_subdivisions);
             }
 
 
@@ -4066,11 +4130,14 @@ namespace DataOutBase
           for (unsigned int i1 = 0; i1 < n_subdivisions; ++i1)
             {
               Point<spacedim> points[4];
-              points[0] = compute_node(patch, i1, i2, 0, n_subdivisions);
-              points[1] = compute_node(patch, i1 + 1, i2, 0, n_subdivisions);
-              points[2] = compute_node(patch, i1, i2 + 1, 0, n_subdivisions);
-              points[3] =
-                compute_node(patch, i1 + 1, i2 + 1, 0, n_subdivisions);
+              points[0] =
+                compute_hypercube_node(patch, i1, i2, 0, n_subdivisions);
+              points[1] =
+                compute_hypercube_node(patch, i1 + 1, i2, 0, n_subdivisions);
+              points[2] =
+                compute_hypercube_node(patch, i1, i2 + 1, 0, n_subdivisions);
+              points[3] = compute_hypercube_node(
+                patch, i1 + 1, i2 + 1, 0, n_subdivisions);
 
               switch (spacedim)
                 {
@@ -6016,7 +6083,8 @@ namespace DataOutBase
     Point<2>                projection_decomposition;
     std::array<Point<2>, 4> projection_decompositions;
 
-    projected_point = compute_node(first_patch, 0, 0, 0, n_subdivisions);
+    projected_point =
+      compute_hypercube_node(first_patch, 0, 0, 0, n_subdivisions);
 
     if (first_patch.data.n_rows() != 0)
       {
@@ -6043,13 +6111,13 @@ namespace DataOutBase
             for (unsigned int i1 = 0; i1 < n_subdivisions; ++i1)
               {
                 projected_points[0] =
-                  compute_node(patch, i1, i2, 0, n_subdivisions);
+                  compute_hypercube_node(patch, i1, i2, 0, n_subdivisions);
                 projected_points[1] =
-                  compute_node(patch, i1 + 1, i2, 0, n_subdivisions);
+                  compute_hypercube_node(patch, i1 + 1, i2, 0, n_subdivisions);
                 projected_points[2] =
-                  compute_node(patch, i1, i2 + 1, 0, n_subdivisions);
-                projected_points[3] =
-                  compute_node(patch, i1 + 1, i2 + 1, 0, n_subdivisions);
+                  compute_hypercube_node(patch, i1, i2 + 1, 0, n_subdivisions);
+                projected_points[3] = compute_hypercube_node(
+                  patch, i1 + 1, i2 + 1, 0, n_subdivisions);
 
                 x_min = std::min(x_min, projected_points[0][0]);
                 x_min = std::min(x_min, projected_points[1][0]);
@@ -6224,7 +6292,8 @@ namespace DataOutBase
 
     Point<3> point;
 
-    projected_point = compute_node(first_patch, 0, 0, 0, n_subdivisions);
+    projected_point =
+      compute_hypercube_node(first_patch, 0, 0, 0, n_subdivisions);
 
     if (first_patch.data.n_rows() != 0)
       {
@@ -6257,10 +6326,11 @@ namespace DataOutBase
             for (unsigned int i1 = 0; i1 < n_subdivisions; ++i1)
               {
                 const std::array<Point<spacedim>, 4> projected_vertices{
-                  {compute_node(patch, i1, i2, 0, n_subdivisions),
-                   compute_node(patch, i1 + 1, i2, 0, n_subdivisions),
-                   compute_node(patch, i1, i2 + 1, 0, n_subdivisions),
-                   compute_node(patch, i1 + 1, i2 + 1, 0, n_subdivisions)}};
+                  {compute_hypercube_node(patch, i1, i2, 0, n_subdivisions),
+                   compute_hypercube_node(patch, i1 + 1, i2, 0, n_subdivisions),
+                   compute_hypercube_node(patch, i1, i2 + 1, 0, n_subdivisions),
+                   compute_hypercube_node(
+                     patch, i1 + 1, i2 + 1, 0, n_subdivisions)}};
 
                 Assert((flags.height_vector < patch.data.n_rows()) ||
                          patch.data.n_rows() == 0,
@@ -6398,10 +6468,11 @@ namespace DataOutBase
             for (unsigned int i1 = 0; i1 < n_subdivisions; ++i1)
               {
                 const std::array<Point<spacedim>, 4> projected_vertices = {
-                  {compute_node(patch, i1, i2, 0, n_subdivisions),
-                   compute_node(patch, i1 + 1, i2, 0, n_subdivisions),
-                   compute_node(patch, i1, i2 + 1, 0, n_subdivisions),
-                   compute_node(patch, i1 + 1, i2 + 1, 0, n_subdivisions)}};
+                  {compute_hypercube_node(patch, i1, i2, 0, n_subdivisions),
+                   compute_hypercube_node(patch, i1 + 1, i2, 0, n_subdivisions),
+                   compute_hypercube_node(patch, i1, i2 + 1, 0, n_subdivisions),
+                   compute_hypercube_node(
+                     patch, i1 + 1, i2 + 1, 0, n_subdivisions)}};
 
                 Assert((flags.height_vector < patch.data.n_rows()) ||
                          patch.data.n_rows() == 0,
@@ -7465,7 +7536,7 @@ DataOutInterface<dim, spacedim>::write_xdmf_file(
 
       for (it = entries.begin(); it != entries.end(); ++it)
         {
-          xdmf_file << it->get_xdmf_content(3, patches[0].reference_cell_type);
+          xdmf_file << it->get_xdmf_content(3, patches[0].reference_cell);
         }
 
       xdmf_file << "    </Grid>\n";
@@ -7695,9 +7766,6 @@ DataOutBase::write_hdf5_parallel(
   // patches
   Assert(patches.size() > 0, ExcNoPatches());
 
-  const auto &cell_info =
-    ReferenceCell::internal::Info::get_cell(patches[0].reference_cell_type);
-
   hid_t h5_mesh_file_id = -1, h5_solution_file_id, file_plist_id, plist_id;
   hid_t node_dataspace, node_dataset, node_file_dataspace,
     node_memory_dataspace;
@@ -7791,7 +7859,7 @@ DataOutBase::write_hdf5_parallel(
       AssertThrow(node_dataspace >= 0, ExcIO());
 
       cell_ds_dim[0] = global_node_cell_count[1];
-      cell_ds_dim[1] = cell_info.n_vertices();
+      cell_ds_dim[1] = patches[0].reference_cell.n_vertices();
       cell_dataspace = H5Screate_simple(2, cell_ds_dim, nullptr);
       AssertThrow(cell_dataspace >= 0, ExcIO());
 
@@ -7852,7 +7920,7 @@ DataOutBase::write_hdf5_parallel(
 
       // And repeat for cells
       count[0] = local_node_cell_count[1];
-      count[1] = cell_info.n_vertices();
+      count[1] = patches[0].reference_cell.n_vertices();
       offset[0] = global_node_cell_offsets[1];
       offset[1] = 0;
       cell_memory_dataspace = H5Screate_simple(2, count, nullptr);
@@ -8620,16 +8688,32 @@ namespace
 std::string
 XDMFEntry::get_xdmf_content(const unsigned int indent_level) const
 {
-  return get_xdmf_content(indent_level,
-                          ReferenceCell::get_hypercube(dimension));
+  switch (dimension)
+    {
+      case 0:
+        return get_xdmf_content(indent_level,
+                                ReferenceCells::get_hypercube<0>());
+      case 1:
+        return get_xdmf_content(indent_level,
+                                ReferenceCells::get_hypercube<1>());
+      case 2:
+        return get_xdmf_content(indent_level,
+                                ReferenceCells::get_hypercube<2>());
+      case 3:
+        return get_xdmf_content(indent_level,
+                                ReferenceCells::get_hypercube<3>());
+      default:
+        Assert(false, ExcNotImplemented());
+    }
+
+  return "";
 }
 
 
 
 std::string
-XDMFEntry::get_xdmf_content(
-  const unsigned int         indent_level,
-  const ReferenceCell::Type &reference_cell_type) const
+XDMFEntry::get_xdmf_content(const unsigned int   indent_level,
+                            const ReferenceCell &reference_cell) const
 {
   if (!valid)
     return "";
@@ -8661,19 +8745,19 @@ XDMFEntry::get_xdmf_content(
            << "\" NodesPerElement=\"2\">\n";
       else if (dimension == 2)
         {
-          Assert(reference_cell_type == ReferenceCell::Type::Quad ||
-                   reference_cell_type == ReferenceCell::Type::Tri,
+          Assert(reference_cell == ReferenceCells::Quadrilateral ||
+                   reference_cell == ReferenceCells::Triangle,
                  ExcNotImplemented());
 
           ss << indent(indent_level + 1) << "<Topology TopologyType=\"";
-          if (reference_cell_type == ReferenceCell::Type::Quad)
+          if (reference_cell == ReferenceCells::Quadrilateral)
             {
               ss << "Quadrilateral"
                  << "\" NumberOfElements=\"" << num_cells << "\">\n"
                  << indent(indent_level + 2) << "<DataItem Dimensions=\""
                  << num_cells << " " << (1 << dimension);
             }
-          else // if (reference_cell_type == ReferenceCell::Type::Tri)
+          else // if (reference_cell == ReferenceCells::Triangle)
             {
               ss << "Triangle"
                  << "\" NumberOfElements=\"" << num_cells << "\">\n"
@@ -8683,19 +8767,19 @@ XDMFEntry::get_xdmf_content(
         }
       else if (dimension == 3)
         {
-          Assert(reference_cell_type == ReferenceCell::Type::Hex ||
-                   reference_cell_type == ReferenceCell::Type::Tet,
+          Assert(reference_cell == ReferenceCells::Hexahedron ||
+                   reference_cell == ReferenceCells::Tetrahedron,
                  ExcNotImplemented());
 
           ss << indent(indent_level + 1) << "<Topology TopologyType=\"";
-          if (reference_cell_type == ReferenceCell::Type::Hex)
+          if (reference_cell == ReferenceCells::Hexahedron)
             {
               ss << "Hexahedron"
                  << "\" NumberOfElements=\"" << num_cells << "\">\n"
                  << indent(indent_level + 2) << "<DataItem Dimensions=\""
                  << num_cells << " " << (1 << dimension);
             }
-          else // if (reference_cell_type == ReferenceCell::Type::Tet)
+          else // if (reference_cell == ReferenceCells::Tetrahedron)
             {
               ss << "Tetrahedron"
                  << "\" NumberOfElements=\"" << num_cells << "\">\n"

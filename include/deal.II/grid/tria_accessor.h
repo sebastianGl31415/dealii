@@ -29,6 +29,10 @@
 #include <deal.II/grid/tria_iterator_base.h>
 #include <deal.II/grid/tria_iterator_selector.h>
 
+DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
+#include <boost/container/small_vector.hpp>
+DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
+
 #include <utility>
 
 
@@ -920,6 +924,8 @@ public:
    *
    * This function is really only for internal use in the library unless you
    * absolutely know what this is all about.
+   *
+   * This function queries ReferenceCell::standard_vs_true_line_orientation().
    */
   bool
   line_orientation(const unsigned int line) const;
@@ -948,6 +954,13 @@ public:
   n_children() const;
 
   /**
+   * @deprecated Use n_active_descendants() instead.
+   */
+  DEAL_II_DEPRECATED_EARLY
+  unsigned int
+  number_of_children() const;
+
+  /**
    * Compute and return the number of active descendants of this objects. For
    * example, if all of the eight children of a hex are further refined
    * isotropically exactly once, the returned number will be 64, not 80.
@@ -961,7 +974,7 @@ public:
    * current object is not further refined, the answer is one.
    */
   unsigned int
-  number_of_children() const;
+  n_active_descendants() const;
 
   /**
    * Return the number of times that this object is refined. Note that not all
@@ -1634,8 +1647,8 @@ public:
   /**
    * Reference cell type of the current object.
    */
-  ReferenceCell::Type
-  reference_cell_type() const;
+  ReferenceCell
+  reference_cell() const;
 
   /**
    * Number of vertices.
@@ -1683,14 +1696,6 @@ public:
   /**
    * @}
    */
-
-protected:
-  /**
-   * Return additional information related to the current geometric entity
-   * type.
-   */
-  inline const ReferenceCell::internal::Info::Base &
-  reference_cell_info() const;
 
 private:
   /**
@@ -2130,7 +2135,15 @@ public:
    * Always zero.
    */
   static unsigned int
+  n_active_descendants();
+
+  /**
+   * @deprecated Use n_active_descendants() instead.
+   */
+  DEAL_II_DEPRECATED_EARLY
+  static unsigned int
   number_of_children();
+
 
   /**
    * Return the number of times that this object is refined. Always 0.
@@ -2588,7 +2601,15 @@ public:
    * Always zero.
    */
   static unsigned int
+  n_active_descendants();
+
+  /**
+   * @deprecated Use n_active_descendants() instead.
+   */
+  DEAL_II_DEPRECATED_EARLY
+  static unsigned int
   number_of_children();
+
 
   /**
    * Return the number of times that this object is refined. Always 0.
@@ -2715,8 +2736,8 @@ public:
   /**
    * Reference cell type of the current object.
    */
-  ReferenceCell::Type
-  reference_cell_type() const;
+  ReferenceCell
+  reference_cell() const;
 
   /**
    * Number of vertices.

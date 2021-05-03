@@ -22,9 +22,9 @@ DEAL_II_NAMESPACE_OPEN
 
 
 template <int dim, int spacedim>
-FE_Nothing<dim, spacedim>::FE_Nothing(const ReferenceCell::Type &type,
-                                      const unsigned int         n_components,
-                                      const bool                 dominate)
+FE_Nothing<dim, spacedim>::FE_Nothing(const ReferenceCell &type,
+                                      const unsigned int   n_components,
+                                      const bool           dominate)
   : FiniteElement<dim, spacedim>(
       FiniteElementData<dim>(std::vector<unsigned>(dim + 1, 0),
                              type,
@@ -35,6 +35,10 @@ FE_Nothing<dim, spacedim>::FE_Nothing(const ReferenceCell::Type &type,
       std::vector<ComponentMask>())
   , dominate(dominate)
 {
+  Assert(n_components >= 1,
+         ExcMessage("A finite element needs to have at least one "
+                    "vector component."));
+
   // in most other elements we have to set up all sorts of stuff
   // here. there isn't much that we have to do here; in particular,
   // we can simply leave the restriction and prolongation matrices
@@ -47,7 +51,7 @@ FE_Nothing<dim, spacedim>::FE_Nothing(const ReferenceCell::Type &type,
 template <int dim, int spacedim>
 FE_Nothing<dim, spacedim>::FE_Nothing(const unsigned int n_components,
                                       const bool         dominate)
-  : FE_Nothing<dim, spacedim>(ReferenceCell::get_hypercube(dim),
+  : FE_Nothing<dim, spacedim>(ReferenceCells::get_hypercube<dim>(),
                               n_components,
                               dominate)
 {}
@@ -68,16 +72,24 @@ std::string
 FE_Nothing<dim, spacedim>::get_name() const
 {
   std::ostringstream namebuf;
-  namebuf << "FE_Nothing<" << dim << ">(";
+  namebuf << "FE_Nothing<" << Utilities::dim_string(dim, spacedim) << ">(";
+
+  std::vector<std::string> name_components;
+  if (this->reference_cell() != ReferenceCells::get_hypercube<dim>())
+    name_components.push_back(this->reference_cell().to_string());
   if (this->n_components() > 1)
+    name_components.push_back(std::to_string(this->n_components()));
+  if (dominate)
+    name_components.emplace_back("dominating");
+
+  for (const std::string &comp : name_components)
     {
-      namebuf << this->n_components();
-      if (dominate)
-        namebuf << ", dominating";
+      namebuf << comp;
+      if (comp != name_components.back())
+        namebuf << ", ";
     }
-  else if (dominate)
-    namebuf << "dominating";
   namebuf << ")";
+
   return namebuf.str();
 }
 
@@ -196,29 +208,6 @@ FE_Nothing<dim, spacedim>::is_dominating() const
 
 
 template <int dim, int spacedim>
-bool
-FE_Nothing<dim, spacedim>::
-operator==(const FiniteElement<dim, spacedim> &f) const
-{
-  // Compare fields stored in the base class
-  if (!(this->FiniteElement<dim, spacedim>::operator==(f)))
-    return false;
-
-  // Then make sure the other object is really of type FE_Nothing,
-  // and compare the data that has been passed to both objects'
-  // constructors.
-  if (const FE_Nothing<dim, spacedim> *fe_nothing =
-        dynamic_cast<const FE_Nothing<dim, spacedim> *>(&f))
-    return ((dominate == fe_nothing->dominate) &&
-            (this->components == fe_nothing->components) &&
-            (this->reference_cell_type() == fe_nothing->reference_cell_type()));
-  else
-    return false;
-}
-
-
-
-template <int dim, int spacedim>
 FiniteElementDomination::Domination
 FE_Nothing<dim, spacedim>::compare_for_domination(
   const FiniteElement<dim, spacedim> &fe,
@@ -237,6 +226,7 @@ FE_Nothing<dim, spacedim>::compare_for_domination(
     // otherwise we dominate whatever FE is provided
     return FiniteElementDomination::this_element_dominates;
 }
+
 
 
 template <int dim, int spacedim>

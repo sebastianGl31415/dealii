@@ -15,14 +15,17 @@
 
 
 
-// Test TriaAccessor::measure() and TriaAccessor::diameter().
+// Test TriaAccessor::measure(), TriaAccessor::diameter(), and
+// TriaAccessor::barycenter().
 
+#include <deal.II/fe/fe_pyramid_p.h>
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/fe_simplex_p_bubbles.h>
+#include <deal.II/fe/fe_wedge_p.h>
 #include <deal.II/fe/mapping_fe.h>
 
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
-
-#include <deal.II/simplex/fe_lib.h>
 
 #include "../tests.h"
 
@@ -39,18 +42,21 @@ process(const std::vector<Point<spacedim>> &vertices,
     {
       deallog << "measure:  " << cell->measure() << std::endl;
       deallog << "diameter: " << cell->diameter() << std::endl;
+      // Only implemented for tensor-product and simplices at the moment
+      if (cell->reference_cell() == ReferenceCells::get_simplex<dim>())
+        deallog << "barycenter: " << cell->barycenter() << std::endl;
     }
 
   std::shared_ptr<MappingFE<dim>> mapping;
 
-  const auto reference_cell_types = tria.get_reference_cell_types();
+  const auto reference_cells = tria.get_reference_cells();
 
-  AssertDimension(reference_cell_types.size(), 1);
+  AssertDimension(reference_cells.size(), 1);
 
-  if (reference_cell_types[0] == ReferenceCell::get_simplex(dim))
-    mapping = std::make_shared<MappingFE<dim>>(Simplex::FE_P<dim>(1));
-  else if (reference_cell_types[0] == ReferenceCell::Type::Wedge)
-    mapping = std::make_shared<MappingFE<dim>>(Simplex::FE_WedgeP<dim>(1));
+  if (reference_cells[0] == ReferenceCells::get_simplex<dim>())
+    mapping = std::make_shared<MappingFE<dim>>(FE_SimplexP<dim>(1));
+  else if (reference_cells[0] == ReferenceCells::Wedge)
+    mapping = std::make_shared<MappingFE<dim>>(FE_WedgeP<dim>(1));
   else
     AssertThrow(false, ExcNotImplemented());
 

@@ -333,42 +333,20 @@ namespace internal
 
 
 /**
- * General class holding an array of objects of templated type in multiple
- * dimensions. If the template parameter indicating the number of dimensions
- * is one, then this is more or less a vector, if it is two then it is a
- * matrix, and so on.
+ * A class holding a multi-dimensional array of objects of templated type.
+ * If the template parameter indicating the number of dimensions
+ * is one, then this class more or less represents a vector; if it is two then
+ * it is a matrix; and so on.
  *
- * Previously, this data type was emulated in this library by constructs like
+ * This class specifically replaces attempts at higher-dimensional arrays like
  * <tt>std::vector<std::vector<T>></tt>, or even higher nested constructs.
- * However, this has the disadvantage that it is hard to initialize, and most
- * importantly that it is very inefficient if all rows have the same size
+ * These constructs have the disadvantage that they are hard to initialize, and
+ * most importantly that they are very inefficient if all rows of a matrix or
+ * higher-dimensional table have the same size
  * (which is the usual case), since then the memory for each row is allocated
  * independently, both wasting time and memory. This can be made more
- * efficient by allocating only one chunk of memory for the entire object.
- *
- * Therefore, this data type was invented. Its implementation is rather
- * straightforward, with two exceptions. The first thing to think about is how
- * to pass the size in each of the coordinate directions to the object; this
- * is done using the TableIndices class. Second, how to access the individual
- * elements. The basic problem here is that we would like to make the number
- * of arguments to be passed to the constructor as well as the access
- * functions dependent on the template parameter <tt>N</tt> indicating the
- * number of dimensions. Of course, this is not possible.
- *
- * The way out of the first problem (and partly the second one as well) is to
- * have a common base class TableBase and a derived class for each value of
- * <tt>N</tt>.  This derived class has a constructor with the correct number
- * of arguments, namely <tt>N</tt>. These then transform their arguments into
- * the data type the base class (this class in fact) uses in the constructor
- * as well as in element access through operator() functions.
- *
- * The second problem is that we would like to allow access through a sequence
- * of <tt>operator[]</tt> calls. This mostly because, as said, this class is a
- * replacement for previous use of nested <tt>std::vector</tt> objects, where
- * we had to use the <tt>operator[]</tt> access function recursively until we
- * were at the innermost object. Emulating this behavior without losing the
- * ability to do index checks, and in particular without losing performance is
- * possible but nontrivial, and done in the TableBaseAccessors namespace.
+ * efficient by allocating only one chunk of memory for the entire object, which
+ * is what the current class does.
  *
  *
  * <h3>Comparison with the Tensor class</h3>
@@ -377,12 +355,12 @@ namespace internal
  * templatizes on the number of dimensions. However, there are two major
  * differences. The first is that the Tensor class stores only numeric values
  * (as <tt>double</tt>s), while the Table class stores arbitrary objects. The
- * second is that the Tensor class has fixed dimensions, also given as a
- * template argument, while this class can handle arbitrary dimensions, which
- * may also be different between different indices.
+ * second is that the Tensor class has fixed sizes in each dimension, also given
+ * as a template argument, while this class can handle arbitrary and different
+ * sizes in each dimension.
  *
  * This has two consequences. First, since the size is not known at compile
- * time, it has to do explicit memory allocating. Second, the layout of
+ * time, it has to do explicit memory allocation. Second, the layout of
  * individual elements is not known at compile time, so access is slower than
  * for the Tensor class where the number of elements are their location is
  * known at compile time and the compiler can optimize with this knowledge
@@ -618,7 +596,8 @@ public:
 
   /**
    * Write or read the data of this object to or from a stream for the purpose
-   * of serialization.
+   * of serialization using the [BOOST serialization
+   * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
    */
   template <class Archive>
   void
@@ -684,18 +663,14 @@ protected:
  * @ingroup data
  */
 template <int N, typename T>
-class Table : public TableBase<N, T>
-{};
+class Table;
 
 
 /**
  * A class representing a one-dimensional table, i.e. a vector-like class.
- * Since the C++ library has a vector class, there is probably not much need
- * for this particular class, but since it is so simple to implement on top of
- * the template base class, we provide it anyway.
- *
- * For the rationale of this class, and a description of the interface, see
- * the base class.
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class. See there for an outline of the rationale for and
+ * interface of this class.
  *
  * @ingroup data
  */
@@ -788,18 +763,9 @@ public:
   operator()(const size_type i);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<1> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<1> &indices) const;
+  using TableBase<1, T>::operator();
 };
 
 
@@ -1114,12 +1080,13 @@ namespace MatrixTableIterators
 /**
  * A class representing a two-dimensional table, i.e. a matrix of objects (not
  * necessarily only numbers).
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class. See there for an outline of the rationale for and
+ * interface of this class.
  *
- * For the rationale of this class, and a description of the interface, see
- * the base class. Since this serves as the base class of the full matrix
- * classes in this library, and to keep a minimal compatibility with a
- * predecessor class (<tt>vector2d</tt>), some additional functions are
- * provided.
+ * This class also serves as the base class for the FullMatrix class
+ * and consequently has a number of functions that are specific to
+ * matrices and their needs.
  *
  * @ingroup data
  */
@@ -1263,19 +1230,9 @@ public:
   operator()(const size_type i, const size_type j);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<2> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<2> &indices) const;
-
+  using TableBase<2, T>::operator();
 
   /**
    * Number of rows. This function really makes only sense since we have a
@@ -1364,9 +1321,9 @@ protected:
 /**
  * A class representing a three-dimensional table of objects (not necessarily
  * only numbers).
- *
- * For the rationale of this class, and a description of the interface, see
- * the base class.
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class.See there for an outline of the rationale for and
+ * interface of this class.
  *
  * @ingroup data
  */
@@ -1476,18 +1433,9 @@ public:
   operator()(const size_type i, const size_type j, const size_type k);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<3> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<3> &indices) const;
+  using TableBase<3, T>::operator();
 };
 
 
@@ -1495,9 +1443,9 @@ public:
 /**
  * A class representing a four-dimensional table of objects (not necessarily
  * only numbers).
- *
- * For the rationale of this class, and a description of the interface, see
- * the base class.
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class. See there for an outline of the rationale for and
+ * interface of this class.
  *
  * @ingroup data
  */
@@ -1569,18 +1517,9 @@ public:
              const size_type l);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<4> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<4> &indices) const;
+  using TableBase<4, T>::operator();
 };
 
 
@@ -1588,9 +1527,9 @@ public:
 /**
  * A class representing a five-dimensional table of objects (not necessarily
  * only numbers).
- *
- * For the rationale of this class, and a description of the interface, see
- * the base class.
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class. See there for an outline of the rationale for and
+ * interface of this class.
  *
  * @ingroup data
  */
@@ -1665,18 +1604,9 @@ public:
              const size_type m);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<5> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<5> &indices) const;
+  using TableBase<5, T>::operator();
 };
 
 
@@ -1684,9 +1614,9 @@ public:
 /**
  * A class representing a six-dimensional table of objects (not necessarily
  * only numbers).
- *
- * For the rationale of this class, and a description of the interface, see
- * the base class.
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class. See there for an outline of the rationale for and
+ * interface of this class.
  *
  * @ingroup data
  */
@@ -1763,27 +1693,18 @@ public:
              const size_type n);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<6> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<6> &indices) const;
+  using TableBase<6, T>::operator();
 };
 
 
 /**
  * A class representing a seven-dimensional table of objects (not necessarily
  * only numbers).
- *
- * For the rationale of this class, and a description of the interface, see
- * the base class.
+ * The majority of the interface of this class is implemented in the
+ * TableBase base class. See there for an outline of the rationale for and
+ * interface of this class.
  *
  * @ingroup data
  */
@@ -1863,18 +1784,9 @@ public:
              const size_type o);
 
   /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
+   * Make the variations of `operator()` from the base class available.
    */
-  typename AlignedVector<T>::reference
-  operator()(const TableIndices<7> &indices);
-
-  /**
-   * Make the corresponding operator () from the TableBase base class
-   * available also in this class.
-   */
-  typename AlignedVector<T>::const_reference
-  operator()(const TableIndices<7> &indices) const;
+  using TableBase<7, T>::operator();
 };
 
 
@@ -2599,24 +2511,6 @@ Table<1, T>::operator()(const size_type i)
 }
 
 
-
-template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<1, T>::operator()(const TableIndices<1> &indices) const
-{
-  return TableBase<1, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<1, T>::operator()(const TableIndices<1> &indices)
-{
-  return TableBase<1, T>::operator()(indices);
-}
-
-
 //---------------------------------------------------------------------------
 
 
@@ -2691,24 +2585,6 @@ Table<2, T>::operator()(const size_type i, const size_type j)
   AssertIndexRange(i, this->table_size[0]);
   AssertIndexRange(j, this->table_size[1]);
   return this->values[size_type(i) * this->table_size[1] + j];
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<2, T>::operator()(const TableIndices<2> &indices) const
-{
-  return TableBase<2, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<2, T>::operator()(const TableIndices<2> &indices)
-{
-  return TableBase<2, T>::operator()(indices);
 }
 
 
@@ -3238,24 +3114,6 @@ Table<3, T>::operator()(const size_type i, const size_type j, const size_type k)
 
 
 template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<3, T>::operator()(const TableIndices<3> &indices) const
-{
-  return TableBase<3, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<3, T>::operator()(const TableIndices<3> &indices)
-{
-  return TableBase<3, T>::operator()(indices);
-}
-
-
-
-template <typename T>
 inline Table<4, T>::Table(const size_type size1,
                           const size_type size2,
                           const size_type size3,
@@ -3327,24 +3185,6 @@ Table<4, T>::operator()(const size_type i,
               k) *
                this->table_size[3] +
              l];
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<4, T>::operator()(const TableIndices<4> &indices) const
-{
-  return TableBase<4, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<4, T>::operator()(const TableIndices<4> &indices)
-{
-  return TableBase<4, T>::operator()(indices);
 }
 
 
@@ -3432,24 +3272,6 @@ Table<5, T>::operator()(const size_type i,
               l) *
                this->table_size[4] +
              m];
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<5, T>::operator()(const TableIndices<5> &indices) const
-{
-  return TableBase<5, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<5, T>::operator()(const TableIndices<5> &indices)
-{
-  return TableBase<5, T>::operator()(indices);
 }
 
 
@@ -3556,24 +3378,6 @@ Table<6, T>::operator()(const size_type i,
               m) *
                this->table_size[5] +
              n];
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<6, T>::operator()(const TableIndices<6> &indices) const
-{
-  return TableBase<6, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<6, T>::operator()(const TableIndices<6> &indices)
-{
-  return TableBase<6, T>::operator()(indices);
 }
 
 
@@ -3688,24 +3492,6 @@ Table<7, T>::operator()(const size_type i,
       n) *
        this->table_size[6] +
      o];
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::const_reference
-Table<7, T>::operator()(const TableIndices<7> &indices) const
-{
-  return TableBase<7, T>::operator()(indices);
-}
-
-
-
-template <typename T>
-inline typename AlignedVector<T>::reference
-Table<7, T>::operator()(const TableIndices<7> &indices)
-{
-  return TableBase<7, T>::operator()(indices);
 }
 
 

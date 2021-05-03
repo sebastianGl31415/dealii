@@ -212,13 +212,11 @@ namespace Utilities
        * ConsensusAlgorithms::Interface base class, using only point-to-point
        * communications and a single IBarrier.
        *
-       * @note This class closely follows the paper Hoefler, Siebert, Lumsdaine
-       *       "Scalable Communication Protocols for Dynamic Sparse Data
-       *       Exchange". Since the algorithm shown there is not considering
-       *       payloads, the algorithm has been modified here in such a way that
-       *       synchronous sends (Issend) have been replaced by equivalent
-       *       Isend/Irecv, where Irecv receives the answer to a request (with
-       *       payload).
+       * @note This class closely follows @note hoefler2010scalable. Since the
+       *       algorithm shown there is not considering payloads, the algorithm
+       *       has been modified here in such a way that synchronous sends
+       *       (Issend) have been replaced by equivalent Isend/Irecv, where
+       *       Irecv receives the answer to a request (with payload).
        *
        * @tparam T1 The type of the elements of the vector to be sent.
        * @tparam T2 The type of the elements of the vector to be received.
@@ -344,18 +342,18 @@ namespace Utilities
        * step a static sparse data exchange is performed.
        *
        * @note In contrast to NBX, this class splits the same
-       *       task into two distinct steps. In the first step, all processes
-       * are identified who want to send a request to this process. In the
-       *       second step, the data is exchanged. However, since - in the
-       * second step - now it is clear how many requests have to be answered,
-       * i.e. when this process can stop waiting for requests, no IBarrier is
-       *       needed.
+       *   task into two distinct steps. In the first step, all processes
+       *   are identified who want to send a request to this process. In the
+       *   second step, the data is exchanged. However, since - in the
+       *   second step - now it is clear how many requests have to be answered,
+       *   i.e. when this process can stop waiting for requests, no IBarrier is
+       *   needed.
        *
        * @note The function
-       *       Utilities::MPI::compute_point_to_point_communication_pattern() is
-       *       used to determine the source processes, which implements a
-       *       PEX-algorithm from Hoefner et al., "Scalable Communication
-       *       Protocols for Dynamic Sparse Data Exchange".
+       *   Utilities::MPI::compute_point_to_point_communication_pattern() is
+       *   used to determine the source processes, which implements a
+       *   PEX-algorithm from Hoefner et al., "Scalable Communication
+       *   Protocols for Dynamic Sparse Data Exchange".
        *
        * @tparam T1 The type of the elements of the vector to be sent.
        * @tparam T2 The type of the elements of the vector to be received.

@@ -389,7 +389,7 @@ namespace
       triangulation.n_vertices(), 0);
 
     for (const auto &cell : triangulation.active_cell_iterators())
-      for (const unsigned int v : GeometryInfo<dim>::vertex_indices())
+      for (const unsigned int v : cell->vertex_indices())
         {
           min_adjacent_cell_level[cell->vertex_index(v)] =
             std::min<unsigned int>(
@@ -448,12 +448,12 @@ namespace
         std::vector<unsigned int> quad_cell_count(triangulation.n_raw_quads(),
                                                   0);
         for (const auto &cell : triangulation.cell_iterators())
-          for (unsigned int q : GeometryInfo<dim>::face_indices())
+          for (unsigned int q : cell->face_indices())
             ++quad_cell_count[cell->quad_index(q)];
         return quad_cell_count;
       }
     else
-      return std::vector<unsigned int>();
+      return {};
   }
 
 
@@ -481,7 +481,8 @@ namespace
                              const SubCellData &)
   {
     for (auto &cell : cells)
-      std::swap(cell.vertices[2], cell.vertices[3]);
+      if (cell.vertices.size() == GeometryInfo<2>::vertices_per_cell)
+        std::swap(cell.vertices[2], cell.vertices[3]);
   }
 
 
@@ -490,21 +491,18 @@ namespace
   {
     unsigned int tmp[GeometryInfo<3>::vertices_per_cell];
     for (auto &cell : cells)
-      {
-        for (const unsigned int i : GeometryInfo<3>::vertex_indices())
-          tmp[i] = cell.vertices[i];
-        for (const unsigned int i : GeometryInfo<3>::vertex_indices())
-          cell.vertices[GeometryInfo<3>::ucd_to_deal[i]] = tmp[i];
-      }
+      if (cell.vertices.size() == GeometryInfo<3>::vertices_per_cell)
+        {
+          for (const unsigned int i : GeometryInfo<3>::vertex_indices())
+            tmp[i] = cell.vertices[i];
+          for (const unsigned int i : GeometryInfo<3>::vertex_indices())
+            cell.vertices[GeometryInfo<3>::ucd_to_deal[i]] = tmp[i];
+        }
 
     // now points in boundary quads
-    std::vector<CellData<2>>::iterator boundary_quad =
-      subcelldata.boundary_quads.begin();
-    std::vector<CellData<2>>::iterator end_quad =
-      subcelldata.boundary_quads.end();
-    for (unsigned int quad_no = 0; boundary_quad != end_quad;
-         ++boundary_quad, ++quad_no)
-      std::swap(boundary_quad->vertices[2], boundary_quad->vertices[3]);
+    for (auto &boundary_quad : subcelldata.boundary_quads)
+      if (boundary_quad.vertices.size() == GeometryInfo<2>::vertices_per_cell)
+        std::swap(boundary_quad.vertices[2], boundary_quad.vertices[3]);
   }
 
 
@@ -695,187 +693,6 @@ namespace
     const typename Triangulation<dim, spacedim>::cell_iterator &)
   {
     return false;
-  }
-
-
-
-  /**
-   * For a given triangulation: set up the
-   * neighbor information on all cells.
-   */
-  template <int spacedim>
-  void update_neighbors(Triangulation<1, spacedim> &)
-  {}
-
-
-  template <int dim, int spacedim>
-  void
-  update_neighbors(Triangulation<dim, spacedim> &triangulation)
-  {
-    // each face can be neighbored on two sides
-    // by cells. according to the face's
-    // intrinsic normal we define the left
-    // neighbor as the one for which the face
-    // normal points outward, and store that
-    // one first; the second one is then
-    // the right neighbor for which the
-    // face normal points inward. This
-    // information depends on the type of cell
-    // and local number of face for the
-    // 'standard ordering and orientation' of
-    // faces and then on the face_orientation
-    // information for the real mesh. Set up a
-    // table to have fast access to those
-    // offsets (0 for left and 1 for
-    // right). Some of the values are invalid
-    // as they reference too large face
-    // numbers, but we just leave them at a
-    // zero value.
-    //
-    // Note, that in 2d for lines as faces the
-    // normal direction given in the
-    // GeometryInfo class is not consistent. We
-    // thus define here that the normal for a
-    // line points to the right if the line
-    // points upwards.
-    //
-    // There is one more point to
-    // consider, however: if we have
-    // dim<spacedim, then we may have
-    // cases where cells are
-    // inverted. In effect, both
-    // cells think they are the left
-    // neighbor of an edge, for
-    // example, which leads us to
-    // forget neighborship
-    // information (a case that shows
-    // this is
-    // codim_one/hanging_nodes_02). We
-    // store whether a cell is
-    // inverted using the
-    // direction_flag, so if a cell
-    // has a false direction_flag,
-    // then we need to invert our
-    // selection whether we are a
-    // left or right neighbor in all
-    // following computations.
-    //
-    // first index:  dimension (minus 2)
-    // second index: local face index
-    // third index:  face_orientation (false and true)
-    static const unsigned int left_right_offset[2][6][2] = {
-      // quadrilateral
-      {{0, 1},  // face 0, face_orientation = false and true
-       {1, 0},  // face 1, face_orientation = false and true
-       {1, 0},  // face 2, face_orientation = false and true
-       {0, 1},  // face 3, face_orientation = false and true
-       {0, 0},  // face 4, invalid face
-       {0, 0}}, // face 5, invalid face
-                // hexahedron
-      {{0, 1}, {1, 0}, {0, 1}, {1, 0}, {0, 1}, {1, 0}}};
-
-    // now create a vector of the two active
-    // neighbors (left and right) for each face
-    // and fill it by looping over all cells. For
-    // cases with anisotropic refinement and more
-    // then one cell neighboring at a given side
-    // of the face we will automatically get the
-    // active one on the highest level as we loop
-    // over cells from lower levels first.
-    const typename Triangulation<dim, spacedim>::cell_iterator dummy;
-    std::vector<typename Triangulation<dim, spacedim>::cell_iterator>
-      adjacent_cells(2 * triangulation.n_raw_faces(), dummy);
-
-    for (const auto &cell : triangulation.cell_iterators())
-      for (auto f : cell->face_indices())
-        {
-          const typename Triangulation<dim, spacedim>::face_iterator face =
-            cell->face(f);
-
-          const unsigned int offset =
-            (cell->direction_flag() ?
-               left_right_offset[dim - 2][f][cell->face_orientation(f)] :
-               1 - left_right_offset[dim - 2][f][cell->face_orientation(f)]);
-
-          adjacent_cells[2 * face->index() + offset] = cell;
-
-          // if this cell is not refined, but the
-          // face is, then we'll have to set our
-          // cell as neighbor for the child faces
-          // as well. Fortunately the normal
-          // orientation of children will be just
-          // the same.
-          if (dim == 2)
-            {
-              if (cell->is_active() && face->has_children())
-                {
-                  adjacent_cells[2 * face->child(0)->index() + offset] = cell;
-                  adjacent_cells[2 * face->child(1)->index() + offset] = cell;
-                }
-            }
-          else // -> dim == 3
-            {
-              // We need the same as in 2d
-              // here. Furthermore, if the face is
-              // refined with cut_x or cut_y then
-              // those children again in the other
-              // direction, and if this cell is
-              // refined isotropically (along the
-              // face) then the neighbor will
-              // (probably) be refined as cut_x or
-              // cut_y along the face. For those
-              // neighboring children cells, their
-              // neighbor will be the current,
-              // inactive cell, as our children are
-              // too fine to be neighbors. Catch that
-              // case by also acting on inactive
-              // cells with isotropic refinement
-              // along the face. If the situation
-              // described is not present, the data
-              // will be overwritten later on when we
-              // visit cells on finer levels, so no
-              // harm will be done.
-              if (face->has_children() &&
-                  (cell->is_active() ||
-                   GeometryInfo<dim>::face_refinement_case(
-                     cell->refinement_case(), f) ==
-                     RefinementCase<dim - 1>::isotropic_refinement))
-                {
-                  for (unsigned int c = 0; c < face->n_children(); ++c)
-                    adjacent_cells[2 * face->child(c)->index() + offset] = cell;
-                  if (face->child(0)->has_children())
-                    {
-                      adjacent_cells[2 * face->child(0)->child(0)->index() +
-                                     offset] = cell;
-                      adjacent_cells[2 * face->child(0)->child(1)->index() +
-                                     offset] = cell;
-                    }
-                  if (face->child(1)->has_children())
-                    {
-                      adjacent_cells[2 * face->child(1)->child(0)->index() +
-                                     offset] = cell;
-                      adjacent_cells[2 * face->child(1)->child(1)->index() +
-                                     offset] = cell;
-                    }
-                } // if cell active and face refined
-            }     // else -> dim==3
-        }         // for all faces of all cells
-
-    // now loop again over all cells and set the
-    // corresponding neighbor cell. Note, that we
-    // have to use the opposite of the
-    // left_right_offset in this case as we want
-    // the offset of the neighbor, not our own.
-    for (const auto &cell : triangulation.cell_iterators())
-      for (auto f : cell->face_indices())
-        {
-          const unsigned int offset =
-            (cell->direction_flag() ?
-               left_right_offset[dim - 2][f][cell->face_orientation(f)] :
-               1 - left_right_offset[dim - 2][f][cell->face_orientation(f)]);
-          cell->set_neighbor(
-            f, adjacent_cells[2 * cell->face(f)->index() + 1 - offset]);
-        }
   }
 
 
@@ -1361,11 +1178,11 @@ namespace internal
               tria_faces.quads_line_orientations.size(),
             true);
 
-          tria_faces.quad_reference_cell_type.reserve(new_size);
-          tria_faces.quad_reference_cell_type.insert(
-            tria_faces.quad_reference_cell_type.end(),
-            new_size - tria_faces.quad_reference_cell_type.size(),
-            ReferenceCell::Type::Quad);
+          tria_faces.quad_reference_cell.reserve(new_size);
+          tria_faces.quad_reference_cell.insert(
+            tria_faces.quad_reference_cell.end(),
+            new_size - tria_faces.quad_reference_cell.size(),
+            dealii::ReferenceCells::Quadrilateral);
         }
     }
 
@@ -1432,13 +1249,13 @@ namespace internal
           tria_level.global_active_cell_indices.insert(
             tria_level.global_active_cell_indices.end(),
             total_cells - tria_level.global_active_cell_indices.size(),
-            numbers::invalid_unsigned_int);
+            numbers::invalid_dof_index);
 
           tria_level.global_level_cell_indices.reserve(total_cells);
           tria_level.global_level_cell_indices.insert(
             tria_level.global_level_cell_indices.end(),
             total_cells - tria_level.global_level_cell_indices.size(),
-            numbers::invalid_unsigned_int);
+            numbers::invalid_dof_index);
 
           if (dimension < space_dimension)
             {
@@ -1487,12 +1304,12 @@ namespace internal
 
           if (tria_level.dim == 2 || tria_level.dim == 3)
             {
-              tria_level.reference_cell_type.reserve(total_cells);
-              tria_level.reference_cell_type.insert(
-                tria_level.reference_cell_type.end(),
-                total_cells - tria_level.reference_cell_type.size(),
-                tria_level.dim == 2 ? ReferenceCell::Type::Quad :
-                                      ReferenceCell::Type::Hex);
+              tria_level.reference_cell.reserve(total_cells);
+              tria_level.reference_cell.insert(
+                tria_level.reference_cell.end(),
+                total_cells - tria_level.reference_cell.size(),
+                tria_level.dim == 2 ? dealii::ReferenceCells::Quadrilateral :
+                                      dealii::ReferenceCells::Hexahedron);
             }
         }
     }
@@ -1811,6 +1628,12 @@ namespace internal
       virtual ~Policy() = default;
 
       /**
+       * Update neighbors.
+       */
+      virtual void
+      update_neighbors(Triangulation<dim, spacedim> &tria) = 0;
+
+      /**
        * Delete children of given cell.
        */
       virtual void
@@ -1870,6 +1693,12 @@ namespace internal
     {
     public:
       void
+      update_neighbors(Triangulation<dim, spacedim> &tria) override
+      {
+        T::update_neighbors(tria);
+      }
+
+      void
       delete_children(
         Triangulation<dim, spacedim> &                        tria,
         typename Triangulation<dim, spacedim>::cell_iterator &cell,
@@ -1911,10 +1740,11 @@ namespace internal
       std::unique_ptr<Policy<dim, spacedim>>
       clone() override
       {
-        return std::unique_ptr<Policy<dim, spacedim>>(
-          new PolicyWrapper<dim, spacedim, T>());
+        return std::make_unique<PolicyWrapper<dim, spacedim, T>>();
       }
     };
+
+
 
     /**
      * A class into which we put many of the functions that implement
@@ -2312,6 +2142,188 @@ namespace internal
       }
 
 
+
+      template <int spacedim>
+      static void update_neighbors(Triangulation<1, spacedim> &)
+      {}
+
+
+      template <int dim, int spacedim>
+      static void
+      update_neighbors(Triangulation<dim, spacedim> &triangulation)
+      {
+        // each face can be neighbored on two sides
+        // by cells. according to the face's
+        // intrinsic normal we define the left
+        // neighbor as the one for which the face
+        // normal points outward, and store that
+        // one first; the second one is then
+        // the right neighbor for which the
+        // face normal points inward. This
+        // information depends on the type of cell
+        // and local number of face for the
+        // 'standard ordering and orientation' of
+        // faces and then on the face_orientation
+        // information for the real mesh. Set up a
+        // table to have fast access to those
+        // offsets (0 for left and 1 for
+        // right). Some of the values are invalid
+        // as they reference too large face
+        // numbers, but we just leave them at a
+        // zero value.
+        //
+        // Note, that in 2d for lines as faces the
+        // normal direction given in the
+        // GeometryInfo class is not consistent. We
+        // thus define here that the normal for a
+        // line points to the right if the line
+        // points upwards.
+        //
+        // There is one more point to
+        // consider, however: if we have
+        // dim<spacedim, then we may have
+        // cases where cells are
+        // inverted. In effect, both
+        // cells think they are the left
+        // neighbor of an edge, for
+        // example, which leads us to
+        // forget neighborship
+        // information (a case that shows
+        // this is
+        // codim_one/hanging_nodes_02). We
+        // store whether a cell is
+        // inverted using the
+        // direction_flag, so if a cell
+        // has a false direction_flag,
+        // then we need to invert our
+        // selection whether we are a
+        // left or right neighbor in all
+        // following computations.
+        //
+        // first index:  dimension (minus 2)
+        // second index: local face index
+        // third index:  face_orientation (false and true)
+        static const unsigned int left_right_offset[2][6][2] = {
+          // quadrilateral
+          {{0, 1},  // face 0, face_orientation = false and true
+           {1, 0},  // face 1, face_orientation = false and true
+           {1, 0},  // face 2, face_orientation = false and true
+           {0, 1},  // face 3, face_orientation = false and true
+           {0, 0},  // face 4, invalid face
+           {0, 0}}, // face 5, invalid face
+                    // hexahedron
+          {{0, 1}, {1, 0}, {0, 1}, {1, 0}, {0, 1}, {1, 0}}};
+
+        // now create a vector of the two active
+        // neighbors (left and right) for each face
+        // and fill it by looping over all cells. For
+        // cases with anisotropic refinement and more
+        // then one cell neighboring at a given side
+        // of the face we will automatically get the
+        // active one on the highest level as we loop
+        // over cells from lower levels first.
+        const typename Triangulation<dim, spacedim>::cell_iterator dummy;
+        std::vector<typename Triangulation<dim, spacedim>::cell_iterator>
+          adjacent_cells(2 * triangulation.n_raw_faces(), dummy);
+
+        for (const auto &cell : triangulation.cell_iterators())
+          for (auto f : cell->face_indices())
+            {
+              const typename Triangulation<dim, spacedim>::face_iterator face =
+                cell->face(f);
+
+              const unsigned int offset =
+                (cell->direction_flag() ?
+                   left_right_offset[dim - 2][f][cell->face_orientation(f)] :
+                   1 -
+                     left_right_offset[dim - 2][f][cell->face_orientation(f)]);
+
+              adjacent_cells[2 * face->index() + offset] = cell;
+
+              // if this cell is not refined, but the
+              // face is, then we'll have to set our
+              // cell as neighbor for the child faces
+              // as well. Fortunately the normal
+              // orientation of children will be just
+              // the same.
+              if (dim == 2)
+                {
+                  if (cell->is_active() && face->has_children())
+                    {
+                      adjacent_cells[2 * face->child(0)->index() + offset] =
+                        cell;
+                      adjacent_cells[2 * face->child(1)->index() + offset] =
+                        cell;
+                    }
+                }
+              else // -> dim == 3
+                {
+                  // We need the same as in 2d
+                  // here. Furthermore, if the face is
+                  // refined with cut_x or cut_y then
+                  // those children again in the other
+                  // direction, and if this cell is
+                  // refined isotropically (along the
+                  // face) then the neighbor will
+                  // (probably) be refined as cut_x or
+                  // cut_y along the face. For those
+                  // neighboring children cells, their
+                  // neighbor will be the current,
+                  // inactive cell, as our children are
+                  // too fine to be neighbors. Catch that
+                  // case by also acting on inactive
+                  // cells with isotropic refinement
+                  // along the face. If the situation
+                  // described is not present, the data
+                  // will be overwritten later on when we
+                  // visit cells on finer levels, so no
+                  // harm will be done.
+                  if (face->has_children() &&
+                      (cell->is_active() ||
+                       GeometryInfo<dim>::face_refinement_case(
+                         cell->refinement_case(), f) ==
+                         RefinementCase<dim - 1>::isotropic_refinement))
+                    {
+                      for (unsigned int c = 0; c < face->n_children(); ++c)
+                        adjacent_cells[2 * face->child(c)->index() + offset] =
+                          cell;
+                      if (face->child(0)->has_children())
+                        {
+                          adjacent_cells[2 * face->child(0)->child(0)->index() +
+                                         offset] = cell;
+                          adjacent_cells[2 * face->child(0)->child(1)->index() +
+                                         offset] = cell;
+                        }
+                      if (face->child(1)->has_children())
+                        {
+                          adjacent_cells[2 * face->child(1)->child(0)->index() +
+                                         offset] = cell;
+                          adjacent_cells[2 * face->child(1)->child(1)->index() +
+                                         offset] = cell;
+                        }
+                    } // if cell active and face refined
+                }     // else -> dim==3
+            }         // for all faces of all cells
+
+        // now loop again over all cells and set the
+        // corresponding neighbor cell. Note, that we
+        // have to use the opposite of the
+        // left_right_offset in this case as we want
+        // the offset of the neighbor, not our own.
+        for (const auto &cell : triangulation.cell_iterators())
+          for (auto f : cell->face_indices())
+            {
+              const unsigned int offset =
+                (cell->direction_flag() ?
+                   left_right_offset[dim - 2][f][cell->face_orientation(f)] :
+                   1 -
+                     left_right_offset[dim - 2][f][cell->face_orientation(f)]);
+              cell->set_neighbor(
+                f, adjacent_cells[2 * cell->face(f)->index() + 1 - offset]);
+            }
+      }
+
+
       /**
        * Create a triangulation from given data.
        */
@@ -2402,8 +2414,7 @@ namespace internal
             for (unsigned int q = 0, k = 0; q < n_quads; ++q)
               {
                 // set entity type of quads
-                faces.quad_reference_cell_type[q] =
-                  connectivity.entity_types(2)[q];
+                faces.quad_reference_cell[q] = connectivity.entity_types(2)[q];
 
                 // loop over all its lines
                 for (unsigned int i = crs.ptr[q], j = 0; i < crs.ptr[q + 1];
@@ -2454,8 +2465,7 @@ namespace internal
               cells_0.manifold_id[cell] = cells[cell].manifold_id;
 
               // set entity types
-              level.reference_cell_type[cell] =
-                connectivity.entity_types(dim)[cell];
+              level.reference_cell[cell] = connectivity.entity_types(dim)[cell];
 
               // loop over faces
               for (unsigned int i = crs.ptr[cell], j = 0; i < crs.ptr[cell + 1];
@@ -2656,8 +2666,8 @@ namespace internal
         if (dim == 3 && structdim == 2)
           {
             // quad entity types
-            faces.quad_reference_cell_type.assign(size,
-                                                  ReferenceCell::Type::Invalid);
+            faces.quad_reference_cell.assign(size,
+                                             dealii::ReferenceCells::Invalid);
 
             // quad line orientations
             faces.quads_line_orientations.assign(size * faces_per_cell, -1);
@@ -2693,15 +2703,15 @@ namespace internal
 
         level.neighbors.assign(size * faces_per_cell, {-1, -1});
 
-        level.reference_cell_type.assign(size, ReferenceCell::Type::Invalid);
+        level.reference_cell.assign(size, dealii::ReferenceCells::Invalid);
 
         if (orientation_needed)
           level.face_orientations.assign(size * faces_per_cell, -1);
 
         level.global_active_cell_indices.assign(size,
-                                                numbers::invalid_unsigned_int);
+                                                numbers::invalid_dof_index);
         level.global_level_cell_indices.assign(size,
-                                               numbers::invalid_unsigned_int);
+                                               numbers::invalid_dof_index);
       }
 
 
@@ -4098,14 +4108,15 @@ namespace internal
                  triangulation.active_cell_iterators_on_level(level))
               if (cell->refine_flag_set())
                 {
-                  if (cell->reference_cell_type() == ReferenceCell::Type::Tri)
+                  if (cell->reference_cell() ==
+                      dealii::ReferenceCells::Triangle)
                     {
                       needed_cells += 4;
                       needed_vertices += 0;
                       n_single_lines += 3;
                     }
-                  else if (cell->reference_cell_type() ==
-                           ReferenceCell::Type::Quad)
+                  else if (cell->reference_cell() ==
+                           dealii::ReferenceCells::Quadrilateral)
                     {
                       needed_cells += 4;
                       needed_vertices += 1;
@@ -4258,9 +4269,10 @@ namespace internal
 
           unsigned int n_new_vertices = 0;
 
-          if (cell->reference_cell_type() == ReferenceCell::Type::Tri)
+          if (cell->reference_cell() == dealii::ReferenceCells::Triangle)
             n_new_vertices = 6;
-          else if (cell->reference_cell_type() == ReferenceCell::Type::Quad)
+          else if (cell->reference_cell() ==
+                   dealii::ReferenceCells::Quadrilateral)
             n_new_vertices = 9;
           else
             AssertThrow(false, ExcNotImplemented());
@@ -4274,7 +4286,7 @@ namespace internal
               new_vertices[cell->n_vertices() + line_no] =
                 cell->line(line_no)->child(0)->vertex_index(1);
 
-          if (cell->reference_cell_type() == ReferenceCell::Type::Quad)
+          if (cell->reference_cell() == dealii::ReferenceCells::Quadrilateral)
             {
               while (triangulation.vertices_used[next_unused_vertex] == true)
                 ++next_unused_vertex;
@@ -4313,12 +4325,13 @@ namespace internal
           unsigned int lmin = 0;
           unsigned int lmax = 0;
 
-          if (cell->reference_cell_type() == ReferenceCell::Type::Tri)
+          if (cell->reference_cell() == dealii::ReferenceCells::Triangle)
             {
               lmin = 6;
               lmax = 9;
             }
-          else if (cell->reference_cell_type() == ReferenceCell::Type::Quad)
+          else if (cell->reference_cell() ==
+                   dealii::ReferenceCells::Quadrilateral)
             {
               lmin = 8;
               lmax = 12;
@@ -4343,7 +4356,7 @@ namespace internal
 
           if (true)
             {
-              if (cell->reference_cell_type() == ReferenceCell::Type::Tri)
+              if (cell->reference_cell() == dealii::ReferenceCells::Triangle)
                 {
                   // add lines in the right order [TODO: clean up]
                   const auto ref = [&](const unsigned int face_no,
@@ -4378,7 +4391,8 @@ namespace internal
                   new_lines[8]->set_bounding_object_indices(
                     {new_vertices[5], new_vertices[3]});
                 }
-              else if (cell->reference_cell_type() == ReferenceCell::Type::Quad)
+              else if (cell->reference_cell() ==
+                       dealii::ReferenceCells::Quadrilateral)
                 {
                   unsigned int l = 0;
                   for (const unsigned int face_no : cell->face_indices())
@@ -4420,9 +4434,10 @@ namespace internal
 
           unsigned int n_children = 0;
 
-          if (cell->reference_cell_type() == ReferenceCell::Type::Tri)
+          if (cell->reference_cell() == dealii::ReferenceCells::Triangle)
             n_children = 4;
-          else if (cell->reference_cell_type() == ReferenceCell::Type::Quad)
+          else if (cell->reference_cell() ==
+                   dealii::ReferenceCells::Quadrilateral)
             n_children = 4;
           else
             AssertThrow(false, ExcNotImplemented());
@@ -4440,7 +4455,8 @@ namespace internal
                   ++next_unused_cell;
             }
 
-          if (cell->reference_cell_type() == ReferenceCell::Type::Tri)
+          if ((dim == 2) &&
+              (cell->reference_cell() == dealii::ReferenceCells::Triangle))
             {
               subcells[0]->set_bounding_object_indices({new_lines[0]->index(),
                                                         new_lines[8]->index(),
@@ -4490,7 +4506,8 @@ namespace internal
               // triangulation.levels[subcells[2]->level()]->face_orientations[subcells[2]->index()
               // * GeometryInfo<2>::faces_per_cell + 0] = 0;
             }
-          else if (cell->reference_cell_type() == ReferenceCell::Type::Quad)
+          else if ((dim == 2) && (cell->reference_cell() ==
+                                  dealii::ReferenceCells::Quadrilateral))
             {
               subcells[0]->set_bounding_object_indices(
                 {new_lines[0]->index(),
@@ -4534,8 +4551,7 @@ namespace internal
               // TODO: here we assume that all children have the same reference
               // cell type as the parent! This is justified for 2D.
               triangulation.levels[subcells[i]->level()]
-                ->reference_cell_type[subcells[i]->index()] =
-                cell->reference_cell_type();
+                ->reference_cell[subcells[i]->index()] = cell->reference_cell();
 
               if (i % 2 == 0)
                 subcells[i]->set_parent(cell->index());
@@ -4571,8 +4587,8 @@ namespace internal
                                   next_unused_cell,
                                   cell);
 
-                  if (cell->reference_cell_type() ==
-                        ReferenceCell::Type::Quad &&
+                  if (cell->reference_cell() ==
+                        dealii::ReferenceCells::Quadrilateral &&
                       check_for_distorted_cells &&
                       has_distorted_children<dim, spacedim>(cell))
                     cells_with_distorted_children.distorted_cells.push_back(
@@ -5310,7 +5326,7 @@ namespace internal
                           if (face_ref_case ==
                               RefinementCase<dim - 1>::isotropic_refinement)
                             {
-                              if (aface->number_of_children() < 4)
+                              if (aface->n_active_descendants() < 4)
                                 // we use user_flags to denote needed
                                 // isotropic refinement
                                 aface->set_user_flag();
@@ -9595,9 +9611,11 @@ namespace internal
                         // one.
                         const Point<spacedim> new_bound = face->center(true);
                         // to check it, transform to the unit cell
-                        // with Q1Mapping
+                        // with a linear mapping
                         const Point<dim> new_unit =
-                          StaticMappingQ1<dim, spacedim>::mapping
+                          cell->reference_cell()
+                            .template get_default_linear_mapping<dim,
+                                                                 spacedim>()
                             .transform_real_to_unit_cell(cell, new_bound);
 
                         // Now, we have to calculate the distance from
@@ -9630,7 +9648,7 @@ namespace internal
        * At present, this function does nothing in 1d and 2D, but
        * makes sure no two cells with a level difference greater than
        * one share one line in 3D. This is a requirement needed for
-       * the interpolation of hanging nodes, since otherwise to steps
+       * the interpolation of hanging nodes, since otherwise two steps
        * of interpolation would be necessary. This would make the
        * processes implemented in the @p AffineConstraints class much
        * more complex, since these two steps of interpolation do not
@@ -9679,9 +9697,7 @@ namespace internal
             for (const auto &cell : triangulation.cell_iterators())
               if (cell->refine_flag_set())
                 {
-                  for (unsigned int line = 0;
-                       line < GeometryInfo<dim>::lines_per_cell;
-                       ++line)
+                  for (unsigned int line = 0; line < cell->n_lines(); ++line)
                     if (GeometryInfo<dim>::line_refinement_case(
                           cell->refine_flag_set(), line) ==
                         RefinementCase<1>::cut_x)
@@ -9715,9 +9731,7 @@ namespace internal
                    cell = triangulation.last_active();
                  cell != triangulation.end();
                  --cell)
-              for (unsigned int line = 0;
-                   line < GeometryInfo<dim>::lines_per_cell;
-                   ++line)
+              for (unsigned int line = 0; line < cell->n_lines(); ++line)
                 {
                   if (cell->line(line)->has_children())
                     {
@@ -9913,6 +9927,75 @@ namespace internal
      */
     struct ImplementationMixedMesh
     {
+      template <int spacedim>
+      static void update_neighbors(Triangulation<1, spacedim> &)
+      {}
+
+      template <int dim, int spacedim>
+      void static update_neighbors(Triangulation<dim, spacedim> &triangulation)
+      {
+        std::vector<std::pair<unsigned int, unsigned int>> adjacent_cells(
+          2 * triangulation.n_raw_faces(),
+          {numbers::invalid_unsigned_int, numbers::invalid_unsigned_int});
+
+        const auto set_entry = [&](const auto &face_index, const auto &cell) {
+          const std::pair<unsigned int, unsigned int> cell_pair = {
+            cell->level(), cell->index()};
+          unsigned int index;
+
+          if (adjacent_cells[2 * face_index].first ==
+                numbers::invalid_unsigned_int &&
+              adjacent_cells[2 * face_index].second ==
+                numbers::invalid_unsigned_int)
+            {
+              index = 2 * face_index + 0;
+            }
+          else
+            {
+              Assert(((adjacent_cells[2 * face_index + 1].first ==
+                       numbers::invalid_unsigned_int) &&
+                      (adjacent_cells[2 * face_index + 1].second ==
+                       numbers::invalid_unsigned_int)),
+                     ExcNotImplemented());
+              index = 2 * face_index + 1;
+            }
+
+          adjacent_cells[index] = cell_pair;
+        };
+
+        const auto get_entry =
+          [&](const auto &face_index,
+              const auto &cell) -> TriaIterator<CellAccessor<dim, spacedim>> {
+          auto test = adjacent_cells[2 * face_index];
+
+          if (test == std::pair<unsigned int, unsigned int>(cell->level(),
+                                                            cell->index()))
+            test = adjacent_cells[2 * face_index + 1];
+
+          if ((test.first != numbers::invalid_unsigned_int) &&
+              (test.second != numbers::invalid_unsigned_int))
+            return TriaIterator<CellAccessor<dim, spacedim>>(&triangulation,
+                                                             test.first,
+                                                             test.second);
+          else
+            return typename Triangulation<dim, spacedim>::cell_iterator();
+        };
+
+        for (const auto &cell : triangulation.cell_iterators())
+          for (const auto &face : cell->face_iterators())
+            {
+              set_entry(face->index(), cell);
+
+              if (cell->is_active() && face->has_children())
+                for (unsigned int c = 0; c < face->n_children(); ++c)
+                  set_entry(face->child(c)->index(), cell);
+            }
+
+        for (const auto &cell : triangulation.cell_iterators())
+          for (auto f : cell->face_indices())
+            cell->set_neighbor(f, get_entry(cell->face(f)->index(), cell));
+      }
+
       template <int dim, int spacedim>
       static void
       delete_children(
@@ -10014,7 +10097,7 @@ Triangulation<dim, spacedim>::Triangulation(
   Triangulation<dim, spacedim> &&tria) noexcept
   : Subscriptor(std::move(tria))
   , smooth_grid(tria.smooth_grid)
-  , reference_cell_types(std::move(tria.reference_cell_types))
+  , reference_cells(std::move(tria.reference_cells))
   , periodic_face_pairs_level_0(std::move(tria.periodic_face_pairs_level_0))
   , periodic_face_map(std::move(tria.periodic_face_map))
   , levels(std::move(tria.levels))
@@ -10040,7 +10123,7 @@ operator=(Triangulation<dim, spacedim> &&tria) noexcept
   Subscriptor::operator=(std::move(tria));
 
   smooth_grid                  = tria.smooth_grid;
-  reference_cell_types         = std::move(tria.reference_cell_types);
+  reference_cells              = std::move(tria.reference_cells);
   periodic_face_pairs_level_0  = std::move(tria.periodic_face_pairs_level_0);
   periodic_face_map            = std::move(tria.periodic_face_map);
   levels                       = std::move(tria.levels);
@@ -10099,7 +10182,15 @@ Triangulation<dim, spacedim>::clear()
   clear_despite_subscriptions();
   periodic_face_pairs_level_0.clear();
   periodic_face_map.clear();
-  reference_cell_types.clear();
+  reference_cells.clear();
+}
+
+
+template <int dim, int spacedim>
+MPI_Comm
+Triangulation<dim, spacedim>::get_communicator() const
+{
+  return MPI_COMM_SELF;
 }
 
 
@@ -10275,7 +10366,7 @@ Triangulation<dim, spacedim>::get_boundary_ids() const
       std::set<types::boundary_id> b_ids;
       for (auto cell : active_cell_iterators())
         if (cell->is_locally_owned())
-          for (const unsigned int face : GeometryInfo<dim>::face_indices())
+          for (const unsigned int face : cell->face_indices())
             if (cell->at_boundary(face))
               b_ids.insert(cell->face(face)->boundary_id());
       std::vector<types::boundary_id> boundary_ids(b_ids.begin(), b_ids.end());
@@ -10294,14 +10385,13 @@ Triangulation<dim, spacedim>::get_manifold_ids() const
     if (cell->is_locally_owned())
       {
         m_ids.insert(cell->manifold_id());
-        if (dim > 1)
-          for (const unsigned int face : GeometryInfo<dim>::face_indices())
-            if (cell->at_boundary(face))
-              m_ids.insert(cell->face(face)->manifold_id());
+        for (const auto &face : cell->face_iterators())
+          m_ids.insert(face->manifold_id());
+        if (dim == 3)
+          for (const unsigned int l : cell->line_indices())
+            m_ids.insert(cell->line(l)->manifold_id());
       }
-  std::vector<types::manifold_id> manifold_indicators(m_ids.begin(),
-                                                      m_ids.end());
-  return manifold_indicators;
+  return {m_ids.begin(), m_ids.end()};
 }
 
 /*-----------------------------------------------------------------*/
@@ -10329,15 +10419,14 @@ Triangulation<dim, spacedim>::copy_triangulation(
   vertices_used          = other_tria.vertices_used;
   anisotropic_refinement = other_tria.anisotropic_refinement;
   smooth_grid            = other_tria.smooth_grid;
-  reference_cell_types   = other_tria.reference_cell_types;
+  reference_cells        = other_tria.reference_cells;
 
   if (dim > 1)
     faces = std::make_unique<internal::TriangulationImplementation::TriaFaces>(
       *other_tria.faces);
 
-  auto bdry_iterator = other_tria.manifold.begin();
-  for (; bdry_iterator != other_tria.manifold.end(); ++bdry_iterator)
-    manifold[bdry_iterator->first] = bdry_iterator->second->clone();
+  for (const auto &p : other_tria.manifold)
+    set_manifold(p.first, *p.second);
 
 
   levels.reserve(other_tria.levels.size());
@@ -10393,6 +10482,31 @@ Triangulation<dim, spacedim>::create_triangulation_compatibility(
 }
 
 
+template <int dim, int spacedim>
+void
+Triangulation<dim, spacedim>::reset_policy()
+{
+  this->update_reference_cells();
+
+  if (this->all_reference_cells_are_hyper_cube())
+    {
+      this->policy =
+        std::make_unique<internal::TriangulationImplementation::PolicyWrapper<
+          dim,
+          spacedim,
+          internal::TriangulationImplementation::Implementation>>();
+    }
+  else
+    {
+      this->policy =
+        std::make_unique<internal::TriangulationImplementation::PolicyWrapper<
+          dim,
+          spacedim,
+          internal::TriangulationImplementation::ImplementationMixedMesh>>();
+    }
+}
+
+
 
 template <int dim, int spacedim>
 void
@@ -10414,8 +10528,6 @@ Triangulation<dim, spacedim>::create_triangulation(
     {
       internal::TriangulationImplementation::Implementation::
         create_triangulation(v, cells, subcelldata, *this);
-
-      this->update_reference_cell_types();
     }
   catch (...)
     {
@@ -10423,26 +10535,7 @@ Triangulation<dim, spacedim>::create_triangulation(
       throw;
     }
 
-  if (this->all_reference_cell_types_are_hyper_cube())
-    {
-      this->policy =
-        std::make_unique<internal::TriangulationImplementation::PolicyWrapper<
-          dim,
-          spacedim,
-          internal::TriangulationImplementation::Implementation>>();
-    }
-  else
-    {
-#ifndef DEAL_II_WITH_SIMPLEX_SUPPORT
-      Assert(false, ExcNeedsSimplexSupport());
-#endif
-
-      this->policy =
-        std::make_unique<internal::TriangulationImplementation::PolicyWrapper<
-          dim,
-          spacedim,
-          internal::TriangulationImplementation::ImplementationMixedMesh>>();
-    }
+  reset_policy();
 
   // update our counts of the various elements of a triangulation, and set
   // active_cell_indices of all cells
@@ -13277,7 +13370,12 @@ template <int dim, int spacedim>
 void
 Triangulation<dim, spacedim>::execute_coarsening_and_refinement()
 {
-  prepare_coarsening_and_refinement();
+  // Call our version of prepare_coarsening_and_refinement() even if a derived
+  // class like parallel::distributed::Triangulation overrides it. Their
+  // function will be called in their execute_coarsening_and_refinement()
+  // function. Even in a distributed computation our job here is to reconstruct
+  // the local part of the mesh and as such checking our flags is enough.
+  Triangulation<dim, spacedim>::prepare_coarsening_and_refinement();
 
   // verify a case with which we have had
   // some difficulty in the past (see the
@@ -13300,7 +13398,7 @@ Triangulation<dim, spacedim>::execute_coarsening_and_refinement()
 
   // finally build up neighbor connectivity information, and set
   // active cell indices
-  update_neighbors(*this);
+  this->policy->update_neighbors(*this);
   reset_active_cell_indices();
 
   reset_global_cell_indices(); // TODO: better place?
@@ -13420,37 +13518,40 @@ Triangulation<dim, spacedim>::update_periodic_face_map()
 
 template <int dim, int spacedim>
 void
-Triangulation<dim, spacedim>::update_reference_cell_types()
+Triangulation<dim, spacedim>::update_reference_cells()
 {
-  std::set<ReferenceCell::Type> reference_cell_types_set;
+  std::set<ReferenceCell> reference_cells_set;
   for (auto cell : active_cell_iterators())
     if (cell->is_locally_owned())
-      reference_cell_types_set.insert(cell->reference_cell_type());
+      reference_cells_set.insert(cell->reference_cell());
 
-  std::vector<ReferenceCell::Type> reference_cell_types(
-    reference_cell_types_set.begin(), reference_cell_types_set.end());
+  std::vector<ReferenceCell> reference_cells(reference_cells_set.begin(),
+                                             reference_cells_set.end());
 
-  this->reference_cell_types = reference_cell_types;
+  this->reference_cells = reference_cells;
 }
 
 
 
 template <int dim, int spacedim>
-const std::vector<ReferenceCell::Type> &
-Triangulation<dim, spacedim>::get_reference_cell_types() const
+const std::vector<ReferenceCell> &
+Triangulation<dim, spacedim>::get_reference_cells() const
 {
-  return this->reference_cell_types;
+  return this->reference_cells;
 }
 
 
 
 template <int dim, int spacedim>
 bool
-Triangulation<dim, spacedim>::all_reference_cell_types_are_hyper_cube() const
+Triangulation<dim, spacedim>::all_reference_cells_are_hyper_cube() const
 {
-  return (this->reference_cell_types.size() == 0) ||
-         (this->reference_cell_types.size() == 1 &&
-          this->reference_cell_types[0] == ReferenceCell::get_hypercube(dim));
+  Assert(this->reference_cells.size() > 0,
+         ExcMessage("You can't ask about the kinds of reference "
+                    "cells used by this triangulation if the "
+                    "triangulation doesn't yet have any cells in it."));
+  return (this->reference_cells.size() == 1 &&
+          this->reference_cells[0] == ReferenceCells::get_hypercube<dim>());
 }
 
 
@@ -15135,6 +15236,12 @@ Triangulation<dim, spacedim>::memory_consumption() const
 
   return mem;
 }
+
+
+
+template <int dim, int spacedim>
+Triangulation<dim, spacedim>::DistortedCellList::~DistortedCellList() noexcept =
+  default;
 
 
 // explicit instantiations

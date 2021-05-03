@@ -222,7 +222,7 @@ namespace internal
        *
        * @note Used only for dim=2 and dim=3.
        */
-      std::vector<ReferenceCell::Type> reference_cell_type;
+      std::vector<dealii::ReferenceCell> reference_cell;
 
       /**
        * Determine an estimate for the memory consumption (in bytes) of this
@@ -233,7 +233,8 @@ namespace internal
 
       /**
        * Read or write the data of this object to or from a stream for the
-       * purpose of serialization
+       * purpose of serialization using the [BOOST serialization
+       * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
        */
       template <class Archive>
       void
@@ -264,7 +265,7 @@ namespace internal
         ar &face_orientations;
 
       if (dim == 2 || dim == 3)
-        ar &reference_cell_type;
+        ar &reference_cell;
     }
 
   } // namespace TriangulationImplementation

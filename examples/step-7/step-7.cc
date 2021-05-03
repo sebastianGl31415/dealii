@@ -35,10 +35,7 @@
 #include <deal.II/grid/tria.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_refinement.h>
-#include <deal.II/grid/tria_accessor.h>
-#include <deal.II/grid/tria_iterator.h>
 #include <deal.II/dofs/dof_handler.h>
-#include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/numerics/matrix_tools.h>
@@ -660,8 +657,8 @@ namespace Step7
 
                   for (unsigned int i = 0; i < dofs_per_cell; ++i)
                     cell_rhs(i) +=
-                      (neumann_value *                          // g(x_q)
-                       fe_face_values.shape_value(i, q_point) * // phi_i(x_q)
+                      (fe_face_values.shape_value(i, q_point) * // phi_i(x_q)
+                       neumann_value *                          // g(x_q)
                        fe_face_values.JxW(q_point));            // dx
                 }
             }

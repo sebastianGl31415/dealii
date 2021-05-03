@@ -165,7 +165,7 @@ namespace FETools
           block_indices.push_back(fes[base]->n_dofs_per_cell());
 
       return FiniteElementData<dim>(dpo,
-                                    fes.front()->reference_cell_type(),
+                                    fes.front()->reference_cell(),
                                     (do_tensor_product ?
                                        multiplied_n_components :
                                        n_components),
@@ -235,9 +235,7 @@ namespace FETools
       // one, taking into account multiplicities, and other complications
       unsigned int total_index = 0;
       for (const unsigned int vertex_number :
-           ReferenceCell::internal::Info::get_cell(
-             fes.front()->reference_cell_type())
-             .vertex_indices())
+           fes.front()->reference_cell().vertex_indices())
         {
           for (unsigned int base = 0; base < fes.size(); ++base)
             for (unsigned int m = 0; m < multiplicities[base]; ++m)
@@ -258,9 +256,7 @@ namespace FETools
 
       // 2. Lines
       for (const unsigned int line_number :
-           ReferenceCell::internal::Info::get_cell(
-             fes.front()->reference_cell_type())
-             .line_indices())
+           fes.front()->reference_cell().line_indices())
         {
           for (unsigned int base = 0; base < fes.size(); ++base)
             for (unsigned int m = 0; m < multiplicities[base]; ++m)
@@ -281,12 +277,10 @@ namespace FETools
 
       // 3. Quads
       for (unsigned int quad_number = 0;
-           quad_number < (dim == 2 ?
-                            1 :
-                            (dim == 3 ? ReferenceCell::internal::Info::get_cell(
-                                          fes.front()->reference_cell_type())
-                                          .n_faces() :
-                                        0));
+           quad_number <
+           (dim == 2 ?
+              1 :
+              (dim == 3 ? fes.front()->reference_cell().n_faces() : 0));
            ++quad_number)
         {
           for (unsigned int base = 0; base < fes.size(); ++base)
@@ -381,7 +375,10 @@ namespace FETools
       const bool do_tensor_product)
     {
       AssertDimension(fes.size(), multiplicities.size());
-
+      Assert(
+        fes.size() > 0,
+        ExcMessage(
+          "This function only makes sense if at least one FiniteElement is provided."));
       // first count the number of dofs and components that will emerge from the
       // given FEs
       unsigned int n_shape_functions = 0;
@@ -428,9 +425,7 @@ namespace FETools
       // base elements, and other complications
       unsigned int total_index = 0;
       for (const unsigned int vertex_number :
-           ReferenceCell::internal::Info::get_cell(
-             fes.front()->reference_cell_type())
-             .vertex_indices())
+           fes.front()->reference_cell().vertex_indices())
         {
           unsigned int comp_start = 0;
           for (unsigned int base = 0; base < fes.size(); ++base)
@@ -463,9 +458,7 @@ namespace FETools
 
       // 2. Lines
       for (const unsigned int line_number :
-           ReferenceCell::internal::Info::get_cell(
-             fes.front()->reference_cell_type())
-             .line_indices())
+           fes.front()->reference_cell().line_indices())
         {
           unsigned int comp_start = 0;
           for (unsigned int base = 0; base < fes.size(); ++base)
@@ -498,12 +491,10 @@ namespace FETools
 
       // 3. Quads
       for (unsigned int quad_number = 0;
-           quad_number < (dim == 2 ?
-                            1 :
-                            (dim == 3 ? ReferenceCell::internal::Info::get_cell(
-                                          fes.front()->reference_cell_type())
-                                          .n_faces() :
-                                        0));
+           quad_number <
+           (dim == 2 ?
+              1 :
+              (dim == 3 ? fes.front()->reference_cell().n_faces() : 0));
            ++quad_number)
         {
           unsigned int comp_start = 0;
@@ -673,8 +664,7 @@ namespace FETools
       // vertex, etc
       total_index = 0;
       for (const unsigned int vertex_number :
-           ReferenceCell::internal::Info::get_cell(fe.reference_cell_type())
-             .vertex_indices())
+           fe.reference_cell().vertex_indices())
         {
           unsigned int comp_start = 0;
           for (unsigned int base = 0; base < fe.n_base_elements(); ++base)
@@ -715,9 +705,7 @@ namespace FETools
         }
 
       // 2. Lines
-      for (const unsigned int line_number :
-           ReferenceCell::internal::Info::get_cell(fe.reference_cell_type())
-             .line_indices())
+      for (const unsigned int line_number : fe.reference_cell().line_indices())
         {
           unsigned int comp_start = 0;
           for (unsigned int base = 0; base < fe.n_base_elements(); ++base)
@@ -760,12 +748,8 @@ namespace FETools
 
       // 3. Quads
       for (unsigned int quad_number = 0;
-           quad_number < (dim == 2 ?
-                            1 :
-                            (dim == 3 ? ReferenceCell::internal::Info::get_cell(
-                                          fe.reference_cell_type())
-                                          .n_faces() :
-                                        0));
+           quad_number <
+           (dim == 2 ? 1 : (dim == 3 ? fe.reference_cell().n_faces() : 0));
            ++quad_number)
         {
           unsigned int comp_start = 0;
@@ -872,9 +856,7 @@ namespace FETools
       unsigned int total_index = 0;
       for (unsigned int vertex_number = 0;
            vertex_number <
-           ReferenceCell::internal::Info::get_face(fe.reference_cell_type(),
-                                                   face_no)
-             .n_vertices();
+           fe.reference_cell().face_reference_cell(face_no).n_vertices();
            ++vertex_number)
         {
           unsigned int comp_start = 0;
@@ -932,9 +914,7 @@ namespace FETools
       // 2. Lines
       for (unsigned int line_number = 0;
            line_number <
-           ReferenceCell::internal::Info::get_face(fe.reference_cell_type(),
-                                                   face_no)
-             .n_lines();
+           fe.reference_cell().face_reference_cell(face_no).n_lines();
            ++line_number)
         {
           unsigned int comp_start = 0;
@@ -1598,23 +1578,31 @@ namespace FETools
     const unsigned int n1 = fe1.n_dofs_per_cell();
     const unsigned int n2 = fe2.n_dofs_per_cell();
 
+    const ReferenceCell reference_cell = fe1.reference_cell();
+
+    Assert(fe1.reference_cell() == fe2.reference_cell(), ExcNotImplemented());
+
     // First, create a local mass matrix for the unit cell
     Triangulation<dim, spacedim> tr;
-    GridGenerator::hyper_cube(tr);
+    GridGenerator::reference_cell(reference_cell, tr);
+
+    const auto &mapping =
+      reference_cell.template get_default_linear_mapping<dim, spacedim>();
 
     // Choose a Gauss quadrature rule that is exact up to degree 2n-1
     const unsigned int degree =
       std::max(fe1.tensor_degree(), fe2.tensor_degree());
     Assert(degree != numbers::invalid_unsigned_int, ExcNotImplemented());
-    const QGauss<dim> quadrature(degree + 1);
+    const auto quadrature =
+      reference_cell.get_gauss_type_quadrature<dim>(degree + 1);
 
     // Set up FEValues.
     const UpdateFlags flags =
       update_values | update_quadrature_points | update_JxW_values;
-    FEValues<dim> val1(fe1, quadrature, update_values);
+    FEValues<dim> val1(mapping, fe1, quadrature, update_values);
     val1.reinit(tr.begin_active());
 
-    FEValues<dim> val2(fe2, quadrature, flags);
+    FEValues<dim> val2(mapping, fe2, quadrature, flags);
     val2.reinit(tr.begin_active());
 
     // Integrate and invert mass matrix. This happens in the target space
@@ -1788,6 +1776,9 @@ namespace FETools
         const unsigned int n = fe.n_dofs_per_cell();
         const unsigned int nc =
           GeometryInfo<dim>::n_children(RefinementCase<dim>(ref_case));
+
+        AssertDimension(matrices.size(), nc);
+
         for (unsigned int i = 0; i < nc; ++i)
           {
             Assert(matrices[i].n() == n,
@@ -1796,18 +1787,25 @@ namespace FETools
                    ExcDimensionMismatch(matrices[i].m(), n));
           }
 
+        const ReferenceCell reference_cell = fe.reference_cell();
+
         // Set up meshes, one with a single
         // reference cell and refine it once
         Triangulation<dim, spacedim> tria;
-        GridGenerator::hyper_cube(tria, 0, 1);
+        GridGenerator::reference_cell(reference_cell, tria);
         tria.begin_active()->set_refine_flag(RefinementCase<dim>(ref_case));
         tria.execute_coarsening_and_refinement();
 
         const unsigned int degree = fe.degree;
-        QGauss<dim>        q_fine(degree + 1);
+
+        const auto &mapping =
+          reference_cell.template get_default_linear_mapping<dim, spacedim>();
+        const auto &q_fine =
+          reference_cell.get_gauss_type_quadrature<dim>(degree + 1);
         const unsigned int nq = q_fine.size();
 
-        FEValues<dim, spacedim> fine(fe,
+        FEValues<dim, spacedim> fine(mapping,
+                                     fe,
                                      q_fine,
                                      update_quadrature_points |
                                        update_JxW_values | update_values);
@@ -1854,7 +1852,10 @@ namespace FETools
                 q_points_coarse[i](j) = q_points_fine[i](j);
             const Quadrature<dim>   q_coarse(q_points_coarse,
                                            fine.get_JxW_values());
-            FEValues<dim, spacedim> coarse(fe, q_coarse, update_values);
+            FEValues<dim, spacedim> coarse(mapping,
+                                           fe,
+                                           q_coarse,
+                                           update_values);
 
             coarse.reinit(tria.begin(0));
 
@@ -1910,12 +1911,11 @@ namespace FETools
 
   template <int dim, typename number, int spacedim>
   void
-  compute_embedding_matrices(const FiniteElement<dim, spacedim> &fe,
-                             std::vector<std::vector<FullMatrix<number>>
-
-                                         > &                     matrices,
-                             const bool                          isotropic_only,
-                             const double                        threshold)
+  compute_embedding_matrices(
+    const FiniteElement<dim, spacedim> &          fe,
+    std::vector<std::vector<FullMatrix<number>>> &matrices,
+    const bool                                    isotropic_only,
+    const double                                  threshold)
   {
     Threads::TaskGroup<void> task_group;
 
@@ -1975,9 +1975,7 @@ namespace FETools
     {
       unsigned int face_dof = 0;
       for (unsigned int i = 0;
-           i < ReferenceCell::internal::Info::get_face(fe.reference_cell_type(),
-                                                       face_no)
-                 .n_vertices();
+           i < fe.reference_cell().face_reference_cell(face_no).n_vertices();
            ++i)
         {
           const unsigned int offset_c =
@@ -1994,9 +1992,8 @@ namespace FETools
             }
         }
 
-      for (unsigned int i = 1; i <= ReferenceCell::internal::Info::get_face(
-                                      fe.reference_cell_type(), face_no)
-                                      .n_lines();
+      for (unsigned int i = 1;
+           i <= fe.reference_cell().face_reference_cell(face_no).n_lines();
            ++i)
         {
           const unsigned int offset_c =
@@ -2046,9 +2043,7 @@ namespace FETools
     // hating the anisotropic implementation
     QGauss<dim - 1>       q_gauss(degree + 1);
     const Quadrature<dim> q_fine =
-      QProjector<dim>::project_to_face(fe.reference_cell_type(),
-                                       q_gauss,
-                                       face_fine);
+      QProjector<dim>::project_to_face(fe.reference_cell(), q_gauss, face_fine);
     const unsigned int nq = q_fine.size();
 
     FEValues<dim> fine(mapping,
@@ -2098,7 +2093,7 @@ namespace FETools
          ++cell_number)
       {
         const Quadrature<dim> q_coarse = QProjector<dim>::project_to_subface(
-          fe.reference_cell_type(), q_gauss, face_coarse, cell_number);
+          fe.reference_cell(), q_gauss, face_coarse, cell_number);
         FEValues<dim> coarse(mapping, fe, q_coarse, update_values);
 
         typename Triangulation<dim, spacedim>::active_cell_iterator fine_cell =
@@ -2163,19 +2158,24 @@ namespace FETools
 
   template <int dim, typename number, int spacedim>
   void
-  compute_projection_matrices(const FiniteElement<dim, spacedim> &fe,
-                              std::vector<std::vector<FullMatrix<number>>
-
-                                          > &                     matrices,
-                              const bool isotropic_only)
+  compute_projection_matrices(
+    const FiniteElement<dim, spacedim> &          fe,
+    std::vector<std::vector<FullMatrix<number>>> &matrices,
+    const bool                                    isotropic_only)
   {
     const unsigned int n      = fe.n_dofs_per_cell();
     const unsigned int nd     = fe.n_components();
     const unsigned int degree = fe.degree;
 
+    const ReferenceCell reference_cell = fe.reference_cell();
+
+    const auto &mapping =
+      reference_cell.template get_default_linear_mapping<dim, spacedim>();
+    const auto &q_fine =
+      reference_cell.get_gauss_type_quadrature<dim>(degree + 1);
+
     // prepare FEValues, quadrature etc on
     // coarse cell
-    QGauss<dim>        q_fine(degree + 1);
     const unsigned int nq = q_fine.size();
 
     // create mass matrix on coarse cell.
@@ -2183,9 +2183,10 @@ namespace FETools
     {
       // set up a triangulation for coarse cell
       Triangulation<dim, spacedim> tr;
-      GridGenerator::hyper_cube(tr, 0, 1);
+      GridGenerator::reference_cell(reference_cell, tr);
 
-      FEValues<dim, spacedim> coarse(fe,
+      FEValues<dim, spacedim> coarse(mapping,
+                                     fe,
                                      q_fine,
                                      update_JxW_values | update_values);
 
@@ -2196,11 +2197,7 @@ namespace FETools
       const std::vector<double> &JxW = coarse.get_JxW_values();
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
-          if (fe.
-
-              is_primitive()
-
-          )
+          if (fe.is_primitive())
             {
               const double *coarse_i = &coarse.shape_value(i, 0);
               const double *coarse_j = &coarse.shape_value(j, 0);
@@ -2220,59 +2217,33 @@ namespace FETools
             }
 
       // invert mass matrix
-      mass.
-
-        gauss_jordan();
+      mass.gauss_jordan();
     }
 
 
-    auto compute_one_case =
-      [&fe, &q_fine, n, nd, nq](const unsigned int        ref_case,
-                                const FullMatrix<double> &inverse_mass_matrix,
-                                std::vector<FullMatrix<double>> &matrices) {
+    const auto compute_one_case =
+      [&reference_cell, &mapping, &fe, &q_fine, n, nd, nq](
+        const unsigned int               ref_case,
+        const FullMatrix<double> &       inverse_mass_matrix,
+        std::vector<FullMatrix<double>> &matrices) {
         const unsigned int nc =
           GeometryInfo<dim>::n_children(RefinementCase<dim>(ref_case));
 
         for (unsigned int i = 0; i < nc; ++i)
           {
-            Assert(matrices[i].
-
-                     n()
-
-                     == n,
-                   ExcDimensionMismatch(matrices[i].
-
-                                        n(),
-                                        n
-
-                                        ));
-            Assert(matrices[i].
-
-                     m()
-
-                     == n,
-                   ExcDimensionMismatch(matrices[i].
-
-                                        m(),
-                                        n
-
-                                        ));
+            Assert(matrices[i].n() == n,
+                   ExcDimensionMismatch(matrices[i].n(), n));
+            Assert(matrices[i].m() == n,
+                   ExcDimensionMismatch(matrices[i].m(), n));
           }
 
         // create a respective refinement on the triangulation
         Triangulation<dim, spacedim> tr;
-        GridGenerator::hyper_cube(tr, 0, 1);
-        tr.
+        GridGenerator::reference_cell(reference_cell, tr);
+        tr.begin_active()->set_refine_flag(RefinementCase<dim>(ref_case));
+        tr.execute_coarsening_and_refinement();
 
-          begin_active()
-            ->
-
-          set_refine_flag(RefinementCase<dim>(ref_case));
-        tr.
-
-          execute_coarsening_and_refinement();
-
-        FEValues<dim, spacedim> fine(StaticMappingQ1<dim, spacedim>::mapping,
+        FEValues<dim, spacedim> fine(mapping,
                                      fe,
                                      q_fine,
                                      update_quadrature_points |
@@ -2293,21 +2264,14 @@ namespace FETools
             fine.reinit(coarse_cell->child(cell_number));
             const std::vector<Point<spacedim>> &q_points_fine =
               fine.get_quadrature_points();
-            std::vector<Point<dim>> q_points_coarse(q_points_fine.
-
-                                                    size()
-
-            );
-            for (unsigned int q = 0; q < q_points_fine.
-
-                                         size();
-
-                 ++q)
+            std::vector<Point<dim>> q_points_coarse(q_points_fine.size());
+            for (unsigned int q = 0; q < q_points_fine.size(); ++q)
               for (unsigned int j = 0; j < dim; ++j)
                 q_points_coarse[q](j) = q_points_fine[q](j);
             Quadrature<dim> q_coarse(q_points_coarse, fine.get_JxW_values());
             FEValues<dim, spacedim> coarse(
-              StaticMappingQ1<dim, spacedim>::mapping,
+              coarse_cell->reference_cell()
+                .template get_default_linear_mapping<dim, spacedim>(),
               fe,
               q_coarse,
               update_values);
@@ -2322,11 +2286,7 @@ namespace FETools
               {
                 for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
                   {
-                    if (fe.
-
-                        is_primitive()
-
-                    )
+                    if (fe.is_primitive())
                       {
                         const double *coarse_i = &coarse.shape_value(i, 0);
                         const double *fine_j   = &fine.shape_value(j, 0);
@@ -2355,16 +2315,8 @@ namespace FETools
               }
 
             // Remove small entries from the matrix
-            for (unsigned int i = 0; i < this_matrix.
-
-                                         m();
-
-                 ++i)
-              for (unsigned int j = 0; j < this_matrix.
-
-                                           n();
-
-                   ++j)
+            for (unsigned int i = 0; i < this_matrix.m(); ++i)
+              for (unsigned int j = 0; j < this_matrix.n(); ++j)
                 if (std::fabs(this_matrix(i, j)) < 1e-12)
                   this_matrix(i, j) = 0.;
           }
@@ -2381,9 +2333,7 @@ namespace FETools
         compute_one_case(ref_case, mass, matrices[ref_case - 1]);
       });
 
-    tasks.
-
-      join_all();
+    tasks.join_all();
   }
 
 

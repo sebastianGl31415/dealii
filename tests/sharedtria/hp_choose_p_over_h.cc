@@ -25,12 +25,12 @@
 
 #include <deal.II/fe/fe_q.h>
 
-#include <deal.II/grid/grid_generator.h>
-
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/refinement.h>
 
 #include "../tests.h"
+
+#include "../test_grids.h"
 
 
 template <int dim>
@@ -38,8 +38,6 @@ void
 test()
 {
   // setup
-  const unsigned int n_cells = 2;
-
   parallel::shared::Triangulation<dim> tr(
     MPI_COMM_WORLD,
     ::Triangulation<dim>::none,
@@ -52,15 +50,7 @@ test()
                              Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD));
   });
 
-  std::vector<unsigned int> rep(dim, 1);
-  rep[0] = n_cells;
-  Point<dim> p1, p2;
-  for (unsigned int d = 0; d < dim; ++d)
-    {
-      p1[d] = 0;
-      p2[d] = (d == 0) ? n_cells : 1;
-    }
-  GridGenerator::subdivided_hyper_rectangle(tr, rep, p1, p2);
+  TestGrids::hyper_line(tr, 2);
   tr.refine_global(1);
 
   hp::FECollection<dim> fes;
@@ -79,11 +69,11 @@ test()
           for (unsigned int i = 0; i < cell->n_children(); ++i)
             {
               const auto &child = cell->child(i);
+
+              child->set_coarsen_flag();
+
               if (child->is_locally_owned())
-                {
-                  child->set_future_fe_index(1);
-                  child->set_coarsen_flag();
-                }
+                child->set_future_fe_index(1);
             }
         }
       else if (cell->id().to_string() == "1_0:")
@@ -94,12 +84,12 @@ test()
           for (unsigned int i = 0; i < cell->n_children(); ++i)
             {
               const auto &child = cell->child(i);
+
+              child->set_coarsen_flag();
+
               if (child->is_locally_owned())
-                {
-                  if (i == 0)
-                    child->set_future_fe_index(1);
-                  child->set_coarsen_flag();
-                }
+                if (i == 0)
+                  child->set_future_fe_index(1);
             }
         }
     }

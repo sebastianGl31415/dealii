@@ -26,7 +26,9 @@
 
 #include <deal.II/hp/dof_handler.h>
 
+DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
 #include <boost/container/small_vector.hpp>
+DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
 
 #include <vector>
 
@@ -1862,10 +1864,6 @@ public:
    * <code>fe.n_dofs_per_cell()</code>) but instead that the returned values are
    * the <i>global</i> indices of those degrees of freedom that are located
    * locally on the current cell.
-   *
-   * @deprecated Currently, this function can also be called for non-active
-   * cells, if all degrees of freedom of the FiniteElement are located in
-   * vertices. This functionality will vanish in a future release.
    */
   void
   get_dof_indices(std::vector<types::global_dof_index> &dof_indices) const;
@@ -2062,48 +2060,6 @@ public:
    */
   void
   clear_future_fe_index() const;
-
-  /**
-   * Return the index of the finite element from the entire hp::FECollection
-   * that is dominated by those assigned as future finite elements to the
-   * children of this cell.
-   *
-   * We find the corresponding finite element among the future finite elements
-   * on the children of this cell. If none of them qualify, we extend our search
-   * on the whole hp::FECollection, which is the element that describes the
-   * smallest finite element space that includes all future finite elements
-   * assigned to the children. If the function is not able to find a finite
-   * element at all, an assertion will be triggered.
-   *
-   * In this way, we determine the finite element of the parent cell in case of
-   * h-coarsening in the hp-context.
-   *
-   * @note This function can only be called on direct parent cells, i.e.,
-   * non-active cells whose children are all active.
-   */
-  unsigned int
-  dominated_future_fe_on_children() const;
-  /**
-   * @}
-   */
-
-  /**
-   * @name Exceptions
-   */
-  /**
-   * @{
-   */
-
-  /**
-   * Exception
-   *
-   * @ingroup Exceptions
-   */
-  DeclExceptionMsg(
-    ExcNoDominatedFiniteElementOnChildren,
-    "No FiniteElement has been found in your FECollection that is "
-    "dominated by all children of a cell you are trying to coarsen!");
-
   /**
    * @}
    */

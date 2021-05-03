@@ -44,7 +44,9 @@
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/vector_element_access.h>
 
+DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
 #include <boost/container/small_vector.hpp>
+DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
 
 #include <iomanip>
 #include <memory>
@@ -523,17 +525,18 @@ namespace FEValuesViews
       const ArrayView<Number> &                    dof_values,
       const Table<2, dealii::Tensor<2, spacedim>> &shape_hessians,
       const std::vector<typename Scalar<dim, spacedim>::ShapeFunctionData>
-        &                         shape_function_data,
-      std::vector<typename Scalar<dim, spacedim>::template OutputType<
-        Number>::laplacian_type> &laplacians)
+        &shape_function_data,
+      std::vector<typename Scalar<dim, spacedim>::
+                    template solution_laplacian_type<Number>> &laplacians)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
       const unsigned int n_quadrature_points = laplacians.size();
 
-      std::fill(laplacians.begin(),
-                laplacians.end(),
-                typename Scalar<dim, spacedim>::template OutputType<
-                  Number>::laplacian_type());
+      std::fill(
+        laplacians.begin(),
+        laplacians.end(),
+        typename Scalar<dim,
+                        spacedim>::template solution_laplacian_type<Number>());
 
       for (unsigned int shape_function = 0; shape_function < dofs_per_cell;
            ++shape_function)
@@ -761,17 +764,18 @@ namespace FEValuesViews
       const ArrayView<Number> &                    dof_values,
       const Table<2, dealii::Tensor<1, spacedim>> &shape_gradients,
       const std::vector<typename Vector<dim, spacedim>::ShapeFunctionData>
-        &                          shape_function_data,
-      std::vector<typename Vector<dim, spacedim>::template OutputType<
-        Number>::divergence_type> &divergences)
+        &shape_function_data,
+      std::vector<typename Vector<dim, spacedim>::
+                    template solution_divergence_type<Number>> &divergences)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
       const unsigned int n_quadrature_points = divergences.size();
 
-      std::fill(divergences.begin(),
-                divergences.end(),
-                typename Vector<dim, spacedim>::template OutputType<
-                  Number>::divergence_type());
+      std::fill(
+        divergences.begin(),
+        divergences.end(),
+        typename Vector<dim,
+                        spacedim>::template solution_divergence_type<Number>());
 
       for (unsigned int shape_function = 0; shape_function < dofs_per_cell;
            ++shape_function)
@@ -1085,17 +1089,18 @@ namespace FEValuesViews
       const ArrayView<Number> &                    dof_values,
       const Table<2, dealii::Tensor<2, spacedim>> &shape_hessians,
       const std::vector<typename Vector<dim, spacedim>::ShapeFunctionData>
-        &                         shape_function_data,
-      std::vector<typename Vector<dim, spacedim>::template OutputType<
-        Number>::laplacian_type> &laplacians)
+        &shape_function_data,
+      std::vector<typename Vector<dim, spacedim>::
+                    template solution_laplacian_type<Number>> &laplacians)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
       const unsigned int n_quadrature_points = laplacians.size();
 
-      std::fill(laplacians.begin(),
-                laplacians.end(),
-                typename Vector<dim, spacedim>::template OutputType<
-                  Number>::laplacian_type());
+      std::fill(
+        laplacians.begin(),
+        laplacians.end(),
+        typename Vector<dim,
+                        spacedim>::template solution_laplacian_type<Number>());
 
       for (unsigned int shape_function = 0; shape_function < dofs_per_cell;
            ++shape_function)
@@ -1226,15 +1231,15 @@ namespace FEValuesViews
         typename SymmetricTensor<2, dim, spacedim>::ShapeFunctionData>
         &shape_function_data,
       std::vector<typename SymmetricTensor<2, dim, spacedim>::
-                    template OutputType<Number>::divergence_type> &divergences)
+                    template solution_divergence_type<Number>> &divergences)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
       const unsigned int n_quadrature_points = divergences.size();
 
       std::fill(divergences.begin(),
                 divergences.end(),
-                typename SymmetricTensor<2, dim, spacedim>::template OutputType<
-                  Number>::divergence_type());
+                typename SymmetricTensor<2, dim, spacedim>::
+                  template solution_divergence_type<Number>());
 
       for (unsigned int shape_function = 0; shape_function < dofs_per_cell;
            ++shape_function)
@@ -1400,17 +1405,18 @@ namespace FEValuesViews
       const ArrayView<Number> &                    dof_values,
       const Table<2, dealii::Tensor<1, spacedim>> &shape_gradients,
       const std::vector<typename Tensor<2, dim, spacedim>::ShapeFunctionData>
-        &                          shape_function_data,
-      std::vector<typename Tensor<2, dim, spacedim>::template OutputType<
-        Number>::divergence_type> &divergences)
+        &shape_function_data,
+      std::vector<typename Tensor<2, dim, spacedim>::
+                    template solution_divergence_type<Number>> &divergences)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
       const unsigned int n_quadrature_points = divergences.size();
 
-      std::fill(divergences.begin(),
-                divergences.end(),
-                typename Tensor<2, dim, spacedim>::template OutputType<
-                  Number>::divergence_type());
+      std::fill(
+        divergences.begin(),
+        divergences.end(),
+        typename Tensor<2, dim, spacedim>::template solution_divergence_type<
+          Number>());
 
       for (unsigned int shape_function = 0; shape_function < dofs_per_cell;
            ++shape_function)
@@ -1469,17 +1475,18 @@ namespace FEValuesViews
       const ArrayView<Number> &                    dof_values,
       const Table<2, dealii::Tensor<1, spacedim>> &shape_gradients,
       const std::vector<typename Tensor<2, dim, spacedim>::ShapeFunctionData>
-        &                        shape_function_data,
-      std::vector<typename Tensor<2, dim, spacedim>::template OutputType<
-        Number>::gradient_type> &gradients)
+        &shape_function_data,
+      std::vector<typename Tensor<2, dim, spacedim>::
+                    template solution_gradient_type<Number>> &gradients)
     {
       const unsigned int dofs_per_cell       = dof_values.size();
       const unsigned int n_quadrature_points = gradients.size();
 
-      std::fill(gradients.begin(),
-                gradients.end(),
-                typename Tensor<2, dim, spacedim>::template OutputType<
-                  Number>::gradient_type());
+      std::fill(
+        gradients.begin(),
+        gradients.end(),
+        typename Tensor<2, dim, spacedim>::template solution_gradient_type<
+          Number>());
 
       for (unsigned int shape_function = 0; shape_function < dofs_per_cell;
            ++shape_function)
@@ -1539,9 +1546,8 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_values(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<value_type, typename InputVector::value_type>::type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -1571,9 +1577,8 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_values_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::value_type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -1596,8 +1601,7 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_gradients(
     const InputVector &fe_function,
-    std::vector<typename ProductType<gradient_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_gradient_type<typename InputVector::value_type>>
       &gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -1627,8 +1631,7 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_gradients_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::gradient_type>
+    std::vector<solution_gradient_type<typename InputVector::value_type>>
       &gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -1652,8 +1655,7 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_hessians(
     const InputVector &fe_function,
-    std::vector<typename ProductType<hessian_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_hessian_type<typename InputVector::value_type>>
       &hessians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -1683,8 +1685,7 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_hessians_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::hessian_type>
+    std::vector<solution_hessian_type<typename InputVector::value_type>>
       &hessians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -1708,8 +1709,7 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_laplacians(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<value_type, typename InputVector::value_type>::type>
+    std::vector<solution_laplacian_type<typename InputVector::value_type>>
       &laplacians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -1739,8 +1739,7 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_laplacians_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::laplacian_type>
+    std::vector<solution_laplacian_type<typename InputVector::value_type>>
       &laplacians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -1764,8 +1763,8 @@ namespace FEValuesViews
   void
   Scalar<dim, spacedim>::get_function_third_derivatives(
     const InputVector &fe_function,
-    std::vector<typename ProductType<third_derivative_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<
+      solution_third_derivative_type<typename InputVector::value_type>>
       &third_derivatives) const
   {
     Assert(fe_values->update_flags & update_3rd_derivatives,
@@ -1794,9 +1793,10 @@ namespace FEValuesViews
   template <class InputVector>
   void
   Scalar<dim, spacedim>::get_function_third_derivatives_from_local_dof_values(
-    const InputVector &                   dof_values,
-    std::vector<typename OutputType<typename InputVector::value_type>::
-                  third_derivative_type> &third_derivatives) const
+    const InputVector &dof_values,
+    std::vector<
+      solution_third_derivative_type<typename InputVector::value_type>>
+      &third_derivatives) const
   {
     Assert(fe_values->update_flags & update_3rd_derivatives,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -1819,9 +1819,8 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_values(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<value_type, typename InputVector::value_type>::type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -1850,9 +1849,8 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_values_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::value_type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -1875,8 +1873,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_gradients(
     const InputVector &fe_function,
-    std::vector<typename ProductType<gradient_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_gradient_type<typename InputVector::value_type>>
       &gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -1906,8 +1903,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_gradients_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::gradient_type>
+    std::vector<solution_gradient_type<typename InputVector::value_type>>
       &gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -1931,8 +1927,8 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_symmetric_gradients(
     const InputVector &fe_function,
-    std::vector<typename ProductType<symmetric_gradient_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<
+      solution_symmetric_gradient_type<typename InputVector::value_type>>
       &symmetric_gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -1961,9 +1957,10 @@ namespace FEValuesViews
   template <class InputVector>
   void
   Vector<dim, spacedim>::get_function_symmetric_gradients_from_local_dof_values(
-    const InputVector &                     dof_values,
-    std::vector<typename OutputType<typename InputVector::value_type>::
-                  symmetric_gradient_type> &symmetric_gradients) const
+    const InputVector &dof_values,
+    std::vector<
+      solution_symmetric_gradient_type<typename InputVector::value_type>>
+      &symmetric_gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -1986,8 +1983,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_divergences(
     const InputVector &fe_function,
-    std::vector<typename ProductType<divergence_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_divergence_type<typename InputVector::value_type>>
       &divergences) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2018,8 +2014,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_divergences_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::divergence_type>
+    std::vector<solution_divergence_type<typename InputVector::value_type>>
       &divergences) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2043,9 +2038,8 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_curls(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<curl_type, typename InputVector::value_type>::type>
-      &curls) const
+    std::vector<solution_curl_type<typename InputVector::value_type>> &curls)
+    const
   {
     Assert(fe_values->update_flags & update_gradients,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -2074,8 +2068,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_curls_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::curl_type> &curls)
+    std::vector<solution_curl_type<typename InputVector::value_type>> &curls)
     const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2099,8 +2092,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_hessians(
     const InputVector &fe_function,
-    std::vector<typename ProductType<hessian_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_hessian_type<typename InputVector::value_type>>
       &hessians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -2130,8 +2122,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_hessians_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::hessian_type>
+    std::vector<solution_hessian_type<typename InputVector::value_type>>
       &hessians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -2155,8 +2146,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_laplacians(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<value_type, typename InputVector::value_type>::type>
+    std::vector<solution_value_type<typename InputVector::value_type>>
       &laplacians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -2191,8 +2181,7 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_laplacians_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::laplacian_type>
+    std::vector<solution_laplacian_type<typename InputVector::value_type>>
       &laplacians) const
   {
     Assert(fe_values->update_flags & update_hessians,
@@ -2219,8 +2208,8 @@ namespace FEValuesViews
   void
   Vector<dim, spacedim>::get_function_third_derivatives(
     const InputVector &fe_function,
-    std::vector<typename ProductType<third_derivative_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<
+      solution_third_derivative_type<typename InputVector::value_type>>
       &third_derivatives) const
   {
     Assert(fe_values->update_flags & update_3rd_derivatives,
@@ -2249,9 +2238,10 @@ namespace FEValuesViews
   template <class InputVector>
   void
   Vector<dim, spacedim>::get_function_third_derivatives_from_local_dof_values(
-    const InputVector &                   dof_values,
-    std::vector<typename OutputType<typename InputVector::value_type>::
-                  third_derivative_type> &third_derivatives) const
+    const InputVector &dof_values,
+    std::vector<
+      solution_third_derivative_type<typename InputVector::value_type>>
+      &third_derivatives) const
   {
     Assert(fe_values->update_flags & update_3rd_derivatives,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -2274,9 +2264,8 @@ namespace FEValuesViews
   void
   SymmetricTensor<2, dim, spacedim>::get_function_values(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<value_type, typename InputVector::value_type>::type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -2305,9 +2294,8 @@ namespace FEValuesViews
   void
   SymmetricTensor<2, dim, spacedim>::get_function_values_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::value_type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -2330,8 +2318,7 @@ namespace FEValuesViews
   void
   SymmetricTensor<2, dim, spacedim>::get_function_divergences(
     const InputVector &fe_function,
-    std::vector<typename ProductType<divergence_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_divergence_type<typename InputVector::value_type>>
       &divergences) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2363,8 +2350,7 @@ namespace FEValuesViews
   SymmetricTensor<2, dim, spacedim>::
     get_function_divergences_from_local_dof_values(
       const InputVector &dof_values,
-      std::vector<
-        typename OutputType<typename InputVector::value_type>::divergence_type>
+      std::vector<solution_divergence_type<typename InputVector::value_type>>
         &divergences) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2388,9 +2374,8 @@ namespace FEValuesViews
   void
   Tensor<2, dim, spacedim>::get_function_values(
     const InputVector &fe_function,
-    std::vector<
-      typename ProductType<value_type, typename InputVector::value_type>::type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -2419,9 +2404,8 @@ namespace FEValuesViews
   void
   Tensor<2, dim, spacedim>::get_function_values_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::value_type>
-      &values) const
+    std::vector<solution_value_type<typename InputVector::value_type>> &values)
+    const
   {
     Assert(fe_values->update_flags & update_values,
            (typename FEValuesBase<dim, spacedim>::ExcAccessToUninitializedField(
@@ -2444,8 +2428,7 @@ namespace FEValuesViews
   void
   Tensor<2, dim, spacedim>::get_function_divergences(
     const InputVector &fe_function,
-    std::vector<typename ProductType<divergence_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_divergence_type<typename InputVector::value_type>>
       &divergences) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2476,8 +2459,7 @@ namespace FEValuesViews
   void
   Tensor<2, dim, spacedim>::get_function_divergences_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::divergence_type>
+    std::vector<solution_divergence_type<typename InputVector::value_type>>
       &divergences) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2501,8 +2483,7 @@ namespace FEValuesViews
   void
   Tensor<2, dim, spacedim>::get_function_gradients(
     const InputVector &fe_function,
-    std::vector<typename ProductType<gradient_type,
-                                     typename InputVector::value_type>::type>
+    std::vector<solution_gradient_type<typename InputVector::value_type>>
       &gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2533,8 +2514,7 @@ namespace FEValuesViews
   void
   Tensor<2, dim, spacedim>::get_function_gradients_from_local_dof_values(
     const InputVector &dof_values,
-    std::vector<
-      typename OutputType<typename InputVector::value_type>::gradient_type>
+    std::vector<solution_gradient_type<typename InputVector::value_type>>
       &gradients) const
   {
     Assert(fe_values->update_flags & update_gradients,
@@ -2572,15 +2552,20 @@ namespace internal
       // note that this is based on the dimensionality 'dim' of the manifold,
       // not 'spacedim' of the output vector
       const unsigned int n_vectors =
-        (fe.n_components() >= spacedim ? fe.n_components() - spacedim + 1 : 0);
+        (fe.n_components() >= Tensor<1, spacedim>::n_independent_components ?
+           fe.n_components() - Tensor<1, spacedim>::n_independent_components +
+             1 :
+           0);
       vectors.reserve(n_vectors);
       for (unsigned int component = 0; component < n_vectors; ++component)
         vectors.emplace_back(fe_values, component);
 
       // compute number of symmetric tensors in the same way as above
       const unsigned int n_symmetric_second_order_tensors =
-        (fe.n_components() >= (dim * dim + dim) / 2 ?
-           fe.n_components() - (dim * dim + dim) / 2 + 1 :
+        (fe.n_components() >=
+             SymmetricTensor<2, spacedim>::n_independent_components ?
+           fe.n_components() -
+             SymmetricTensor<2, spacedim>::n_independent_components + 1 :
            0);
       symmetric_second_order_tensors.reserve(n_symmetric_second_order_tensors);
       for (unsigned int component = 0;
@@ -2591,8 +2576,10 @@ namespace internal
 
       // compute number of symmetric tensors in the same way as above
       const unsigned int n_second_order_tensors =
-        (fe.n_components() >= dim * dim ? fe.n_components() - dim * dim + 1 :
-                                          0);
+        (fe.n_components() >= Tensor<2, spacedim>::n_independent_components ?
+           fe.n_components() - Tensor<2, spacedim>::n_independent_components +
+             1 :
+           0);
       second_order_tensors.reserve(n_second_order_tensors);
       for (unsigned int component = 0; component < n_second_order_tensors;
            ++component)
@@ -4384,11 +4371,12 @@ template <int dim, int spacedim>
 FEValues<dim, spacedim>::FEValues(const FiniteElement<dim, spacedim> &fe,
                                   const Quadrature<dim> &             q,
                                   const UpdateFlags update_flags)
-  : FEValuesBase<dim, spacedim>(q.size(),
-                                fe.n_dofs_per_cell(),
-                                update_default,
-                                StaticMappingQ1<dim, spacedim>::mapping,
-                                fe)
+  : FEValuesBase<dim, spacedim>(
+      q.size(),
+      fe.n_dofs_per_cell(),
+      update_default,
+      fe.reference_cell().template get_default_linear_mapping<dim, spacedim>(),
+      fe)
   , quadrature(q)
 {
   initialize(update_flags);
@@ -4497,6 +4485,13 @@ void
 FEValues<dim, spacedim>::reinit(
   const typename Triangulation<dim, spacedim>::cell_iterator &cell)
 {
+  // Check that mapping and reference cell type are compatible:
+  Assert(this->get_mapping().is_compatible_with(cell->reference_cell()),
+         ExcMessage(
+           "You are trying to call FEValues::reinit() with a cell of type " +
+           cell->reference_cell().to_string() +
+           " with a Mapping that is not compatible with it."));
+
   // no FE in this cell, so no assertion
   // necessary here
   this->maybe_invalidate_previous_present_cell(cell);
@@ -4525,6 +4520,13 @@ FEValues<dim, spacedim>::reinit(
   Assert(static_cast<const FiniteElementData<dim> &>(*this->fe) ==
            static_cast<const FiniteElementData<dim> &>(cell->get_fe()),
          (typename FEValuesBase<dim, spacedim>::ExcFEDontMatch()));
+
+  // Check that mapping and reference cell type are compatible:
+  Assert(this->get_mapping().is_compatible_with(cell->reference_cell()),
+         ExcMessage(
+           "You are trying to call FEValues::reinit() with a cell of type " +
+           cell->reference_cell().to_string() +
+           " with a Mapping that is not compatible with it."));
 
   this->maybe_invalidate_previous_present_cell(cell);
   this->check_cell_similarity(cell);
@@ -4620,9 +4622,7 @@ FEFaceValuesBase<dim, spacedim>::FEFaceValuesBase(
   , quadrature(quadrature)
 {
   Assert(quadrature.size() == 1 ||
-           quadrature.size() ==
-             ReferenceCell::internal::Info::get_cell(fe.reference_cell_type())
-               .n_faces(),
+           quadrature.size() == fe.reference_cell().n_faces(),
          ExcInternalError());
 }
 
@@ -4709,11 +4709,12 @@ FEFaceValues<dim, spacedim>::FEFaceValues(
   const FiniteElement<dim, spacedim> &fe,
   const hp::QCollection<dim - 1> &    quadrature,
   const UpdateFlags                   update_flags)
-  : FEFaceValuesBase<dim, spacedim>(fe.n_dofs_per_cell(),
-                                    update_flags,
-                                    StaticMappingQ1<dim, spacedim>::mapping,
-                                    fe,
-                                    quadrature)
+  : FEFaceValuesBase<dim, spacedim>(
+      fe.n_dofs_per_cell(),
+      update_flags,
+      fe.reference_cell().template get_default_linear_mapping<dim, spacedim>(),
+      fe,
+      quadrature)
 {
   initialize(update_flags);
 }
@@ -4939,11 +4940,12 @@ FESubfaceValues<dim, spacedim>::FESubfaceValues(
   const FiniteElement<dim, spacedim> &fe,
   const Quadrature<dim - 1> &         quadrature,
   const UpdateFlags                   update_flags)
-  : FEFaceValuesBase<dim, spacedim>(fe.n_dofs_per_cell(),
-                                    update_flags,
-                                    StaticMappingQ1<dim, spacedim>::mapping,
-                                    fe,
-                                    quadrature)
+  : FEFaceValuesBase<dim, spacedim>(
+      fe.n_dofs_per_cell(),
+      update_flags,
+      fe.reference_cell().template get_default_linear_mapping<dim, spacedim>(),
+      fe,
+      quadrature)
 {
   initialize(update_flags);
 }
@@ -5035,10 +5037,10 @@ FESubfaceValues<dim, spacedim>::reinit(
                        0,
                        GeometryInfo<dim>::max_children_per_face));
   Assert(!cell->face(face_no)->has_children() ||
-           subface_no < cell->face(face_no)->number_of_children(),
+           subface_no < cell->face(face_no)->n_active_descendants(),
          ExcIndexRange(subface_no,
                        0,
-                       cell->face(face_no)->number_of_children()));
+                       cell->face(face_no)->n_active_descendants()));
   Assert(cell->has_children() == false,
          ExcMessage("You can't use subface data for cells that are "
                     "already refined. Iterate over their children "

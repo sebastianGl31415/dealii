@@ -97,8 +97,8 @@ DataOut<dim, DoFHandlerType>::build_one_patch(
   ::dealii::DataOutBase::Patch<DoFHandlerType::dimension,
                                DoFHandlerType::space_dimension>
     patch;
-  patch.n_subdivisions      = n_subdivisions;
-  patch.reference_cell_type = cell_and_index->first->reference_cell_type();
+  patch.n_subdivisions = n_subdivisions;
+  patch.reference_cell = cell_and_index->first->reference_cell();
 
   // initialize FEValues
   scratch_data.reinit_all_fe_values(this->dof_data, cell_and_index->first);
@@ -147,8 +147,8 @@ DataOut<dim, DoFHandlerType>::build_one_patch(
       (curved_cell_region == curved_boundary &&
        (cell_and_index->first->at_boundary() ||
         (DoFHandlerType::dimension != DoFHandlerType::space_dimension))) ||
-      (cell_and_index->first->reference_cell_type() !=
-       ReferenceCell::get_hypercube(dim)))
+      (cell_and_index->first->reference_cell() !=
+       ReferenceCells::get_hypercube<dim>()))
     {
       Assert(patch.space_dim == DoFHandlerType::space_dimension,
              ExcInternalError());
@@ -1084,10 +1084,14 @@ template <int dim, typename DoFHandlerType>
 void
 DataOut<dim, DoFHandlerType>::build_patches(const unsigned int n_subdivisions)
 {
-  build_patches(StaticMappingQ1<DoFHandlerType::dimension,
-                                DoFHandlerType::space_dimension>::mapping,
-                n_subdivisions,
-                no_curved_cells);
+  AssertDimension(this->triangulation->get_reference_cells().size(), 1);
+
+  build_patches(
+    this->triangulation->get_reference_cells()[0]
+      .template get_default_linear_mapping<DoFHandlerType::dimension,
+                                           DoFHandlerType::space_dimension>(),
+    n_subdivisions,
+    no_curved_cells);
 }
 
 

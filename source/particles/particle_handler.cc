@@ -42,11 +42,13 @@ namespace Particles
 
       for (const auto &particle : particles)
         {
-          particle.write_data(current_data);
+          current_data = particle.write_particle_data_to_memory(current_data);
         }
 
       return buffer;
     }
+
+
 
     template <int dim, int spacedim>
     std::vector<Particle<dim, spacedim>>
@@ -489,11 +491,7 @@ namespace Particles
     if (!ids.empty())
       AssertDimension(ids.size(), positions.size());
 
-    const auto tria =
-      dynamic_cast<const parallel::distributed::Triangulation<dim, spacedim> *>(
-        &(*triangulation));
-    const auto comm =
-      (tria != nullptr ? tria->get_communicator() : MPI_COMM_WORLD);
+    const auto comm = triangulation->get_communicator();
 
     const auto n_mpi_processes = Utilities::MPI::n_mpi_processes(comm);
 
@@ -1033,7 +1031,7 @@ namespace Particles
 
           const unsigned int closest_vertex =
             GridTools::find_closest_vertex_of_cell<dim, spacedim>(
-              current_cell, out_particle->get_location());
+              current_cell, out_particle->get_location(), *mapping);
           Tensor<1, spacedim> vertex_to_particle =
             out_particle->get_location() - current_cell->vertex(closest_vertex);
           vertex_to_particle /= vertex_to_particle.norm();
@@ -1208,7 +1206,7 @@ namespace Particles
         if (cell->is_locally_owned())
           {
             std::set<unsigned int> cell_to_neighbor_subdomain;
-            for (const unsigned int v : GeometryInfo<dim>::vertex_indices())
+            for (const unsigned int v : cell->vertex_indices())
               {
                 cell_to_neighbor_subdomain.insert(
                   vertex_to_neighbor_subdomain[cell->vertex_index(v)].begin(),
@@ -1392,7 +1390,8 @@ namespace Particles
                 memcpy(data, &cellid, cellid_size);
                 data = static_cast<char *>(data) + cellid_size;
 
-                particles_to_send.at(neighbors[i])[j]->write_data(data);
+                data = particles_to_send.at(neighbors[i])[j]
+                         ->write_particle_data_to_memory(data);
                 if (store_callback)
                   data =
                     store_callback(particles_to_send.at(neighbors[i])[j], data);
@@ -1521,6 +1520,11 @@ namespace Particles
             n_recv_data[i] * individual_particle_data_size;
 
         ghost_particles_cache.neighbors = neighbors;
+
+        ghost_particles_cache.send_data.resize(
+          ghost_particles_cache.send_pointers.back());
+        ghost_particles_cache.recv_data.resize(
+          ghost_particles_cache.recv_pointers.back());
       }
 
     while (reinterpret_cast<std::size_t>(recv_data_it) -
@@ -1533,7 +1537,7 @@ namespace Particles
         recv_data_it = static_cast<const char *>(recv_data_it) + cellid_size;
 
         const typename Triangulation<dim, spacedim>::active_cell_iterator cell =
-          id.to_cell(*triangulation);
+          triangulation->create_cell_iterator(id);
 
         typename std::multimap<internal::LevelInd,
                                Particle<dim, spacedim>>::iterator
@@ -1580,27 +1584,24 @@ namespace Particles
       ExcMessage(
         "This function is only implemented for parallel::TriangulationBase objects."));
 
-    std::vector<char> send_data;
+    std::vector<char> &send_data = ghost_particles_cache.send_data;
 
     // Fill data to send
     if (send_pointers.back() > 0)
       {
-        // Allocate space for sending particle data
-        send_data.resize(send_pointers.back());
         void *data = static_cast<void *>(&send_data.front());
 
         // Serialize the data sorted by receiving process
         for (const auto i : neighbors)
           for (const auto &p : particles_to_send.at(i))
             {
-              p->write_data(data);
+              data = p->write_particle_data_to_memory(data);
               if (store_callback)
                 data = store_callback(p, data);
             }
       }
 
-    // Set up the space for the received particle data
-    std::vector<char> recv_data(recv_pointers.back());
+    std::vector<char> &recv_data = ghost_particles_cache.recv_data;
 
     // Exchange the particle data between domains
     {
@@ -1657,7 +1658,8 @@ namespace Particles
       {
         // Update particle data using previously allocated memory space
         // for efficiency reasons
-        recv_particle->second.update_particle_data(recv_data_it);
+        recv_data_it =
+          recv_particle->second.read_particle_data_from_memory(recv_data_it);
 
         if (load_callback)
           recv_data_it =
@@ -1799,8 +1801,8 @@ namespace Particles
 
     switch (status)
       {
-        case parallel::distributed::Triangulation<dim, spacedim>::CELL_PERSIST:
-        case parallel::distributed::Triangulation<dim, spacedim>::CELL_REFINE:
+        case parallel::TriangulationBase<dim, spacedim>::CELL_PERSIST:
+        case parallel::TriangulationBase<dim, spacedim>::CELL_REFINE:
           // If the cell persist or is refined store all particles of the
           // current cell.
           {
@@ -1828,7 +1830,7 @@ namespace Particles
           }
           break;
 
-        case parallel::distributed::Triangulation<dim, spacedim>::CELL_COARSEN:
+        case parallel::TriangulationBase<dim, spacedim>::CELL_COARSEN:
           // If this cell is the parent of children that will be coarsened,
           // collect the particles of all children.
           {
@@ -1872,6 +1874,8 @@ namespace Particles
     return pack_particles(stored_particles_on_cell);
   }
 
+
+
   template <int dim, int spacedim>
   void
   ParticleHandler<dim, spacedim>::load_particles(
@@ -1892,7 +1896,7 @@ namespace Particles
 
     switch (status)
       {
-        case parallel::distributed::Triangulation<dim, spacedim>::CELL_PERSIST:
+        case parallel::TriangulationBase<dim, spacedim>::CELL_PERSIST:
           {
             auto position_hint = particles.end();
             for (const auto &particle : loaded_particles_on_cell)
@@ -1912,7 +1916,7 @@ namespace Particles
           }
           break;
 
-        case parallel::distributed::Triangulation<dim, spacedim>::CELL_COARSEN:
+        case parallel::TriangulationBase<dim, spacedim>::CELL_COARSEN:
           {
             typename std::multimap<internal::LevelInd,
                                    Particle<dim, spacedim>>::iterator
@@ -1938,7 +1942,7 @@ namespace Particles
           }
           break;
 
-        case parallel::distributed::Triangulation<dim, spacedim>::CELL_REFINE:
+        case parallel::TriangulationBase<dim, spacedim>::CELL_REFINE:
           {
             std::vector<
               typename std::multimap<internal::LevelInd,

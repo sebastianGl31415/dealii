@@ -38,7 +38,7 @@ MACRO(FEATURE_TRILINOS_FIND_EXTERNAL var)
     # Check whether all required modules of trilinos are installed:
     #
     MESSAGE(STATUS
-      "Check whether the found trilinos package contains all required modules:"
+      "Checking whether the found trilinos package contains all required modules:"
       )
 
     FOREACH(_module
@@ -46,9 +46,9 @@ MACRO(FEATURE_TRILINOS_FIND_EXTERNAL var)
       )
       ITEM_MATCHES(_module_found ${_module} ${Trilinos_PACKAGE_LIST})
       IF(_module_found)
-        MESSAGE(STATUS "Found ${_module}")
+        MESSAGE(STATUS "  Found ${_module}")
       ELSE()
-        MESSAGE(STATUS "Module ${_module} not found!")
+        MESSAGE(STATUS "  Module ${_module} not found!")
         SET(_modules_missing "${_modules_missing} ${_module}")
         SET(${var} FALSE)
       ENDIF()
@@ -171,14 +171,14 @@ MACRO(FEATURE_TRILINOS_FIND_EXTERNAL var)
       #
       # Check for modules.
       #
-      FOREACH(_optional_module EpetraExt MueLu ROL Sacado SEACAS Tpetra Zoltan)
+      FOREACH(_optional_module EpetraExt Kokkos MueLu ROL Sacado SEACAS Tpetra Zoltan)
         ITEM_MATCHES(_module_found ${_optional_module} ${Trilinos_PACKAGE_LIST})
         IF(_module_found)
-          MESSAGE(STATUS "Found ${_optional_module}")
+          MESSAGE(STATUS "  Found ${_optional_module}")
           STRING(TOUPPER "${_optional_module}" _optional_module_upper)
           SET(DEAL_II_TRILINOS_WITH_${_optional_module_upper} ON)
         ELSE()
-          MESSAGE(STATUS "Module ${_optional_module} not found!")
+          MESSAGE(STATUS "  Module ${_optional_module} not found!")
         ENDIF()
       ENDFOREACH()
 
@@ -188,13 +188,36 @@ MACRO(FEATURE_TRILINOS_FIND_EXTERNAL var)
       FOREACH(_optional_tpl MUMPS)
         ITEM_MATCHES(_tpl_found ${_optional_tpl} ${Trilinos_TPL_LIST})
         IF(_tpl_found)
-          MESSAGE(STATUS "Found ${_optional_tpl}")
+          MESSAGE(STATUS "  Found ${_optional_tpl}")
           STRING(TOUPPER "${_optional_tpl}" _optional_tpl_upper)
           SET(DEAL_II_TRILINOS_WITH_${_optional_tpl_upper} ON)
         ELSE()
-          MESSAGE(STATUS "Module ${_optional_tpl} not found!")
+          MESSAGE(STATUS "  Module ${_optional_tpl} not found!")
         ENDIF()
       ENDFOREACH()
+    ENDIF()
+
+    IF(DEAL_II_TRILINOS_WITH_KOKKOS)
+      CHECK_SYMBOL_EXISTS(
+        "KOKKOS_ENABLE_CUDA_LAMBDA"
+        "Kokkos_Macros.hpp"
+        DEAL_II_KOKKOS_LAMBDA_EXISTS
+        )
+      IF(DEAL_II_KOKKOS_LAMBDA_EXISTS)
+        ADD_FLAGS(CMAKE_REQUIRED_FLAGS "--expt-extended-lambda")
+      ENDIF()
+
+      # We need a recent version of Trilinos to use kokkos_check. We want to use
+      # VERSION_GREATER_EQUAL 13.0 but this requires CMake 3.7
+      IF(TRILINOS_VERSION VERSION_GREATER 12.99)
+        SET(KOKKOS_WITH_OPENMP "")
+        kokkos_check(DEVICES OpenMP RETURN_VALUE KOKKOS_WITH_OPENMP)
+        IF(KOKKOS_WITH_OPENMP)
+          FIND_PACKAGE(OpenMP REQUIRED)
+          ADD_FLAGS(DEAL_II_CXX_FLAGS "${OpenMP_CXX_FLAGS}")
+          ADD_FLAGS(DEAL_II_LINKER_FLAGS "${OpenMP_CXX_FLAGS}")
+        ENDIF()
+      ENDIF()
     ENDIF()
 
     IF(DEAL_II_TRILINOS_WITH_TPETRA)
@@ -204,14 +227,6 @@ MACRO(FEATURE_TRILINOS_FIND_EXTERNAL var)
       LIST(APPEND CMAKE_REQUIRED_INCLUDES ${Trilinos_INCLUDE_DIRS})
       LIST(APPEND CMAKE_REQUIRED_INCLUDES ${MPI_CXX_INCLUDE_PATH})
 
-      CHECK_SYMBOL_EXISTS(
-        "KOKKOS_ENABLE_CUDA_LAMBDA"
-        "Kokkos_Macros.hpp"
-        DEAL_II_KOKKOS_LAMBDA_EXISTS
-        )
-      IF(DEAL_II_KOKKOS_LAMBDA_EXISTS)
-        ADD_FLAGS(CMAKE_REQUIRED_FLAGS "--expt-extended-lambda")
-      ENDIF()
 
       LIST(APPEND CMAKE_REQUIRED_LIBRARIES ${Trilinos_LIBRARIES} ${MPI_LIBRARIES})
 

@@ -108,14 +108,12 @@ namespace Utilities
         start_communication();
 
         // 2) answer requests and check if all requests of this process have
-        // been
-        //    answered
+        //    been answered
         while (!check_own_state())
           answer_requests();
 
         // 3) signal to all other processes that all requests of this process
-        // have
-        //    been answered
+        //    have been answered
         signal_finish();
 
         // 4) nevertheless, this process has to keep on answering (potential)
@@ -575,11 +573,11 @@ namespace Utilities
         std::vector<T1> send_buffer;
         std::vector<T2> recv_buffer;
         std::vector<T2> request_buffer;
-        std::vector<T1> buffer_recv;
 
         this->process.create_request(0, send_buffer);
         this->process.prepare_buffer_for_answer(0, recv_buffer);
-        this->process.answer_request(0, buffer_recv, request_buffer);
+        this->process.answer_request(0, send_buffer, request_buffer);
+        recv_buffer = request_buffer;
         this->process.read_answer(0, recv_buffer);
       }
 
@@ -593,11 +591,11 @@ namespace Utilities
         // implementations. We reduce the threshold for debug mode to be
         // able to test also the non-blocking implementation. This feature
         // is tested by:
-        // tests/multigrid/transfer_matrix_free_06.with_mpi=true.with_p4est=true.with_trilinos=true.mpirun=15.output
+        // tests/multigrid/transfer_matrix_free_06.with_mpi=true.with_p4est=true.with_trilinos=true.mpirun=10.output
 #ifdef DEAL_II_WITH_MPI
 #  if DEAL_II_MPI_VERSION_GTE(3, 0)
 #    ifdef DEBUG
-        if (this->n_procs > 14)
+        if (this->n_procs > 10)
 #    else
         if (this->n_procs > 99)
 #    endif

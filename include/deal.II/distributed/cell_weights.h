@@ -20,7 +20,7 @@
 
 #include <deal.II/distributed/tria_base.h>
 
-#include <deal.II/hp/dof_handler.h>
+#include <deal.II/dofs/dof_handler.h>
 
 
 DEAL_II_NAMESPACE_OPEN
@@ -39,6 +39,9 @@ namespace parallel
    * consulting the FiniteElement that is associated with each cell of
    * a DoFHandler. One can choose from predefined weighting algorithms provided
    * by this class or provide a custom one.
+   *
+   * If the associated DoFHandler has not been initialized yet, i.e., its
+   * hp::FECollection is empty, all cell weights will be evaluated as zero.
    *
    * This class offers two different ways of connecting the chosen weighting
    * function to the corresponding signal of the linked
@@ -282,7 +285,8 @@ namespace parallel
      * A callback function that will be connected to the cell_weight signal of
      * the @p triangulation, to which the @p dof_handler is attached. Ultimately
      * returns the weight for each cell, determined by the @p weighting_function
-     * provided as a parameter.
+     * provided as a parameter. Returns zero if @p dof_handler has not been
+     * initialized yet.
      */
     static unsigned int
     weighting_callback(

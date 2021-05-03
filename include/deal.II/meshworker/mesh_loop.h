@@ -20,6 +20,7 @@
 #include <deal.II/base/config.h>
 
 #include <deal.II/base/template_constraints.h>
+#include <deal.II/base/types.h>
 #include <deal.II/base/work_stream.h>
 
 #include <deal.II/grid/filtered_iterator.h>
@@ -144,7 +145,9 @@ namespace MeshWorker
    * and parallel computation (work on faces to ghost neighbors for example).
    * The @p mesh_loop can be used to simplify operations on cells (for example
    * assembly), on boundaries (Neumann type boundary conditions), or on
-   * interior faces (for example in discontinuous Galerkin methods).
+   * interior faces (for example in discontinuous Galerkin methods). The
+   * function is used in a number of tutorials, including step-12, step-16,
+   * and step-47, to name just a few.
    *
    * For uniformly refined meshes, it would be relatively easy to use
    * WorkStream::run() with a @p cell_worker that also loops over faces, and
@@ -344,35 +347,54 @@ namespace MeshWorker
     Assert(
       (!cell_worker) == !(flags & work_on_cells),
       ExcMessage(
-        "If you specify a cell_worker, you need to set assemble_own_cells or assemble_ghost_cells."));
+        "If you provide a cell worker function, you also need to request "
+        "that work should be done on cells by setting the 'work_on_cells' flag. "
+        "Conversely, if you don't provide a cell worker function, you "
+        "cannot set the 'work_on_cells' flag. One of these two "
+        "conditions is not satisfied."));
 
-    Assert(
-      (flags &
-       (assemble_own_interior_faces_once | assemble_own_interior_faces_both)) !=
-        (assemble_own_interior_faces_once | assemble_own_interior_faces_both),
-      ExcMessage(
-        "You can only specify assemble_own_interior_faces_once OR assemble_own_interior_faces_both."));
+    Assert((flags & (assemble_own_interior_faces_once |
+                     assemble_own_interior_faces_both)) !=
+             (assemble_own_interior_faces_once |
+              assemble_own_interior_faces_both),
+           ExcMessage(
+             "If you provide a face worker function, you also need to request "
+             "that work should be done on interior faces by setting either the "
+             "'assemble_own_interior_faces_once' flag or the "
+             "'assemble_own_interior_faces_both' flag. "
+             "Conversely, if you don't provide a face worker function, you "
+             "cannot set either of these two flags. One of these two "
+             "conditions is not satisfied."));
 
-    Assert(
-      (flags & (assemble_ghost_faces_once | assemble_ghost_faces_both)) !=
-        (assemble_ghost_faces_once | assemble_ghost_faces_both),
-      ExcMessage(
-        "You can only specify assemble_ghost_faces_once OR assemble_ghost_faces_both."));
+    Assert((flags & (assemble_ghost_faces_once | assemble_ghost_faces_both)) !=
+             (assemble_ghost_faces_once | assemble_ghost_faces_both),
+           ExcMessage(
+             "You can only 'specify assemble_ghost_faces_once' "
+             "OR 'assemble_ghost_faces_both', but not both of these flags."));
 
     Assert(
       !(flags & cells_after_faces) ||
         (flags & (assemble_own_cells | assemble_ghost_cells)),
       ExcMessage(
-        "The option cells_after_faces only makes sense if you assemble on cells."));
+        "The option 'cells_after_faces' only makes sense if you assemble on cells."));
 
-    Assert((!face_worker) == !(flags & work_on_faces),
-           ExcMessage(
-             "If you specify a face_worker, assemble_face_* needs to be set."));
+    Assert(
+      (!face_worker) == !(flags & work_on_faces),
+      ExcMessage(
+        "If you provide a face worker function, you also need to request "
+        "that work should be done on faces by setting the 'work_on_faces' flag. "
+        "Conversely, if you don't provide a face worker function, you "
+        "cannot set the 'work_on_faces' flag. One of these two "
+        "conditions is not satisfied."));
 
     Assert(
       (!boundary_worker) == !(flags & assemble_boundary_faces),
       ExcMessage(
-        "If you specify a boundary_worker, assemble_boundary_faces needs to be set."));
+        "If you provide a boundary face worker function, you also need to request "
+        "that work should be done on boundary faces by setting the 'assemble_boundary_faces' flag. "
+        "Conversely, if you don't provide a boundary face worker function, you "
+        "cannot set the 'assemble_boundary_faces' flag. One of these two "
+        "conditions is not satisfied."));
 
     auto cell_action = [&](const CellIteratorBaseType &cell,
                            ScratchData &               scratch,
@@ -746,7 +768,7 @@ namespace MeshWorker
   }
 
   /**
-   * This is a variant of the mesh_loop() function, that can be used for worker
+   * This is a variant of the mesh_loop() function that can be used for worker
    * and copier functions that are member functions of a class.
    *
    * The argument passed as @p end must be convertible to the same type as @p

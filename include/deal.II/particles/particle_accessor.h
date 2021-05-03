@@ -44,20 +44,17 @@ namespace Particles
   {
   public:
     /**
-     * Write particle data into a data array. The array is expected
-     * to be large enough to take the data, and the void pointer should
-     * point to the first element in which the data should be written. This
-     * function is meant for serializing all particle properties and
-     * afterwards de-serializing the properties by calling the appropriate
-     * constructor Particle(void *&data, PropertyPool *property_pool = nullptr);
-     *
-     * @param [in,out] data The memory location to write particle data
-     * into. This pointer points to the begin of the memory, in which the
-     * data will be written and it will be advanced by the serialized size
-     * of this particle.
+     * @copydoc Particle::write_particle_data_to_memory
      */
-    void
-    write_data(void *&data) const;
+    void *
+    write_particle_data_to_memory(void *data) const;
+
+
+    /**
+     * @copydoc Particle::read_particle_data_from_memory
+     */
+    const void *
+    read_particle_data_from_memory(const void *data);
 
     /**
      * Set the location of this particle. Note that this does not check
@@ -211,7 +208,8 @@ namespace Particles
       const Triangulation<dim, spacedim> &triangulation) const;
 
     /**
-     * Serialize the contents of this class.
+     * Serialize the contents of this class using the [BOOST serialization
+     * library](https://www.boost.org/doc/libs/1_74_0/libs/serialization/doc/index.html).
      */
     template <class Archive>
     void
@@ -315,12 +313,25 @@ namespace Particles
 
 
   template <int dim, int spacedim>
-  inline void
-  ParticleAccessor<dim, spacedim>::write_data(void *&data) const
+  inline const void *
+  ParticleAccessor<dim, spacedim>::read_particle_data_from_memory(
+    const void *data)
   {
     Assert(particle != map->end(), ExcInternalError());
 
-    particle->second.write_data(data);
+    return particle->second.read_particle_data_from_memory(data);
+  }
+
+
+
+  template <int dim, int spacedim>
+  inline void *
+  ParticleAccessor<dim, spacedim>::write_particle_data_to_memory(
+    void *data) const
+  {
+    Assert(particle != map->end(), ExcInternalError());
+
+    return particle->second.write_particle_data_to_memory(data);
   }
 
 

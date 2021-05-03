@@ -381,11 +381,29 @@ namespace Functions
 
 
   /**
-   * Harmonic singularity on the L-shaped domain in 2D.
+   * A function that solves the Laplace equation (with specific
+   * boundary values but zero right hand side) and that has a
+   * singularity at the center of the L-shaped domain in 2D (i.e.,
+   * at the location of the re-entrant corner of this non-convex
+   * domain).
    *
    * The function is given in polar coordinates by $r^{\frac{2}{3}}
-   * \sin(\frac{2}{3} \phi)$ with a singularity at the origin and should be
-   * used with GridGenerator::hyper_L().
+   * \sin(\frac{2}{3} \phi)$ with a singularity at the origin and
+   * should be used with GridGenerator::hyper_L(). Here, $\phi$ is
+   * defined as the *clockwise* angle against the positive $x$-axis.
+   *
+   * This function is often used to illustrate that the solutions of the Laplace
+   * equation
+   * @f[
+   *   -\Delta u = 0
+   * @f]
+   * can be singular even if the boundary values are smooth. (Here, if the
+   * domain is the L-shaped domain $(-1,1)^2 \backslash [0,1]^2$, the
+   * boundary values for $u$ are zero on the two line segments adjacent to the
+   * origin, and equal to $r^{\frac{2}{3}} \sin(\frac{2}{3} \phi)$ on the
+   * remaining parts of the boundary.) The function itself remains bounded on
+   * the domain, but its gradient is of the form $r^{-1/3}$ in the vicinity of
+   * the origin and consequently diverges as one approaches the origin.
    *
    * @ingroup functions
    */
@@ -1408,6 +1426,19 @@ namespace Functions
       const Table<dim, double> &                  data_values);
 
     /**
+     * Like the previous constructor, but take the arguments as rvalue
+     * references and *move*, instead of *copy* the data. This is often useful
+     * in cases where the data stored in these tables is large and the
+     * information used to initialize the current object is no longer needed
+     * separately. In other words, there is no need to keep the original object
+     * from which this object could copy its information, but it might as well
+     * take over ("move") the data.
+     */
+    InterpolatedTensorProductGridData(
+      std::array<std::vector<double>, dim> &&coordinate_values,
+      Table<dim, double> &&                  data_values);
+
+    /**
      * Compute the value of the function set by bilinear interpolation of the
      * given data set.
      *
@@ -1440,6 +1471,12 @@ namespace Functions
      */
     virtual std::size_t
     memory_consumption() const override;
+
+    /**
+     * Return a reference to the internally stored data.
+     */
+    const Table<dim, double> &
+    get_data() const;
 
   protected:
     /**
@@ -1519,6 +1556,20 @@ namespace Functions
       const Table<dim, double> &                        data_values);
 
     /**
+     * Like the previous constructor, but take the arguments as rvalue
+     * references and *move*, instead of *copy* the data. This is often useful
+     * in cases where the data stored in these tables is large and the
+     * information used to initialize the current object is no longer needed
+     * separately. In other words, there is no need to keep the original object
+     * from which this object could copy its information, but it might as well
+     * take over ("move") the data.
+     */
+    InterpolatedUniformGridData(
+      std::array<std::pair<double, double>, dim> &&interval_endpoints,
+      std::array<unsigned int, dim> &&             n_subintervals,
+      Table<dim, double> &&                        data_values);
+
+    /**
      * Compute the value of the function set by bilinear interpolation of the
      * given data set.
      *
@@ -1551,6 +1602,12 @@ namespace Functions
      */
     virtual std::size_t
     memory_consumption() const override;
+
+    /**
+     * Return a reference to the internally stored data.
+     */
+    const Table<dim, double> &
+    get_data() const;
 
   private:
     /**

@@ -48,7 +48,7 @@ namespace VectorTools
               Vector<typename VectorType::value_type> &value)
   {
     if (dof.has_hp_capabilities() == false)
-      point_value(StaticMappingQ1<dim, spacedim>::mapping,
+      point_value(get_default_linear_mapping(dof.get_triangulation()),
                   dof,
                   fe_function,
                   point,
@@ -69,7 +69,7 @@ namespace VectorTools
               const Point<spacedim> &          point)
   {
     if (dof.has_hp_capabilities() == false)
-      return point_value(StaticMappingQ1<dim, spacedim>::mapping,
+      return point_value(get_default_linear_mapping(dof.get_triangulation()),
                          dof,
                          fe_function,
                          point);
@@ -317,12 +317,14 @@ namespace VectorTools
                              Vector<double> &                 rhs_vector)
   {
     if (dof_handler.has_hp_capabilities())
-      create_point_source_vector(hp::StaticMappingQ1<dim>::mapping_collection,
-                                 dof_handler,
-                                 p,
-                                 rhs_vector);
+      create_point_source_vector(
+        hp::StaticMappingQ1<dim, spacedim>::mapping_collection,
+        dof_handler,
+        p,
+        rhs_vector);
     else
-      create_point_source_vector(StaticMappingQ1<dim, spacedim>::mapping,
+      create_point_source_vector(get_default_linear_mapping(
+                                   dof_handler.get_triangulation()),
                                  dof_handler,
                                  p,
                                  rhs_vector);
@@ -421,13 +423,15 @@ namespace VectorTools
                              Vector<double> &                 rhs_vector)
   {
     if (dof_handler.has_hp_capabilities())
-      create_point_source_vector(hp::StaticMappingQ1<dim>::mapping_collection,
-                                 dof_handler,
-                                 p,
-                                 orientation,
-                                 rhs_vector);
+      create_point_source_vector(
+        hp::StaticMappingQ1<dim, spacedim>::mapping_collection,
+        dof_handler,
+        p,
+        orientation,
+        rhs_vector);
     else
-      create_point_source_vector(StaticMappingQ1<dim, spacedim>::mapping,
+      create_point_source_vector(get_default_linear_mapping(
+                                   dof_handler.get_triangulation()),
                                  dof_handler,
                                  p,
                                  orientation,

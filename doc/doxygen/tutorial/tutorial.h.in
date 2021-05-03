@@ -326,7 +326,7 @@
  *   <tr valign="top">
  *       <td>step-27</td>
  *       <td> The hp-finite element method.
- *       <br/> Keywords: hp::DoFHandler, hp::FECollection, hp::QCollection,
+ *       <br/> Keywords: hp::FECollection, hp::QCollection, hp::Refinement,
  *       FESeries::Fourier, Triangulation::create_triangulation()
  *       </td></tr>
  *
@@ -579,6 +579,7 @@
  *       <td>step-68</td>
  *        <td> Simulation of the motion of massless tracer particles in a vortical flow.
  *             Parallel simulation of the advection of particles with load balancing.
+ *        <br/> Keywords: Particles
  *       </td></tr>
  *
  *   <tr valign="top">
@@ -593,6 +594,13 @@
  *       <td> A fluid structure interaction problem on fully distributed
  *       non-matching grids, using penalty methods, and a coupling constructed
  *       through a ParticleHandler object.
+ *       <br/> Keywords: Particles
+ *       </td></tr>
+ *
+ *   <tr valign="top">
+ *       <td>step-74</td>
+ *       <td> The Symmetric interior penalty Galerkin (SIPG) method for Poisson's equation.
+ *       <br/> Keywords: MeshWorker::mesh_loop(), FEInterfaceValues, ConvergenceTable
  *       </td></tr>
  *
  * </table>
@@ -803,7 +811,8 @@
  *       step-9,
  *       step-14,
  *       step-39,
- *       step-50
+ *       step-50,
+ *       step-74
  *     </td>
  *   </tr>
  *
@@ -835,7 +844,8 @@
  *       step-51,
  *       step-59,
  *       step-61,
- *       step-67
+ *       step-67,
+ *       step-74
  *     </td>
  *   </tr>
  *
@@ -933,7 +943,8 @@
  *     </td>
  *     <td>
  *     step-19,
- *     step-68
+ *     step-68,
+ *     step-70
  *     </td>
  *   </tr>
  *
